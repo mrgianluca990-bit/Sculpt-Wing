@@ -1,56 +1,33 @@
 name: Build Sculpt Wing
-
 on:
   push:
     branches: [main, master]
   workflow_dispatch:
-
-permissions:
-  contents: read
-
+permissions: {contents: read}
 concurrency:
   group: sculpt-wing-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
-
 jobs:
   verify:
-    name: Test e compilazione interfaccia
+    name: Test e compilazione
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - name: Scarica i sorgenti
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
-      - name: Prepara Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: |
-            native/package-lock.json
-            desktop/package-lock.json
-
-      - name: Installa dipendenze interfaccia
-        run: npm ci --prefix native --no-audit --no-fund
-
-      - name: Compila il driver e l'interfaccia
-        run: npm run build --prefix native
-
-      - name: Verifica protocollo e interfaccia
-        run: npm run test:all --prefix native
-
-      - name: Installa dipendenze desktop per i test
-        env:
-          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
-        run: npm ci --prefix desktop --no-audit --no-fund
-
-      - name: Verifica shell e socket desktop
-        run: npm test --prefix desktop
-
-  macos:
-    name: Mac ${{ matrix.arch }}
+      - uses: actions/checkout@v6
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@v6
+        with: {node-version: '22'}
+      - name: Verifica interfaccia, protocollo e desktop
+        shell: bash
+        env: {ELECTRON_SKIP_BINARY_DOWNLOAD: '1'}
+        run: |
+          npm ci --prefix native --no-audit --no-fund
+          npm run build --prefix native
+          npm run test:all --prefix native
+          npm ci --prefix desktop --no-audit --no-fund
+          npm test --prefix desktop
+  build:
+    name: ${{ matrix.artifact }}
     needs: verify
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
@@ -58,39 +35,56 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - arch: arm64
-            runner: macos-15
+          - runner: macos-15
+            arch: arm64
             app_dir: mac-arm64
-          - arch: x64
-            runner: macos-15-intel
+            artifact: Sculpt-Wing-macOS-arm64
+            file: Sculpt-Wing-*-mac-arm64.zip
+          - runner: macos-15-intel
+            arch: x64
             app_dir: mac
+            artifact: Sculpt-Wing-macOS-x64
+            file: Sculpt-Wing-*-mac-x64.zip
+          - runner: windows-2025
+            arch: x64
+            app_dir: win-unpacked
+            artifact: Sculpt-Wing-Windows-x64
+            file: Sculpt-Wing-*-win-x64.exe
+    defaults:
+      run: {shell: bash}
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      SCULPT_ARCH: ${{ matrix.arch }}
+      SCULPT_APP_DIR: ${{ matrix.app_dir }}
     steps:
-      - name: Scarica i sorgenti
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@v6
+        with: {node-version: '22'}
+      - name: Compila e prepara il desktop
+        run: |
+          npm ci --prefix native --no-audit --no-fund
+          npm run build --prefix native
+          npm ci --prefix desktop --no-audit --no-fund
+          npm test --prefix desktop
+          npm run prepare:app --prefix desktop
+      - name: Crea e verifica l'app Mac
+        if: runner.os == 'macOS'
+        working-directory: desktop
+        run: |
+          npx --no-install electron-builder --mac zip "--$SCULPT_ARCH" --publish never -c.mac.identity=- -c.mac.hardenedRuntime=false -c.mac.notarize=false
+          codesign --verify --deep --strict --verbose=2 "release/$SCULPT_APP_DIR/Sculpt Wing.app"
+          SCULPT_SIGNATURE="$(codesign -dv --verbose=2 "release/$SCULPT_APP_DIR/Sculpt Wing.app" 2>&1)"
+          printf '%s\n' "$SCULPT_SIGNATURE"
+          [[ "$SCULPT_SIGNATURE" == *"Signature=adhoc"* ]]
+      - name: Crea l'installer Windows
+        if: runner.os == 'Windows'
+        working-directory: desktop
+        run: npx --no-install electron-builder --win nsis --x64 --publish never
+      - uses: actions/upload-artifact@v6
         with:
-          persist-credentials: false
-
-      - name: Prepara Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: |
-            native/package-lock.json
-            desktop/package-lock.json
-
-      - name: Installa dipendenze interfaccia
-        run: npm ci --prefix native --no-audit --no-fund
-
-      - name: Rigenera il driver e l'interfaccia
-        run: npm run build --prefix native
-
-      - name: Installa dipendenze desktop
-        run: npm ci --prefix desktop --no-audit --no-fund
-
-      - name: Verifica il desktop sul runner Mac
-        run: npm test --prefix desktop
-
-      - name: Prepara il bundle desktop
+          name: ${{ matrix.artifact }}
+          path: desktop/release/${{ matrix.file }}
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
