@@ -1,0 +1,96 @@
+name: Build Sculpt Wing
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sculpt-wing-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Test e compilazione interfaccia
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Scarica i sorgenti
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Prepara Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            native/package-lock.json
+            desktop/package-lock.json
+
+      - name: Installa dipendenze interfaccia
+        run: npm ci --prefix native --no-audit --no-fund
+
+      - name: Compila il driver e l'interfaccia
+        run: npm run build --prefix native
+
+      - name: Verifica protocollo e interfaccia
+        run: npm run test:all --prefix native
+
+      - name: Installa dipendenze desktop per i test
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+        run: npm ci --prefix desktop --no-audit --no-fund
+
+      - name: Verifica shell e socket desktop
+        run: npm test --prefix desktop
+
+  macos:
+    name: Mac ${{ matrix.arch }}
+    needs: verify
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-15
+            app_dir: mac-arm64
+          - arch: x64
+            runner: macos-15-intel
+            app_dir: mac
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - name: Scarica i sorgenti
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Prepara Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            native/package-lock.json
+            desktop/package-lock.json
+
+      - name: Installa dipendenze interfaccia
+        run: npm ci --prefix native --no-audit --no-fund
+
+      - name: Rigenera il driver e l'interfaccia
+        run: npm run build --prefix native
+
+      - name: Installa dipendenze desktop
+        run: npm ci --prefix desktop --no-audit --no-fund
+
+      - name: Verifica il desktop sul runner Mac
+        run: npm test --prefix desktop
+
+      - name: Prepara il bundle desktop
