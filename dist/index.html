@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#121214">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Sculpt Wing">
+  <meta name="description" content="Sculpt Wing — interfaccia WING: mixer a due file, editor, FX, I/O, scene e macro. Installabile e disponibile offline.">
+  <title>Sculpt Wing</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icon-red-180.png">
+  <link rel="icon" type="image/png" href="./icon-red-192.png">
+  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./editor.css">
+  <link rel="stylesheet" href="./shell.css">
+  <link rel="stylesheet" href="./plugins.css">
+  <link rel="stylesheet" href="./systems.css">
+  <link rel="stylesheet" href="./live.css">
+  <script src="./native-bridge.js" defer></script>
+  <script src="./plugin-data.js" defer></script>
+  <script src="./plugin-panels.js" defer></script>
+  <script src="./model.js" defer></script>
+  <script src="./app.js" defer></script>
+  <script src="./desk.js" defer></script>
+  <script src="./shell.js" defer></script>
+  <script src="./plugins.js" defer></script>
+  <script src="./editor.js" defer></script>
+  <script src="./io.js" defer></script>
+  <script src="./systems.js" defer></script>
+  <script src="./wing-map.js" defer></script>
+  <script src="./live-session.js" defer></script>
+  <script src="./live.js" defer></script>
+  <script src="./live-pages.js" defer></script>
+  <script src="./offline.js" defer></script>
+</head>
+<body>
+  <main class="console" aria-label="Sculpt Wing, mixer dimostrativo">
+    <section class="mixer-row outputs" aria-labelledby="output-title">
+      <header class="row-header">
+        <div class="row-label"><span class="row-led" aria-hidden="true"></span><h1 id="output-title">USCITE</h1><span class="row-count">28</span></div>
+        <nav class="bank-navigation" aria-label="Banchi uscite">
+          <button class="bank-button active" type="button" data-row="outputs" data-index="0" aria-pressed="true">BUS 1–8</button>
+          <button class="bank-button" type="button" data-row="outputs" data-index="8" aria-pressed="false">9–16</button>
+          <button class="bank-button" type="button" data-row="outputs" data-index="16" aria-pressed="false">MTX</button>
+          <button class="bank-button" type="button" data-row="outputs" data-index="24" aria-pressed="false">MAIN</button>
+        </nav>
+      </header>
+      <div class="fader-scroll" id="outputs-scroll" tabindex="0" aria-label="Bus, matrici e master, scorri orizzontalmente"><div class="strip-bank" id="outputs-bank"></div></div>
+      <div class="row-underbar"><span id="outputs-mode">BUS · MATRICI · MASTER</span><div class="scroll-progress" aria-hidden="true"><i id="outputs-progress"></i></div><span aria-hidden="true">↔</span></div>
+    </section>
+
+    <div class="console-divider" id="sof-bar"><span id="sof-target" aria-live="polite">LIVELLI</span><button type="button" id="exit-sof" hidden>Livelli <span aria-hidden="true">×</span></button></div>
+
+    <section class="mixer-row inputs" aria-labelledby="input-title">
+      <header class="row-header">
+        <div class="row-label"><span class="row-led" aria-hidden="true"></span><h2 id="input-title">INGRESSI</h2><span class="row-count">48</span></div>
+        <nav class="bank-navigation" aria-label="Banchi ingressi">
+          <button class="bank-button active" type="button" data-row="inputs" data-index="0" aria-pressed="true">1–8</button>
+          <button class="bank-button" type="button" data-row="inputs" data-index="8" aria-pressed="false">9–16</button>
+          <button class="bank-button" type="button" data-row="inputs" data-index="16" aria-pressed="false">17–24</button>
+          <button class="bank-button" type="button" data-row="inputs" data-index="24" aria-pressed="false">25–32</button>
+          <button class="bank-button" type="button" data-row="inputs" data-index="32" aria-pressed="false">33–40</button>
+          <button class="bank-button" type="button" data-row="inputs" data-index="40" aria-pressed="false">AUX</button>
+        </nav>
+      </header>
+      <div class="fader-scroll" id="inputs-scroll" tabindex="0" aria-label="Canali e ingressi AUX, scorri orizzontalmente"><div class="strip-bank" id="inputs-bank"></div></div>
+      <div class="row-underbar"><span id="inputs-mode">40 CANALI · 8 AUX</span><div class="scroll-progress" aria-hidden="true"><i id="inputs-progress"></i></div><span class="selection-summary" id="selection-summary">CH 01 · Voce</span></div>
+    </section>
+
+    <footer class="macro-rail" aria-label="Area macro">
+      <button id="menu-button" class="menu-button" type="button" aria-label="Menu del banco">☰</button>
+      <div id="macro-buttons" class="macro-slots" aria-label="Macro del banco"></div>
+      <button class="icon-button" id="info-button" type="button" aria-label="Informazioni e impostazioni" title="Informazioni e impostazioni"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 10.5v6M12 7.2v.2"/></svg></button>
+      <button id="offline-button" class="offline-button" type="button" aria-label="Installazione e disponibilità offline"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M5.5 10.2 8.6 13.3 14.7 6.8"/><circle cx="10" cy="10" r="8"/></svg><span id="offline-status">Preparazione offline…</span></button>
+    </footer>
+  </main>
+  <span class="demo-corner">DEMO · METER SIMULATI</span>
+
+  <dialog id="info-dialog" class="sheet">
+    <div class="sheet-heading"><div><p class="eyebrow">SCULPT WING · DEMO</p><h2>Il tuo banco.</h2></div><button class="icon-button close-dialog" type="button" aria-label="Chiudi informazioni">×</button></div>
+    <p><strong>16 bus, 8 matrici e 4 master</strong> nella fila superiore. <strong>40 canali e 8 AUX</strong> nella fila degli ingressi.</p>
+    <div class="guide-grid"><div><span>01</span><h3>Editor</h3><p>Tocca il nome della strip per aprire i parametri del canale.</p></div><div><span>02</span><h3>Send on Fader</h3><p>Tocca SOF sul bus o sulla matrice. I fader delle sorgenti mostrano le relative mandate.</p></div></div>
+    <div class="setting-line"><div><strong>Meter simulati</strong><span>Solo movimento grafico, nessun audio.</span></div><button id="meters-toggle" type="button" role="switch" aria-checked="true" class="switch"><i></i><span class="sr-only">Attiva meter simulati</span></button></div>
+    <p class="demo-note">Demo completa del banco: editor, FX, I/O, scene e macro vengono conservati sul dispositivo. Audio, meter, recorder e connessioni sono simulati.</p>
+    <div class="sheet-actions"><button id="install-button" type="button" class="primary-button">Installa / Offline</button><button id="reset-button" type="button" class="quiet-button">Ripristina demo</button></div>
+    <div id="reset-confirm" class="reset-confirm" hidden><p>Ripristinare livelli, editor e mandate della demo?</p><button id="reset-yes" type="button">Ripristina</button><button id="reset-no" type="button">Annulla</button></div>
+    <p class="version-label">SCULPT WING · 0.6</p>
+  </dialog>
+  <dialog id="level-dialog" class="sheet level-sheet">
+    <form id="level-form">
+      <div class="sheet-heading"><div><p class="eyebrow" id="level-target">CH 01 · VOCE</p><h2 id="level-heading">Livello</h2></div><button class="icon-button" id="close-level" type="button" aria-label="Chiudi livello">×</button></div>
+      <div class="level-input-line"><label for="level-input" class="sr-only">Livello in decibel</label><input id="level-input" inputmode="decimal" type="number" min="-90" max="10" step="0.1" required><span>dB</span></div>
+      <div class="level-presets"><button type="button" data-level="-90">−∞</button><button type="button" data-level="-20">−20</button><button type="button" data-level="-10">−10</button><button type="button" data-level="0">0 dB</button></div>
+      <button class="primary-button" type="submit">Applica livello</button>
+    </form>
+  </dialog>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>
