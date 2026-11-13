@@ -5,6 +5,7 @@
   const inside=(path,base)=>base==='/'||path===base||path.startsWith(base+'/');
   const overlaps=(a,b)=>inside(a,b)||inside(b,a);
   const message=e=>e?.message||String(e);
+  const writeSchema=meta=>JSON.stringify([meta.path,meta.revision,meta.type,!!meta.readOnly,meta.min,meta.max,meta.maxLength,meta.unit,Array.isArray(meta.items)?meta.items.map(item=>item.value):null]);
   const keyFor=ctx=>ctx.type==='fx'?`fx:${ctx.slot}`:`${ctx.id}:${ctx.block}`;
   const localDeskKeys=new Set(['macros','scenes','snippets','stripPresets','safes','pluginPresets','pluginClipboard','customControls','layers','activeLayer','history','showName','activeScene','meterSettings','_wing']);
 
@@ -17,7 +18,7 @@
       this.values=new Map();this.metadata=new Map();this.pending=new Map();this.samples=new Map();
       this.inflight=null;this.nodeLoads=new Map();this.processors=new Map();this.schemaLocks=new Set();this.reloadTimers=new Map();
       this.loaded=new Set();this.batch=new Map();this.applying=false;
-      this.meters=null;this.syncDone=0;this.syncTotal=76;this.worker=null;
+      this.meters=null;this.meterInvalidations=new Map();this.syncDone=0;this.syncTotal=76;this.worker=null;
       this.unsubscribers=[driver.onValue((p,v)=>this.receive(p,v)),
         driver.onStatus((s,m)=>this.status(s,m)),
         (driver.onStripMeters||driver.onMeters).call(driver,f=>{if(this.networkActive()){this.meters=f;this.onUpdate('meters');}}),
@@ -61,7 +62,7 @@
       for(const token of this.nodeLoads.values())token.valid=false;
       this.nodeLoads.clear();this.processors.clear();this.schemaLocks.clear();this.loaded.clear();this.batch.clear();
       for(const timer of this.reloadTimers.values())clearTimeout(timer);this.reloadTimers.clear();
-      this.inflight=null;this.worker=null;this.meters=null;this.syncDone=0;
+      this.inflight=null;this.worker=null;this.meters=null;this.meterInvalidations.clear();this.syncDone=0;
       clearTimeout(this.batchTimer);this.batchTimer=null;clearTimeout(this.writeTimer);this.writeTimer=null;
     }
     assert(epoch){if(epoch!==this.epoch||!this.networkActive())throw new Error('La sessione WING è cambiata.');}
@@ -80,6 +81,7 @@
     }
     receive(path,value){
       if(!this.networkActive())return;
+      if(/\/(gate|dyn)\/mdl$/.test(path)&&this.values.has(path)&&this.values.get(path)!==value)this.invalidateGainMeters(path.slice(0,-4));
       this.values.set(path,value);this.samples.set(path,(this.samples.get(path)||0)+1);
       if(!this.pending.has(path)&&this.inflight?.path!==path)this.batch.set(path,value);
       if(!this.batchTimer)this.batchTimer=setTimeout(()=>this.flush(),24);
@@ -167,6 +169,7 @@
     schemaChanged(change){
       if(!this.networkActive()||!change?.path)return;
       const base=change.path.endsWith('/mdl')?change.path.slice(0,-4):change.path;
+      this.invalidateGainMeters(base);
       this.clearProcessorParameters(base);
       const ownRefresh=change.model===undefined&&[...this.nodeLoads.values()].some(token=>token.refresh&&token.path===base&&token.epoch===this.epoch);
       for(const map of [this.metadata,this.values,this.samples,this.batch])for(const path of map.keys())if(inside(path,base))map.delete(path);
@@ -275,9 +278,15 @@
       try{await work;}finally{if(this.worker===work){this.worker=null;this.inflight=null;this.notify();}}
     }
     async settled(){clearTimeout(this.writeTimer);this.writeTimer=null;await this.drain();}
-    async write(path,value,{trigger=false}={}){
+    async write(path,value,{trigger=false,expectedSchema}={}){
       const epoch=this.epoch;this.assertWritable(epoch);
-      const meta=await this.driver.describe(path);this.assertWritable(epoch);this.metadata.set(path,meta);
+      if(expectedSchema!==undefined&&(!expectedSchema||typeof expectedSchema!=='object'||Array.isArray(expectedSchema)))throw new Error('Schema atteso del parametro non valido.');
+      // A prepared macro binds to the definition it reviewed. Refreshing the
+      // metadata must not silently move that command to a replacement model.
+      const expected=expectedSchema===undefined?null:writeSchema(expectedSchema);
+      const meta=await this.driver.describe(path);this.assertWritable(epoch);
+      if(expected!==null&&writeSchema(meta)!==expected)throw new Error('Lo schema WING è cambiato dopo la preparazione della macro. Rileggi il parametro prima di eseguirla.');
+      this.metadata.set(path,meta);
       if(meta.readOnly)throw new Error('Parametro di sola lettura.');
       await this.settled();this.assertWritable(epoch);
       const sample=this.samples.get(path)||0,isModel=path.endsWith('/mdl'),base=isModel?path.slice(0,-4):null;
@@ -302,10 +311,37 @@
       if(spec.mixPath&&Number.isFinite(preset.mix))await this.write(spec.mixPath,preset.mix);
       await this.ensureProcessor(ctx,{force:true});
     }
+    stripMeter(id){
+      const receivedAt=this.meters?.receivedAt,age=Date.now()-receivedAt;
+      if(!this.connected()||!Number.isFinite(receivedAt)||age<0||age>1200||typeof id!=='string')return null;
+      const match=/^(ch|aux|bus|main|mtx)-(\d+)$/.exec(id);
+      return match?this.meters.strips?.[match[1]]?.[Number(match[2])]||null:null;
+    }
     meter(id,tap='output'){
-      if(!this.meters||Date.now()-this.meters.receivedAt>1200)return null;
-      const [family,n]=id.split('-'),meter=this.meters.strips?.[family]?.[Number(n)];
-      return meter?{left:meter[tap]?.[0]??-144,right:meter[tap]?.[1]??-144,...meter}:null;
+      const meter=this.stripMeter(id);if(!meter)return null;
+      const levels=meter[tap==='input'?'input':'output'];
+      return {...meter,left:Number.isFinite(levels?.[0])?levels[0]:-144,right:Number.isFinite(levels?.[1])?levels[1]:-144};
+    }
+    invalidateGainMeters(base){
+      // A frame measured before a processor/model change cannot be relabelled
+      // with the new model's scale. Wait for the next UDP frame for that block.
+      for(const [family,strips]of Object.entries(this.meters?.strips||{}))for(const index of Object.keys(strips))for(const block of ['gate','dyn']){
+        const path=`/${family}/${index}/${block}`;if(overlaps(path,base))this.meterInvalidations.set(path,Date.now());
+      }
+    }
+    gainReduction(id){
+      const meter=this.stripMeter(id);if(!meter)return null;
+      const base='/'+id.replace('-','/');
+      const read=(block,raw)=>{
+        if(!Number.isInteger(raw)||raw<-32768||raw>32767||this.meters.receivedAt<=(this.meterInvalidations.get(base+'/'+block)??-Infinity))return null;
+        const on=this.values.get(base+'/'+block+'/on'),enabled=on===0?false:on===1?true:null;
+        const normalized=raw/256,reduction=enabled===false?0:Math.max(0,normalized);
+        // The protocol specifies 60 dB only for standard GATE. It says 'most'
+        // other models use 20 dB, not which ones: never guess their dB scale.
+        const model=this.values.get(base+'/'+block+'/mdl'),scale=model==='GATE'?60:null;
+        return {fraction:Math.min(1,reduction),raw,db:scale===null?null:reduction*scale,enabled};
+      };
+      return {gate:read('gate',meter.gateGainRaw),comp:read('dyn',meter.dynGainRaw)};
     }
     dispose(){++this.epoch;this.clear();this.mode='demo';this.unsubscribers.forEach(fn=>fn());}
   }

@@ -1,10 +1,12 @@
 # Dal PDF di Producer alla scena Sculpt Wing
 
-## Flusso della versione 0.6.4
+## Flusso della versione 0.6.6
 
-Apri **Menu del banco → Importa channel list**, scegli il PDF esportato da Producer e controlla le tre schede **Canali**, **Mandate** e **Rimanenti**. Puoi anche iniziare senza PDF con **Aggiungi canale vuoto**. La lettura avviene sul dispositivo. Il progetto cambia soltanto quando premi **Applica scena**.
+Apri **Menu del banco → Importa channel list**, scegli il PDF esportato da Producer e controlla le quattro schede **Canali**, **Strumenti**, **Mandate** e **Rimanenti**. Puoi anche iniziare senza PDF con **Aggiungi canale vuoto**. La lettura avviene sul dispositivo. Il progetto cambia soltanto quando premi **Applica scena**.
 
 Tutti i valori proposti sono modificabili nell’anteprima. Il numero e la pagina del PDF, il nome originale e le informazioni di provenienza restano visibili per aiutare il controllo. **Il routing del canale è sempre conservato.**
+
+Quando cambi un monitor principale o il BUS assegnato, l’anteprima **mantiene la posizione di scorrimento** della tabella e della lista monitor, sia in verticale sia in orizzontale. Anche tornando da una scheda all’altra ritrovi la posizione precedente. Dopo **Applica scena**, se l’operazione riesce, la finestra si chiude e il mixer mostra la conferma. Per annullare puoi riaprire **Importa channel list** e usare **Annulla importazione** senza ricaricare il PDF.
 
 ## Valori iniziali
 
@@ -25,7 +27,7 @@ Se modifichi mute o fader rispetto alla partenza, l’anteprima lo segnala. Se d
 
 ## Scheda Canali
 
-La tabella riunisce i canali per strumento. Ogni gruppo ha una sola intestazione con il nome dello strumento, i due principali facoltativi, l’elenco dei canali collegati e il pulsante **Mandate**. L’assegnazione fatta qui vale per tutti i canali dello strumento: non occorre ripeterla per ogni ingresso.
+La tabella riunisce i canali per strumento. Ogni gruppo ha una sola intestazione con il nome dello strumento, i due principali facoltativi, l’elenco dei canali collegati e i pulsanti **Modifica gruppo** e **Mandate**. L’assegnazione fatta qui vale per tutti i canali dello strumento: non occorre ripeterla per ogni ingresso.
 
 Per ciascuna riga puoi:
 
@@ -51,7 +53,7 @@ Il canale vuoto può rimanere uno spazio riservato oppure diventare un nuovo ing
 
 Cassa, rullante, tom e overhead possono essere collegati come batteria; L/R di una tastiera come un solo strumento. Le proposte usano i nomi completi prima dell’accorciamento, comprese le diciture Producer come `Key L · Mario` e `Key R · Mario`.
 
-Il collegamento riguarda le assegnazioni nell’anteprima. Scegliendo lo stesso **Strumento collegato** per più righe, il primo e il secondo monitor principale si assegnano una volta per tutto il gruppo. Il nome dello strumento si corregge nella sua intestazione; i nomi dei singoli canali rimangono indipendenti. Dare lo stesso nome a due gruppi non li unisce automaticamente: per unirli usa il selettore del collegamento.
+Il collegamento riguarda le assegnazioni nell’anteprima. Scegliendo lo stesso **Strumento collegato** per più righe, il primo e il secondo monitor principale si assegnano una volta per tutto il gruppo. Il nome dello strumento si corregge nella sua intestazione; i nomi dei singoli canali rimangono indipendenti. Dare lo stesso nome a due gruppi non li unisce automaticamente: per unirli sposta i membri nella scheda **Strumenti** oppure usa il selettore del collegamento.
 
 Collegare una riga a un altro strumento le fa adottare i due principali di quel gruppo. **Rendi indipendente** separa il canale conservandone le proposte attuali, che da quel momento possono avere principali diversi. Le modifiche di gruppo aggiornano anche le righe escluse nell’anteprima, ma **Applica scena** modifica soltanto quelle selezionate.
 
@@ -71,9 +73,42 @@ Chitarra 1 e Chitarra 2, oppure Voce 1 e Voce 2, restano strumenti distinti; il 
 
 I colori sono suggeriti dai nomi e dalle intestazioni in italiano e inglese. Ogni proposta può essere cambiata. Anche `Clarinetto basso` e `Bass clarinet` vengono riconosciuti come fiati e proposti in giallo. I colori personalizzati già presenti nel progetto restano disponibili come colore attuale.
 
+## Scheda Strumenti — correggere i gruppi del PDF
+
+Il riconoscimento propone i gruppi; puoi modificarli prima di applicare. Apri **Strumenti**, oppure premi **Modifica gruppo** nell’intestazione della tabella Canali.
+
+- **Rinomina:** modifica il nome del gruppo. I nomi dei singoli ingressi rimangono quelli scelti nella scheda Canali.
+- **Crea un gruppo:** scegli uno o più canali, scrivi il nome del nuovo strumento e scegli il canale da cui ereditare i principali. Se scegli soltanto alcuni membri di un gruppo, lo dividi in due.
+- **Sposta in un gruppo:** scegli i canali e lo strumento di destinazione. Per unire due gruppi, sposta tutti i membri del primo nel secondo.
+- **Rendi indipendenti:** separa i canali scelti conservando le loro mandate. I gruppi rimasti senza membri scompaiono; i canali rimangono nella lista.
+
+Le caselle di selezione di questa scheda servono a modificare i gruppi. Sono distinte dalle caselle **Usa** che includono o escludono i canali dall’importazione. Puoi passare da un gruppo all’altro per scegliere membri di più strumenti; il conteggio e la vista dei selezionati permettono di controllare l’insieme prima dell’azione.
+
+Il nuovo gruppo eredita i due principali dal canale di riferimento, proposto inizialmente come il primo dei canali scelti nell’ordine della lista. Spostare in un gruppo esistente adotta invece i suoi principali. Le assegnazioni da ereditare sono visibili prima dell’azione. Se la coppia rimane uguale, le mandate già personalizzate restano uguali; quando un BUS cambia ruolo, si applicano i livelli PRE/POST descritti nella scheda Mandate. Separare canali conserva la coppia e tutte le proposte di invio.
+
+Nomi dei canali, colori, destinazioni, mute, fader e inclusione nell’importazione rimangono conservati durante gli spostamenti. Tutto avviene nella proposta: il progetto cambia solo con **Applica scena**.
+
+### Nome automatico del monitor e dell’IEM
+
+La prima assegnazione principale identifica il **monitor da palco (MON)**; la seconda identifica l’**IEM**. Entrambe restano facoltative. Se il musicista ha soltanto un IEM, lascia il primo su Nessuno e usa il secondo.
+
+| Strumento | Assegnazione | Nome proposto del BUS |
+| --- | --- | --- |
+| Batteria | Principale 1 → BUS 1 | Batteria MON |
+| Batteria | Principale 2 → BUS 2 | Batteria IEM |
+| Basso | Principale 2 → BUS 3 | Basso IEM |
+
+Se il PDF indica esplicitamente **IEM** nel nome di un monitor, l’abbinamento univoco viene proposto nella seconda assegnazione. Un monitor MON o senza indicazione IEM viene proposto nella prima. Se sono presenti un MON e un IEM abbinati univocamente allo stesso strumento, vengono proposti entrambi; più candidati per lo stesso ruolo richiedono una scelta nell’anteprima.
+
+Cambiare il nome dello strumento aggiorna i nomi automatici dei relativi BUS. Per nomi lunghi, viene accorciata soltanto la parte dello strumento in modo da conservare MON o IEM entro il limite di 16 caratteri. I nomi dei singoli canali non cambiano.
+
+Nella scheda **Mandate** puoi correggere manualmente il nome del BUS e tornare alla generazione automatica. Se un BUS è condiviso, scegli da quale strumento e ruolo deve prendere il nome; un BUS ha una sola etichetta. **Applica nome e colore al bus** resta la scelta che decide se applicare questa identità al progetto. Fader, mute, formato stereo e routing del BUS rimangono conservati.
+
 ## Scheda Mandate
 
 **Monitor assegnati** contiene l’elenco dei BUS coinvolti nell’importazione. Puoi aggiungere o rimuovere monitor, cambiare il BUS di destinazione e correggerne nome e colore. Sono disponibili al massimo **16 BUS distinti**. Più strumenti possono condividere un BUS.
+
+I monitor sono ordinati per numero di BUS crescente: **BUS 1, BUS 2, … BUS 10, … BUS 16**. Lo stesso ordine vale nei menu dei principali e nella tabella delle mandate. **Aggiungi monitor** propone il BUS libero con il numero più basso. Se cambi il numero di un BUS, il monitor viene riordinato mantenendo il proprio nome, gli abbinamenti dei principali e le mandate già modificate; lo scorrimento della schermata resta nella posizione corrente.
 
 La casella **Applica nome e colore al bus**, attiva inizialmente, applica l’identità proposta al relativo BUS. Disattivala per conservarne nome e colore esistenti. I fader, i mute e il routing delle uscite BUS vengono sempre conservati.
 
@@ -138,7 +173,11 @@ Il comando **Applica scena** opera sul progetto Sculpt offline. L’anteprima si
 
 L’importazione viene validata e applicata in un’unica transazione. Se una destinazione è duplicata, i due principali indicano lo stesso BUS, un riferimento BUS non è valido o un valore non è valido, il progetto non viene modificato parzialmente. L’assenza di uno o di entrambi i principali è consentita.
 
-**Annulla importazione**, disponibile nello stesso dialogo dopo l’applicazione, ripristina soltanto i valori effettivamente modificati dall’importazione. Se uno di quei valori è stato cambiato successivamente, l’annullamento viene rifiutato interamente per preservare la nuova modifica. Cambiamenti successivi a campi diversi, come il pan, restano conservati. Una seconda applicazione senza cambiamenti conserva l’ultimo annullamento disponibile.
+Dopo un’applicazione riuscita la finestra **si chiude automaticamente** e compare la conferma sul mixer. Succede anche se tutte le proposte coincidono già con il progetto e non occorrono ulteriori modifiche. Un errore o un conflitto lascia invece aperta l’anteprima per permettere la correzione.
+
+Per usare **Annulla importazione**, riapri **Menu del banco → Importa channel list**: il pulsante è disponibile anche senza caricare un PDF. Ripristina soltanto i valori effettivamente modificati dall’ultima importazione. Se uno di quei valori è stato cambiato successivamente, l’annullamento viene rifiutato interamente per preservare la nuova modifica. Cambiamenti successivi a campi diversi, come il pan, restano conservati. Una seconda applicazione senza cambiamenti conserva l’ultimo annullamento disponibile.
+
+Questo annullamento rimane disponibile durante la sessione corrente dell’app, anche chiudendo e riaprendo la finestra di importazione. Non viene salvato per un riavvio dell’app. Durante una sessione live resta bloccato, come l’applicazione.
 
 ## PDF supportati
 
@@ -160,4 +199,4 @@ Fuori dal dialogo di importazione, aprendo l’editor dalla strip del mixer, il 
 - [Reader locale](../native/src/pdf-reader.mjs).
 - [Test parser](../tests/channel-list.test.cjs), [motore scena](../tests/channel-list-scene.test.cjs) e [interfaccia](../tests/channel-list-preview.test.cjs).
 - [Prove con PDF prodotti dall’esportatore Producer](../tests/producer-import.test.cjs) e [dati attesi](../tests/fixtures/pdf/producer-expected.json).
-- [Note della versione 0.6.4](RELEASE_0.6.4_MAC_M1.md).
+- [Note della versione 0.6.6](RELEASE_0.6.6_MAC_M1.md).

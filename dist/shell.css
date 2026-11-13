@@ -2,5 +2,18 @@
 @media(max-width:600px){.desk-page-header{padding:9px 10px;gap:9px;min-height:59px}.desk-page-header h1{font-size:15px}.desk-page-header p{font-size:9px;max-width:160px}.desk-page-header>.desk-badge{display:none}.desk-page-body{padding:13px}.desk-back{padding:7px;min-width:65px;font-size:10px}.desk-card{padding:13px}.desk-grid{gap:11px}.desk-modal-body{padding:12px}.desk-menu-grid{grid-template-columns:repeat(2,1fr);gap:7px}.desk-menu-tile{min-height:86px;padding:11px}.desk-menu-tile strong{font-size:12px}.desk-profile{gap:8px;margin-bottom:14px}.desk-profile strong{font-size:12px}.desk-profile small{display:none}.desk-tabs .desk-button{min-width:65px;font-size:10px}.desk-toolbar{gap:6px}.desk-toolbar .desk-button{padding:8px 10px;font-size:11px}.desk-row{gap:6px}.desk-number{width:70px}.desk-table th,.desk-table td{padding-left:7px;padding-right:7px}.desk-modal{width:calc(100vw - 16px)}.macro-action{min-width:66px;max-width:85px}.demo-corner{bottom:calc(46px + env(safe-area-inset-bottom))}}
 @media(max-height:440px) and (orientation:landscape){.desk-page-header{min-height:50px;padding:6px 14px}.desk-page-header h1{font-size:15px}.desk-page-header p{margin-top:2px;font-size:9px}.desk-page-body{padding:14px 18px}.desk-menu-grid{grid-template-columns:repeat(4,1fr)}.desk-menu-tile{min-height:78px;padding:10px}.desk-profile{margin-bottom:12px}.desk-modal{max-height:calc(100dvh - 12px)}.desk-modal-header{padding:6px 14px}.desk-card{padding:12px}.menu-button{height:27px;width:35px;min-width:35px;font-size:16px}.macro-action{height:27px;min-width:76px}.demo-corner{bottom:calc(36px + env(safe-area-inset-bottom))}}
 
+/* All sixteen assignments stay in view on a desktop; short windows retain a
+   single horizontally scrollable rail so the two mixer rows remain usable. */
+.macro-action.is-empty{border-style:dashed;border-color:#725365;background:#211a23;color:#bda0b0}
+.macro-action.is-empty small{color:#bf8ca5}.macro-action.is-empty span{color:#d2afc0}
+.macro-action:focus-visible{outline:2px solid #ff9aac;outline-offset:1px}
+@media(min-width:760px) and (min-height:560px){
+  .macro-rail{height:77px;min-height:77px}
+  .macro-slots{display:grid!important;grid-template-columns:repeat(8,minmax(0,1fr));grid-template-rows:repeat(2,32px);gap:4px!important;overflow:visible}
+  .macro-action{height:32px;min-height:32px;min-width:0;max-width:none;width:100%;justify-content:flex-start;padding:4px 8px}
+  .macro-action small{flex:none}.macro-action span{font-size:10px}
+  .demo-corner{bottom:calc(80px + env(safe-area-inset-bottom))}
+}
+
 .desk-toast{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);z-index:9;max-width:calc(100% - 32px);padding:11px 17px;background:#61323d;color:#ffe8ed;border:1px solid #bc657a;border-radius:7px;font-size:12px;line-height:1.4;box-shadow:0 8px 30px #0008;pointer-events:none;text-align:center}
 .layer-empty{align-self:center;padding:20px;color:#a8909d;font-size:11px;line-height:1.6;max-width:100%;white-space:normal}.layer-active .row-label{min-width:0;max-width:calc(100% - 105px)}.layer-active .row-label h1,.layer-active .row-label h2{overflow:hidden;text-overflow:ellipsis}.layer-active .row-header{min-height:35px}

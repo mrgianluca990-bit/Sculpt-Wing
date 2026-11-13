@@ -130,3 +130,52 @@ test('numeric firmware enum candidates preserve their actual wire type',async()=
   assert.equal(f.edit(s=>s.desk.processing['ch-1'].eq.params.gain='4').ok,true);await f.session.settled();
   assert.equal(f.driver.writes.at(-1).value,4);assert.equal(typeof f.driver.writes.at(-1).value,'number');f.close();
 });
+
+function meterFrame(gateGainRaw=128,dynGainRaw=64,receivedAt=Date.now()){
+  return {receivedAt,reportId:7,strips:{ch:{1:{input:[-12,-18],output:[-24,-30],gateKey:-20,dynKey:-22,gateGainRaw,dynGainRaw}},aux:{},bus:{},main:{},mtx:{}}};
+}
+
+test('GR bars use genuine normalized gain words, independent of input/output level and unread demo processors',async()=>{
+  const f=fixture();await f.session.connect('192.168.1.100');
+  f.state.desk.processing['ch-1'].gate={model:'GATE',enabled:true};
+  f.driver.emit('meters',meterFrame());
+  assert.deepEqual(f.session.gainReduction('ch-1'),{gate:{fraction:.5,raw:128,db:null,enabled:null},comp:{fraction:.25,raw:64,db:null,enabled:null}});
+  assert.equal(f.session.meter('ch-1','input').left,-12);assert.equal(f.session.meter('ch-1','output').left,-24);
+  assert.equal(f.session.gainReduction('dca-1'),null);assert.equal(f.session.gainReduction('ch-40'),null);
+  f.driver.emit('meters',meterFrame(0,256));assert.equal(f.session.gainReduction('ch-1').gate.fraction,0);assert.equal(f.session.gainReduction('ch-1').comp.fraction,1);
+  f.driver.emit('meters',meterFrame(-128,512));assert.equal(f.session.gainReduction('ch-1').gate.fraction,0);assert.equal(f.session.gainReduction('ch-1').comp.fraction,1);
+  f.driver.emit('meters',meterFrame(undefined,NaN));assert.equal(f.session.gainReduction('ch-1').comp,null);
+  f.driver.emit('meters',meterFrame('128',32768));assert.deepEqual(f.session.gainReduction('ch-1'),{gate:null,comp:null});f.close();
+});
+
+test('GR exposes dB only for a documented model actually read from WING and honors confirmed bypass',async()=>{
+  const f=fixture();await f.session.connect('192.168.1.100');f.driver.emit('meters',meterFrame());
+  f.driver.emit('value','/ch/1/gate/mdl','GATE');f.driver.emit('value','/ch/1/gate/on',1);
+  assert.deepEqual(f.session.gainReduction('ch-1').gate,{fraction:.5,raw:128,db:30,enabled:true});
+  f.driver.emit('value','/ch/1/gate/on',0);f.driver.emit('value','/ch/1/dyn/on',0);
+  assert.deepEqual(f.session.gainReduction('ch-1').gate,{fraction:0,raw:128,db:0,enabled:false});assert.equal(f.session.gainReduction('ch-1').comp.fraction,0);
+  f.driver.emit('value','/ch/1/dyn/mdl','COMP');f.driver.emit('value','/ch/1/dyn/on',1);
+  assert.equal(f.session.gainReduction('ch-1').comp.db,null);assert.equal(f.session.gainReduction('ch-1').comp.fraction,.25);f.close();
+});
+
+test('GR and stereo meters disappear together on stale frames, disconnection, or invalid timestamps',async()=>{
+  const f=fixture();await f.session.connect('192.168.1.100');
+  for(const receivedAt of [Date.now()-1201,NaN,undefined,Date.now()+60000]){
+    const frame=meterFrame();frame.receivedAt=receivedAt;f.driver.emit('meters',frame);
+    assert.equal(f.session.gainReduction('ch-1'),null);assert.equal(f.session.meter('ch-1'),null);
+  }
+  f.driver.emit('meters',meterFrame());assert.ok(f.session.gainReduction('ch-1'));
+  await f.session.disconnect();f.driver.emit('meters',meterFrame());assert.equal(f.session.gainReduction('ch-1'),null);assert.equal(f.session.meter('ch-1'),null);
+  await f.session.connect('192.168.1.100');assert.equal(f.session.gainReduction('ch-1'),null);f.close();
+});
+
+test('processor changes retire old GR frames without losing the unaffected block or stereo levels',async()=>{
+  const f=fixture();await f.session.connect('192.168.1.100');f.driver.emit('value','/ch/1/gate/mdl','GATE');f.driver.emit('meters',meterFrame());
+  assert.equal(f.session.gainReduction('ch-1').gate.db,30);
+  f.driver.emit('schema',{path:'/ch/1/gate',model:'DUCK',revision:2});
+  assert.equal(f.session.gainReduction('ch-1').gate,null);assert.equal(f.session.gainReduction('ch-1').comp.fraction,.25);assert.equal(f.session.meter('ch-1','input').left,-12);
+  f.driver.emit('value','/ch/1/gate/mdl','DUCK');await new Promise(resolve=>setTimeout(resolve,2));f.driver.emit('meters',meterFrame(64,32));
+  assert.deepEqual(f.session.gainReduction('ch-1').gate,{fraction:.25,raw:64,db:null,enabled:null});
+  f.driver.emit('value','/ch/1/gate/mdl','GATE');assert.equal(f.session.gainReduction('ch-1').gate,null);
+  await new Promise(resolve=>setTimeout(resolve,2));f.driver.emit('meters',meterFrame(256,0));assert.equal(f.session.gainReduction('ch-1').gate.db,60);f.close();
+});

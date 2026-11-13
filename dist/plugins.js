@@ -191,12 +191,12 @@
   }
 
   function referenceFor(model){const layouts=window.SculptOriginalLayouts||{};return layouts[`${model.category}:${model.id}`]||layouts[model.id]||null;}
-  function makeReferenceSurface(model,ctx,reference,bindings,cleanups){
+  function makeReferenceSurface(model,ctx,reference,bindings,cleanups,surfaceOptions={}){
     if(reference.pages?.length){
       const shell=el('div','fx-original-channel'),tabs=el('div','fx-original-page-tabs'),panes=el('div','fx-original-pages'),used=new Set(),buttons=[];tabs.setAttribute('role','tablist');tabs.setAttribute('aria-label','Sezioni del processore');shell.append(tabs,panes);
       const select=id=>{for(const entry of buttons){const selected=entry.id===id;entry.button.setAttribute('aria-selected',String(selected));entry.button.tabIndex=selected?0:-1;entry.pane.hidden=!selected;}};
       for(const [index,page]of reference.pages.entries()){
-        const surface=makeReferenceSurface(model,ctx,{sourcePage:reference.sourcePage,...page.layout},bindings,cleanups),pane=el('section','fx-original-page');surface.used.forEach(key=>used.add(key));
+        const surface=makeReferenceSurface(model,ctx,{sourcePage:reference.sourcePage,...page.layout},bindings,cleanups,surfaceOptions),pane=el('section','fx-original-page');surface.used.forEach(key=>used.add(key));
         if(page.enableKey&&!used.has(page.enableKey)){const p=model.parameters.find(p=>p.key===page.enableKey);if(p){used.add(p.key);const enable=parameterControl(model,ctx,p,bindings,false,{kind:'switch'});enable.classList.add('fx-original-page-enable');enable.querySelector('.fx-control-label').textContent=page.label;pane.append(enable);bindings.push(()=>pane.classList.toggle('fx-original-page-bypassed',!Number(rawValue(ctx,p))));}}
         pane.append(surface.element);pane.setAttribute('role','tabpanel');pane.setAttribute('aria-label',page.label);const button=btn(page.label,()=>select(page.id),'fx-original-page-tab');button.setAttribute('role','tab');button.addEventListener('keydown',event=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;event.preventDefault();const next=event.key==='Home'?0:event.key==='End'?reference.pages.length-1:(index+(event.key==='ArrowRight'?1:-1)+reference.pages.length)%reference.pages.length;select(reference.pages[next].id);buttons[next].button.focus();});buttons.push({id:page.id,button,pane});tabs.append(button);panes.append(pane);
       }
@@ -282,8 +282,8 @@
       const fromPoint=event=>{const point=event.target.closest?.('.fx-eq-point');if(point)select(point.dataset.band.toLowerCase());};stage.addEventListener('pointerdown',fromPoint);stage.addEventListener('focusin',fromPoint);
     }
     sizer.append(stage);viewport.append(sizer);
-    const resize=()=>{const available=viewport.clientWidth||reference.width,scale=Math.min(1,Math.max(.7,available/reference.width));stage.style.transform=`scale(${scale})`;sizer.style.width=`${reference.width*scale}px`;sizer.style.height=`${reference.height*scale}px`;};
-    if(typeof ResizeObserver==='function'){const observer=new ResizeObserver(resize);observer.observe(viewport);cleanups.push(()=>observer.disconnect());}resize();
+    const resize=()=>{const available=viewport.clientWidth||reference.width,hostHeight=surfaceOptions.fitWithin?.clientHeight||0,heightScale=hostHeight?Math.max(130,hostHeight-135)/reference.height:1,scale=Math.min(1,Math.max(surfaceOptions.minScale??.7,Math.min(available/reference.width,heightScale)));stage.style.transform=`scale(${scale})`;sizer.style.width=`${reference.width*scale}px`;sizer.style.height=`${reference.height*scale}px`;};
+    if(typeof ResizeObserver==='function'){const observer=new ResizeObserver(resize);observer.observe(viewport);if(surfaceOptions.fitWithin)observer.observe(surfaceOptions.fitWithin);cleanups.push(()=>observer.disconnect());}resize();
     return {element:viewport,used};
   }
 
@@ -323,7 +323,7 @@
     ui().toast('Profilo dimostrativo applicato');
   }
 
-  function renderProcessor(container,context){
+  function renderProcessor(container,context,options={}){
     const ctx={...context};let alive=true,bindings=[],surfaceCleanups=[],modelId=null,activeGroup='Tutti',building=false,hydrating=false,hydratedModel=null,liveMode=live(),stateSignature='';
     function hydrate(){
       if(!alive||!live()||hydrating||!window.SculptLive?.ensureProcessor||window.SculptLive.isConnected&& !window.SculptLive.isConnected())return;
@@ -370,7 +370,7 @@
       }else{
         const reference=referenceFor(model);let used=new Set(),sectionParent=face;
         if(reference){
-          wrapper.classList.add('fx-original-enabled');const original=makeReferenceSurface(model,ctx,reference,bindings,surfaceCleanups);face.append(original.element);used=original.used;
+          wrapper.classList.add('fx-original-enabled');const original=makeReferenceSurface(model,ctx,reference,bindings,surfaceCleanups,options.rotaryBank?{minScale:.35,fitWithin:container.closest?.('.editor-panel')}:{ });face.append(original.element);used=original.used;
           if(model.parameters.some(p=>!used.has(p.key))){const extras=el('details','fx-original-extras');extras.append(el('summary','','Altri controlli del processore'));face.append(extras);sectionParent=extras;if(model.id==='VSS3'){bindings.push(()=>{extras.open=!!Number(instance(ctx)?.params?.view);});}}
         }else{const plot=makePlot(model,ctx,bindings);if(plot)face.append(plot);}
         const sections=panel.sections.map(part=>({...part,keys:part.keys.filter(key=>!used.has(key))})).filter(part=>part.keys.length);
@@ -392,6 +392,20 @@
         }
       }
       wrapper.append(face);
+      if(options.rotaryBank){
+        // Keep the original face intact. Values represented by displays or
+        // original GEQ faders gain a linked rotary in this compact control bank.
+        const existing=new Map([...face.querySelectorAll('[data-parameter]')].map(node=>[node.dataset.parameter,node]));
+        const numericChoice=p=>p.type==='enum'&&p.options?.some(value=>/^[-+]?\d/.test(String(value)))&&p.options.every(value=>/^[-+]?\d/.test(String(value))||/^(lim|inf|infinity|∞|off)$/i.test(String(value)));
+        const numeric=model.parameters.filter(p=>(p.type==='number'||numericChoice(p))&&!existing.get(p.key)?.querySelector('.fx-knob:not([hidden])'));
+        if(numeric.length){
+          wrapper.classList.add('fx-editor-knobs');
+          const bank=el('section','fx-supplemental-knobs'),heading=el('h4','','Manopole'),row=el('div','fx-supplemental-knob-row');
+          bank.setAttribute('aria-label',`Manopole ${model.name}`);bank.append(heading,row);
+          for(const p of numeric){const control=parameterControl(model,ctx,p,bindings,false,p.type==='enum'?{kind:'knob'}:{});control.classList.add('fx-supplemental-control');row.append(control);}
+          wrapper.append(bank);
+        }
+      }
       const tools=el('div','fx-tools');
       tools.append(btn('Preset',()=>browsePresets(ctx)),btn('Salva',()=>savePreset(ctx,model)),btn('Copia',()=>{desk().change(s=>s.pluginClipboard={...clone(instance(ctx)),bucket:presetBucket(ctx)});ui().toast('Processore copiato');}),btn('Incolla',()=>{const clip=desk().get().pluginClipboard;if(!clip){ui().toast('Copia prima un processore');return;}if(clip.bucket!==presetBucket(ctx)){ui().toast('Copia un processore della stessa sezione');return;}if(applyParams(ctx,clip.model,clip.params,clip.enabled,clip.mix))ui().toast('Processore incollato');}),btn('Reset',()=>{const params=Cat.defaults(ctx,model.id);if(applyParams(ctx,model.id,params,true,100))ui().toast('Parametri ripristinati');}));
       if(['delay','reverb'].includes(model.layout)){

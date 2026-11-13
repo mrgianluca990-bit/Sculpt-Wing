@@ -6,6 +6,7 @@
   const clamp=(v,a,b)=>Math.min(b,Math.max(a,Number(v)));
   const knownId=id=>!!C.getStrip(id);
   const plain=v=>v&&typeof v==='object'&&!Array.isArray(v);
+  const MACRO_COUNT=16,MACRO_PROFILE_KEY='sculpt-wing-macros-v1';
   function clean(value,depth=0){
     if(depth>18)return null;
     if(typeof value==='string')return value.slice(0,5000);
@@ -22,6 +23,14 @@
       if(plain(value)&&plain(base[key]))merge(base[key],value);else base[key]=clean(value);
     }return base;
   }
+  function normalizeMacros(input){
+    const byId=new Map();
+    for(const item of Array.isArray(input)?input:[]){
+      const id=Number(item?.id);if(!plain(item)||!Number.isInteger(id)||id<1||id>MACRO_COUNT||byId.has(id))continue;
+      const value=clean(item);byId.set(id,{...value,id,name:typeof value.name==='string'?value.name:'',actions:Array.isArray(value.actions)?value.actions.slice(0,32):[]});
+    }
+    return Array.from({length:MACRO_COUNT},(_,i)=>byId.get(i+1)||{id:i+1,name:'',actions:[]});
+  }
   const sourceGroups=[['LCL',24,'Locale'],['AUX',8,'Aux analogico'],['A',48,'AES50 A'],['B',48,'AES50 B'],['C',48,'AES50 C'],['SC',32,'StageCONNECT'],['USB',48,'USB'],['CRD',64,'WING-LIVE'],['MOD',64,'Dante'],['PLAY',4,'Player'],['AES',2,'AES/EBU'],['USR',56,'User'],['OSC',2,'Oscillatore']];
   const outputGroups=[['LCL',8],['AUX',8],['A',48],['B',48],['C',48],['SC',32],['USB',48],['CRD',64],['MOD',64],['AES',2],['REC',4]];
   function proc(ctx,model,enabled=true){return {model,enabled,params:K.defaults(ctx,model)||{},mix:100};}
@@ -33,7 +42,7 @@
       monitor:[1,2].map(i=>({id:i,name:`Monitor ${i===1?'A':'B'}`,source:'MAIN:1',level:-12,dim:false,dimLevel:-20,mono:false,mute:false,mode:'PFL',delay:0,delayOn:false,width:100,pan:0,polarity:false,eqOn:false,limiter:false})),
       talkback:{source:'ch-40',a:{on:false,latch:false,level:-6,targets:['bus-1','bus-2']},b:{on:false,latch:false,level:-6,targets:['main-1']}},
       oscillators:[1,2].map(i=>({id:i,on:false,mode:'SINE',frequency:i===1?1000:440,level:-30,targets:[]})),
-      scenes:[],snippets:[],stripPresets:[],safes:[],macros:Array.from({length:8},(_,i)=>({id:i+1,name:['Talk A','Mute FX','Voce +1','Voce −1','SD Record','SD Stop','Dim','Scena GO'][i],actions:[]})),
+      scenes:[],snippets:[],stripPresets:[],safes:[],macros:Array.from({length:MACRO_COUNT},(_,i)=>({id:i+1,name:['Talk A','Mute FX','Voce +1','Voce −1','SD Record','SD Stop','Dim','Scena GO'][i]||'',actions:[]})),macrosSeeded:false,
       setup:{name:'Sculpt · WING Rack',model:'RACK',firmware:'3.1.2',ip:'192.168.1.100',dhcp:true,sampleRate:48000,clock:'INTERNAL',usbChannels:48,card:'WLIVE',module:'DANTE',stageConnect:{inputs:16,outputs:16,mode:'AUTO',power:true},networkMode:'SWITCH',midiChannel:1,remoteLock:false,startMute:false},
       recorder:{},customControls:[],history:[],pluginPresets:[],pluginClipboard:null,showName:'Live · Sculpt',activeScene:null,
       io:{globalAlt:false,autoAlt:false,haRemote:{A:true,B:true,C:false}},layers:[],activeLayer:null};
@@ -145,6 +154,10 @@
       return {...item,slot:i+1,params,enabled:!!item.enabled,mix:clamp(item.mix??100,0,100),stripId:knownId(item.stripId)?item.stripId:null,position:item.position==='post'?'post':'pre'};
     });
     for(const key of ['dca','muteGroups','users','scenes','snippets','stripPresets','safes','macros','customControls','history','pluginPresets','layers'])if(!Array.isArray(d[key]))d[key]=defaults()[key]||[];
+    d.macros=normalizeMacros(d.macros);
+    // A loaded macro bank, including intentionally empty slots, is user content.
+    // Fresh defaults explicitly carry false so a reset may seed the eight demos.
+    if(Array.isArray(safe.macros)&&!Object.prototype.hasOwnProperty.call(safe,'macrosSeeded'))d.macrosSeeded=true;
     d.dca=d.dca.slice(0,16);d.muteGroups=d.muteGroups.slice(0,8);d.scenes=d.scenes.slice(0,20);
     for(const group of [...d.dca,...d.muteGroups]){group.members=Array.isArray(group.members)?group.members.filter(knownId):[];if('level'in group)group.level=clamp(group.level,-90,10);}
     if(!Array.isArray(d.monitor)||d.monitor.length!==2)d.monitor=clone(base.monitor);
@@ -152,9 +165,24 @@
     normalizeAutomix(d);reconcileInserts(d);normalizeLayers(d);
     return d;
   }
-  if(!C.getState().desk)C.transact(s=>{s.desk=defaults();},'init');else C.transact(s=>{s.desk=normalize(s.desk);},'init');
+  let macroProfile=null;
+  try{const saved=JSON.parse(root.localStorage?.getItem(MACRO_PROFILE_KEY)||'null');if(saved?.version===1&&Array.isArray(saved.macros))macroProfile=saved;}catch{}
+  C.transact(s=>{
+    s.desk=s.desk?normalize(s.desk):defaults();
+    if(macroProfile){s.desk.macros=normalizeMacros(macroProfile.macros);s.desk.macrosSeeded=macroProfile.macrosSeeded!==false;}
+  },'init');
   const get=()=>C.getState().desk;
   const change=(fn,type='console')=>C.transact(s=>{fn(s.desk);},type);
+  let macroProfileSignature='',macroStorageWarning=false;
+  function persistMacroProfile(){
+    const current=get(),value=JSON.stringify({version:1,macrosSeeded:current.macrosSeeded===true,macros:normalizeMacros(current.macros)});
+    if(value===macroProfileSignature)return;
+    try{const storage=root.localStorage;if(!storage)return;storage.setItem(MACRO_PROFILE_KEY,value);macroProfileSignature=value;macroStorageWarning=false;}
+    catch{if(!macroStorageWarning){macroStorageWarning=true;C.toast?.('Non è stato possibile salvare le macro su questo dispositivo. Esporta il progetto per conservarle.');}}
+  }
+  // Macro definitions are local controls. Persist only this bank while ordinary
+  // project/audio persistence is disabled by an active WING session.
+  C.subscribe(persistMacroProfile);
   function processor(ctx){if(ctx?.type==='fx')return get().fx[Number(ctx.slot)-1]||null;return get().processing[ctx?.id]?.[ctx?.block]||null;}
   function setModel(ctx,id){
     const item=processor(ctx);if(!item||!K.list(ctx).some(v=>v.id===id))return false;
@@ -264,7 +292,7 @@
     },'recall');return true;
   }
   function reset(){const fresh=M.defaults();fresh.desk=defaults();C.restore(M.serialize(fresh));}
-  root.SculptDesk={get,change,subscribe:C.subscribe,defaults,normalize,layerRows,normalizeLayers,processor,setModel,setParam,
+  root.SculptDesk={get,change,subscribe:C.subscribe,defaults,normalize,normalizeMacros,layerRows,normalizeLayers,processor,setModel,setParam,
     setLayerRows(id,rows){const layer=get().layers.find(item=>item.id===id);if(!layer)return false;return change(()=>{layer.rows=layerRows({rows});layer.members=[...layer.rows.top,...layer.rows.bottom];},'layer-layout');},
     enableProcessor(ctx,on){const p=processor(ctx);if(p)change(()=>{p.enabled=!!on;},'processing');},
     setProcessorMix(ctx,value){const p=processor(ctx);if(p)change(()=>{p.mix=clamp(value,0,100);},'parameter');},

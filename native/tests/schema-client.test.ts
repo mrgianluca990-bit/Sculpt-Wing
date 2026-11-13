@@ -310,9 +310,27 @@ describe('real strip metering for every WING family', () => {
     }
     const frame = decodeStripMeterPacket(packet, report, 123)!;
     expect(frame).toMatchObject({ reportId: 0x12345678, receivedAt: 123, channels: { 40: -30 }, auxiliaries: { 8: -30 }, buses: { 16: -10 }, mains: { 4: -10 }, matrices: { 8: -10 } });
-    expect(frame.strips.mtx[8]).toEqual({ input: [-40, -30], output: [-20, -10], gateKey: -50, gateGainRaw: 128, dynKey: -60, dynGainRaw: -33 });
+    expect(frame.strips.mtx[8]).toEqual({ input: [-40, -30], output: [-20, -10], gateKey: -50, gateGainRaw: 128, dynKey: -60, dynGainRaw: -33, gateGainNormalized: .5, dynGainNormalized: -33 / 256 });
     expect(decodeStripMeterPacket(packet, { ...report, reportId: 1 })).toBeUndefined();
     expect(decodeStripMeterPacket(packet.subarray(1), report)).toBeUndefined();
+  });
+
+  it('keeps processor gain meter units separate from stereo dBFS and preserves the signed raw words', () => {
+    const report = { reportId: 7, selection: { ch: [1] } };
+    // Six level words represent input/output/key levels; the gain words use
+    // normalized model units: 0x0080 = 0.5 and 0x0100 = 1, NOT dBFS.
+    const packet = Uint8Array.from([0, 0, 0, 7, 0xf4, 0, 0xee, 0, 0xe8, 0, 0xe2, 0, 0xdc, 0, 0, 0x80, 0xd6, 0, 1, 0]);
+    const first = decodeStripMeterPacket(packet, report, 1)!.strips.ch[1];
+    expect(first.input).toEqual([-12, -18]);
+    expect(first.output).toEqual([-24, -30]);
+    expect(first.gateGainNormalized).toBe(.5);
+    expect(first.dynGainNormalized).toBe(1);
+    packet[14] = 0xff; packet[15] = 0x80; packet[18] = 0; packet[19] = 0;
+    const second = decodeStripMeterPacket(packet, report, 2)!.strips.ch[1];
+    expect(second.gateGainRaw).toBe(-128);
+    expect(second.gateGainNormalized).toBe(-.5);
+    expect(second.dynGainNormalized).toBe(0);
+    expect('gateDb' in second).toBe(false);
   });
 
   it('uses the same public meter stream for extended/legacy selections without late report contamination', async () => {

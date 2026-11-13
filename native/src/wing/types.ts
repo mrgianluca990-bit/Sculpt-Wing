@@ -17,6 +17,8 @@ export interface StripMeter {
   gateKey: number; dynKey: number;
   /** Raw signed words: scaling depends on the selected gate/dynamics model. */
   gateGainRaw: number; dynGainRaw: number;
+  /** Signed protocol meter units (raw / 256), not dB. Model scales differ. */
+  gateGainNormalized: number; dynGainNormalized: number;
 }
 export interface MeterFrame {
   channels: Record<number, number>; buses: Record<number, number>; receivedAt: number;

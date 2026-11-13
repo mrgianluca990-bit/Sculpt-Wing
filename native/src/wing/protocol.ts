@@ -333,7 +333,10 @@ export function encodeStripMeterRequest(port: number, report: StripMeterReport):
   return encodeChannel(METER_CHANNEL, [...payload, 0xde]);
 }
 
-/** Standard strip reports have eight signed BE words, never fabricated gain reduction. */
+/** Eight signed BE words. Gain words are normalized model meters, NOT level dB.
+ * WING Remote Protocols, Channel 3: Metering: raw 256 = one model meter unit;
+ * the standard GATE scale is 60 dB, while other model scales can differ.
+ */
 export function decodeStripMeterPacket(bytes: Uint8Array, report: StripMeterReport, receivedAt = Date.now()): StripMeterFrame | undefined {
   const count = STRIP_FAMILIES.reduce((n, family) => n + (report.selection[family]?.length ?? 0), 0);
   if (bytes.length !== 4 + 16 * count) return undefined;
@@ -349,9 +352,11 @@ export function decodeStripMeterPacket(bytes: Uint8Array, report: StripMeterRepo
     for (const index of report.selection[family] ?? []) {
       const input: [number, number] = [view.getInt16(p) / 256, view.getInt16(p + 2) / 256];
       const output: [number, number] = [view.getInt16(p + 4) / 256, view.getInt16(p + 6) / 256];
+      const gateGainRaw = view.getInt16(p + 10), dynGainRaw = view.getInt16(p + 14);
       frame.strips[family][index] = {
-        input, output, gateKey: view.getInt16(p + 8) / 256, gateGainRaw: view.getInt16(p + 10),
-        dynKey: view.getInt16(p + 12) / 256, dynGainRaw: view.getInt16(p + 14),
+        input, output, gateKey: view.getInt16(p + 8) / 256, gateGainRaw,
+        dynKey: view.getInt16(p + 12) / 256, dynGainRaw,
+        gateGainNormalized: gateGainRaw / 256, dynGainNormalized: dynGainRaw / 256,
       };
       scalarMaps[family][index] = Math.max(...(family === 'ch' || family === 'aux' ? input : output));
       p += 16;

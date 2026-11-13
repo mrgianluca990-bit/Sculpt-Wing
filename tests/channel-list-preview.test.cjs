@@ -34,8 +34,10 @@ test('scene preview imports silence and all monitor sends only after Apply, then
   assert.equal(f.C.getSend('ch-2','bus-2').level,-5);assert.equal(f.C.getSend('ch-2','bus-2').mode,'PRE');
   assert.deepEqual(plain(f.C.capture().desk),before.desk,'all channel sources, inserts, output routing and preamps stay exact');
   const persisted=JSON.parse(f.w.localStorage.getItem(f.w.SculptModel.KEY));assert.equal(persisted.values['ch-1'].mute,true);assert.equal(persisted.sends['ch-1>bus-2'].mode,'POST');
-  f.button('Applica scena').click();assert.equal(f.button('Annulla importazione').disabled,false,'a no-op reapply retains the last usable undo');
-  f.button('Annulla importazione').click();assert.deepEqual(plain(f.C.capture()),before);
+  assert.equal(f.w.document.querySelector('.cl-modal'),null,'a successful application closes the preview');assert.equal(f.subscribers.size,0);assert.equal(f.w.SculptChannelPreview.canUndo(),true);
+  f.importText();f.button('Applica scena').click();assert.equal(f.w.document.querySelector('.cl-modal'),null,'a no-op application closes too');
+  f.w.SculptChannelPreview.open();assert.equal(f.button('Annulla importazione').disabled,false,'a no-op reapply retains undo after closing and reopening');
+  f.button('Annulla importazione').click();assert.deepEqual(plain(f.C.capture()),before);assert.equal(f.w.SculptChannelPreview.canUndo(),false);
   f.button('Chiudi').click();assert.equal(f.subscribers.size,0);
 });
 
@@ -48,7 +50,7 @@ test('all identity, fader, mute, primary bus, send, monitor and remaining propos
   f.edit('Mandata attiva BUS 1 CH 3',false);f.edit('Livello mandata BUS 1 CH 3','-12,3');f.edit('Modalità mandata BUS 1 CH 3','PRE');f.edit('Livello mandata BUS 2 CH 3','-4,5');f.edit('Modalità mandata BUS 2 CH 3','POST');f.edit('Segue mute BUS 2 CH 3',false);
   f.edit('Nome monitor 1','Keep BUS');f.edit('Colore monitor 1','#f6e100');f.edit('Applica nome e colore al bus 1',false);f.edit('Nome monitor 2','Bass IEM');f.edit('Colore monitor 2','#00b43d');f.edit('Bus monitor 1','bus-7');
   assert.equal(f.control('Livello mandata BUS 7 CH 3').value,'-12,3','changing bus preserves edited sends');assert.equal(f.control('Mandata attiva BUS 7 CH 3').checked,false);
-  f.button('Aggiungi monitor').click();assert(f.control('Nome monitor 3'));f.control('Rimuovi monitor 3').click();assert.equal(f.control('Nome monitor 3'),undefined);
+  f.button('Aggiungi monitor').click();const added=f.w.document.querySelector('[data-monitor-id^="manual-monitor-"]');assert(added);assert.equal(added.querySelector('select').value,'bus-1','the lowest free BUS is assigned');added.querySelector('.cl-remove').click();assert.equal(f.w.document.querySelector('[data-monitor-id^="manual-monitor-"]'),null);
   f.button('Rimanenti').click();assert.equal(f.control('Canali rimanenti').value,'keep');f.edit('Canali rimanenti','initialize');f.button('Lascia tutti invariati').click();f.edit('Inizializza CH 4',true);f.edit('Nome rimanente CH 4','Spare input');f.edit('Colore rimanente CH 4','#ff5a2d');f.edit('Fader rimanente CH 4','-30');f.edit('Mute rimanente CH 4',false);
   f.edit('Inizializza CH 4',false);
   assert.equal(f.control('Nome rimanente CH 4').value,before.values['ch-4'].name,'unchecked remaining row shows the current project name');
@@ -78,7 +80,7 @@ test('invalid preview edits block all changes and a preserved post-fader PRE tap
 test('live transition disables Apply and Undo and cannot be bypassed by re-enabling the button',t=>{
   const f=fixture(t),before=plain(f.C.capture());f.importText();f.setLive(true);const apply=f.button('Applica scena');assert.equal(apply.disabled,true);
   apply.disabled=false;apply.click();assert.deepEqual(plain(f.C.capture()),before);assert.match(f.w.document.querySelector('.cl-status').textContent,/offline/);
-  f.setLive(false);assert.equal(apply.disabled,false);apply.click();assert.equal(f.C.getStrip('ch-1').name,'Kick');f.setLive(true);assert.equal(f.button('Annulla importazione').disabled,true);
+  f.setLive(false);assert.equal(apply.disabled,false);apply.click();assert.equal(f.C.getStrip('ch-1').name,'Kick');f.setLive(true);f.w.SculptChannelPreview.open();assert.equal(f.button('Annulla importazione').disabled,true);assert.equal(f.w.SculptChannelPreview.canUndo(),false);
 });
 
 test('a newer text import cancels a local PDF read and discards its late completion',async t=>{
@@ -107,7 +109,7 @@ test('blank channels can start a scene, need no monitor, reserve a free slot and
   f.button('Mandate').click();assert.match(f.w.document.querySelector('.cl-send-editor').textContent,/Nessun monitor assegnato/);assert.equal(f.button('Applica scena').disabled,false);
   assert.deepEqual(plain(f.C.capture()),before);f.button('Applica scena').click();assert.equal(f.C.getStrip('ch-1').name,'CH 1');assert.equal(f.C.getStrip('ch-1').mute,true);assert.equal(f.C.getStrip('ch-1').level,-90);
   assert.deepEqual(plain(f.C.capture().desk),before.desk);assert.deepEqual(plain(f.C.capture().sends),before.sends,'a blank scene with no monitor must preserve every existing send');
-  f.button('Annulla importazione').click();assert.deepEqual(plain(f.C.capture()),before);
+  f.w.SculptChannelPreview.open();f.button('Annulla importazione').click();assert.deepEqual(plain(f.C.capture()),before);
 });
 
 test('two optional principal monitors are assigned once for every linked instrument channel',t=>{
@@ -125,7 +127,7 @@ test('two optional principal monitors are assigned once for every linked instrum
   assert.equal(f.control('Monitor principale 1 dello strumento').value,'');assert.equal(f.control('Monitor principale 2 dello strumento').value,'');assert.equal(f.control('Modalità mandata BUS 2 CH 1').value,'POST');
   f.edit('Monitor principale 2 dello strumento','bus-3');assert.equal(f.button('Applica scena').disabled,false,'the second slot is usable while the first is None');
   f.button('Applica scena').click();for(const channel of ['ch-1','ch-2']){assert.equal(f.C.getSend(channel,'bus-3').level,-5);assert.equal(f.C.getSend(channel,'bus-3').pre,true);assert.equal(f.C.getSend(channel,'bus-2').level,-8);assert.equal(f.C.getSend(channel,'bus-2').pre,false);}
-  assert.deepEqual(plain(f.C.capture().desk),before.desk);f.button('Annulla importazione').click();assert.deepEqual(plain(f.C.capture()),before);
+  assert.deepEqual(plain(f.C.capture().desk),before.desk);f.w.SculptChannelPreview.open();f.button('Annulla importazione').click();assert.deepEqual(plain(f.C.capture()),before);
 });
 
 test('group send editing propagates only edited fields and individual overrides remain visible as mixed values',t=>{
@@ -159,4 +161,59 @@ test('starting with a blank channel cancels a pending PDF and cannot be overwrit
   f.button('Aggiungi canale vuoto').click();assert.equal(signal.aborted,true);assert.equal(f.button('Applica scena').disabled,false);
   resolveRead({pages:[{items:[{text:'9 Late Piano',x:10,y:10,width:80,height:10}]}]});await Promise.resolve();await Promise.resolve();
   assert(f.control('Nome canale vuoto CH 1'));assert.equal(f.control('Nome riga 9'),undefined);
+});
+
+test('monitor assignments preserve both scroll axes, nested positions and the logical focused control',t=>{
+  const f=fixture(t);f.importText('1 Kick\n2 Snare\n3 Bass\n4 Piano L\n5 Piano R\n6 Voce');
+  const table=()=>f.w.document.querySelector('.cl-channels-table').parentElement,body=f.w.document.querySelector('.cl-modal .desk-modal-body');
+  table().scrollTop=480;table().scrollLeft=95;body.scrollTop=42;body.scrollLeft=7;
+  f.control('Monitor principale 1 strumento 3').focus();f.edit('Monitor principale 1 strumento 3','bus-4');
+  assert.equal(table().scrollTop,480);assert.equal(table().scrollLeft,95);assert.equal(body.scrollTop,42);assert.equal(body.scrollLeft,7);
+  assert.equal(f.w.document.activeElement,f.control('Monitor principale 1 strumento 3'));
+  f.control('Monitor principale 2 strumento 3').focus();f.edit('Monitor principale 2 strumento 3','bus-2');
+  assert.equal(table().scrollTop,480);assert.equal(table().scrollLeft,95);assert.equal(f.w.document.activeElement,f.control('Monitor principale 2 strumento 3'));
+  f.button('Mandate').click();
+  const list=()=>f.w.document.querySelector('.cl-monitor-list'),sends=()=>f.w.document.querySelector('.cl-sends-table').parentElement,layout=()=>f.w.document.querySelector('.cl-send-layout');
+  list().scrollTop=207;sends().scrollTop=143;sends().scrollLeft=61;layout().scrollTop=57;
+  const oldCard=f.control('Bus monitor 1').closest('.cl-monitor-card').dataset.monitorId;
+  f.control('Bus monitor 1').focus();f.edit('Bus monitor 1','bus-12');
+  assert.equal(list().scrollTop,207);assert.equal(sends().scrollTop,143);assert.equal(sends().scrollLeft,61);assert.equal(layout().scrollTop,57);
+  assert.equal(f.w.document.activeElement.value,'bus-12');assert.equal(f.w.document.activeElement.closest('.cl-monitor-card').dataset.monitorId,oldCard,'focus follows the same monitor after numeric reordering');
+  f.control('Monitor principale 2 dello strumento').focus();f.edit('Monitor principale 2 dello strumento','bus-3');
+  assert.equal(list().scrollTop,207);assert.equal(sends().scrollTop,143);assert.equal(sends().scrollLeft,61);assert.equal(f.w.document.activeElement,f.control('Monitor principale 2 dello strumento'));
+  f.button('Canali').click();assert.equal(table().scrollTop,480);assert.equal(table().scrollLeft,95,'returning to a tab restores its own horizontal position');
+  f.button('Mandate').click();assert.equal(list().scrollTop,207);assert.equal(sends().scrollTop,143);assert.equal(sends().scrollLeft,61);
+});
+
+test('monitor cards, main-assignment options and send rows use numeric ascending BUS order',t=>{
+  const f=fixture(t);f.importText('1 Kick\n2 Bass\n3 Piano L');f.button('Mandate').click();
+  f.edit('Bus monitor 1','bus-10');
+  assert.deepEqual([...f.w.document.querySelectorAll('.cl-monitor-line select')].map(node=>node.value),['bus-2','bus-3','bus-10']);
+  assert.deepEqual([...f.control('Monitor principale 1 dello strumento').options].map(node=>node.value),['','bus-2','bus-3','bus-10']);
+  assert.deepEqual([...f.w.document.querySelectorAll('.cl-sends-table tbody tr')].map(node=>node.dataset.busId),['bus-2','bus-3','bus-10']);
+  f.button('Aggiungi monitor').focus();f.button('Aggiungi monitor').click();assert.equal(f.w.document.activeElement,f.button('Aggiungi monitor'),'keyboard focus remains on the action after rebuilding');
+  assert.deepEqual([...f.w.document.querySelectorAll('.cl-monitor-line select')].map(node=>node.value),['bus-1','bus-2','bus-3','bus-10'],'new monitors fill the lowest free bus and enter numeric order');
+  f.button('Canali').click();assert.deepEqual([...f.control('Monitor principale 1 strumento 1').options].map(node=>node.value),['','bus-1','bus-2','bus-3','bus-10']);
+});
+
+test('failed Apply stays open and undo survives closing while retaining live and conflict protection',t=>{
+  const f=fixture(t),before=plain(f.C.capture());f.importText();
+  const apply=f.w.SculptChannelScene.applyDraft;f.w.SculptChannelScene.applyDraft=()=>{throw new Error('Application failed');};
+  f.button('Applica scena').click();assert(f.w.document.querySelector('.cl-modal[open]'));assert.match(f.w.document.querySelector('.cl-status').textContent,/Application failed/);assert.deepEqual(plain(f.C.capture()),before);assert.equal(f.w.SculptChannelPreview.canUndo(),false);
+  f.w.SculptChannelScene.applyDraft=apply;f.button('Applica scena').click();assert.equal(f.w.document.querySelector('.cl-modal'),null);assert.equal(f.w.SculptChannelPreview.canUndo(),true);
+  const imported=plain(f.C.capture());f.setLive(true);assert.equal(f.w.SculptChannelPreview.undoLast().ok,false);assert.deepEqual(plain(f.C.capture()),imported);
+  f.setLive(false);f.C.transact(state=>{f.w.SculptModel.find(state,'ch-1').level=-20;},'later-fader-change');const changed=plain(f.C.capture());
+  f.w.SculptChannelPreview.open();f.button('Annulla importazione').click();assert.match(f.w.document.querySelector('.cl-status').textContent,/valori sono cambiati/);assert.deepEqual(plain(f.C.capture()),changed,'a later conflicting edit blocks the complete undo');
+});
+
+test('cleared strip names stay editable while typing and commit their current CH AUX or BUS default',t=>{
+  const f=fixture(t),before=plain(f.C.capture());f.importText();
+  const first=f.edit('Nome riga 1','');assert.equal(first.value,'','deleting text must not insert a name during typing');assert.equal(f.button('Applica scena').disabled,true);
+  first.dispatchEvent(new f.w.Event('blur'));assert.equal(first.value,'CH 1');assert.equal(f.button('Applica scena').disabled,false);
+  f.edit('Destinazione riga 2','aux-3');const aux=f.edit('Nome riga 2','   ');aux.dispatchEvent(new f.w.KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));assert.equal(aux.value,'AUX 3');
+  const group=f.edit('Nome strumento 1','');group.dispatchEvent(new f.w.Event('blur'));assert.equal(group.value,'','instrument labels do not receive channel defaults');
+  f.button('Mandate').click();const bus=f.edit('Nome monitor 1',' ');assert.equal(bus.value,' ');bus.dispatchEvent(new f.w.Event('blur'));assert.equal(bus.value,'BUS 1');
+  f.button('Rimanenti').click();f.edit('Canali rimanenti','initialize');const remaining=f.edit('Nome rimanente CH 4','');remaining.dispatchEvent(new f.w.Event('blur'));assert.equal(remaining.value,'CH 4');
+  f.button('Canali').click();f.edit('Destinazione riga 2','');f.edit('Importa riga 2 Bass',true);const unknown=f.edit('Nome riga 2','');unknown.dispatchEvent(new f.w.Event('blur'));assert.equal(unknown.value,'','an unresolved target must not receive a fabricated default');assert.equal(f.button('Applica scena').disabled,true);
+  assert.deepEqual(plain(f.C.capture()),before,'defaults remain proposals until Apply');
 });

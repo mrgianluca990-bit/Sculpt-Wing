@@ -36,7 +36,7 @@
   }
   async function disconnect(toDemo=false){
     window.SculptSystems?.stopMacros();await session.disconnect(toDemo);
-    if(toDemo&&demoSnapshot){const saved=demoSnapshot;demoSnapshot=null;C.restore(saved);}
+    if(toDemo&&demoSnapshot){const saved=demoSnapshot,macros=clone(D.get().macros||[]),macrosSeeded=D.get().macrosSeeded;saved.desk=saved.desk||{};saved.desk.macros=macros;saved.desk.macrosSeeded=macrosSeeded;demoSnapshot=null;C.restore(saved);}
     update();
   }
   const unitNames={0:'',1:'dB',2:'%',3:'ms',4:'Hz',5:'m',6:'s',7:'oct'};
@@ -66,14 +66,17 @@
   }
   function allowMacro(macro){
     if(!session.active())return true;
-    const supported=new Set(['fader','mute','solo','send','dca','muteGroup','talkback','monitorDim','sourceAlt','fxBypass','oscillator','wait']);
+    const local=new Set(['menu','editor','sof','layer','wait']);
+    if(macro.actions?.every(action=>local.has(action.type)))return true;
+    const supported=new Set(['menu','editor','sof','layer','processorParam','wingParameter','fader','mute','solo','send','dca','muteGroup','talkback','monitorDim','sourceAlt','fxBypass','oscillator','wait']);
     if(typeof window.SculptLivePages?.transport==='function')supported.add('recorder');
     if(!session.connected()||!session.writable){toast('Collega la WING e attiva Controllo prima di eseguire una macro.');return false;}
     if(macro.actions?.some(action=>!supported.has(action.type))){toast('Questa macro contiene azioni locali non disponibili sul banco. Per le scene usa Show Control WING.');return false;}return true;
   }
   window.SculptLive={
     isLive:()=>session.active(),isConnected:()=>session.connected(),isWritable:()=>session.writable,
-    canPersist:()=>!session.active(),snapshot:()=>session.snapshot(),meter:(id,tap)=>session.meter(id,tap),
+    canPersist:()=>!session.active(),sessionToken:()=>session.epoch,snapshot:()=>session.snapshot(),meter:(id,tap)=>session.meter(id,tap),
+    gainReduction:id=>session.gainReduction(id),
     processorState:ctx=>session.processorState(ctx),parameterDefinition,
     ensureProcessor:(ctx,options)=>session.ensureProcessor(ctx,options),triggerProcessor,
     applyProcessorPreset:(ctx,preset)=>session.processorPreset(ctx,preset).catch(e=>{toast(e.message);throw e;}),
@@ -83,7 +86,7 @@
     nodeState:path=>({loaded:session.loaded.has(path),hasValue:session.values.has(path),metadata:session.metadata.get(path)}),
     readNode:(path,options)=>session.loadNode(path,options),write:(path,value,options)=>session.write(path,value,options),
     settled:()=>session.settled(),
-    ready:()=>available,open:()=>U.open('connection'),openExplorer:path=>{explorerPath=path||'/';U.open('wing');},
+    ready:()=>available,open:()=>U.open('connection'),openExplorer:(path,options={})=>{explorerPath=path||'/';U.open('wing',options);},
     pageOpened(id,args){
       if(!session.connected())return;
       const scopes={fx:'fx',io:'io',groups:'groups',monitor:'monitor',setup:'setup'};
@@ -133,24 +136,26 @@
   }
 
   function formatValue(value){if(value===undefined)return '—';if(typeof value==='number')return Number(value.toFixed(5)).toString();return String(value);}
-  function renderExplorer(container){
+  function renderExplorer(container,args={}){
     let disposed=false;const generation=++explorerGeneration;
     const top=U.el('div','wing-explorer-top'),pathInput=U.el('input','desk-input');pathInput.value=explorerPath;pathInput.placeholder='/ch/1/eq';pathInput.setAttribute('aria-label','Percorso parametro WING');
     const nav=U.el('form','wing-path');nav.append(U.field('Percorso sul banco',pathInput));const go=U.button('Apri',null,'desk-primary');go.type='submit';nav.append(go,U.button('↑',()=>navigate(explorerPath.replace(/\/[^/]+\/?$/,'')||'/')),U.button('Rileggi',()=>load(true)));
-    top.append(U.el('p','desk-note','Struttura e parametri dichiarati dal firmware collegato. Qui trovi anche le funzioni che non hanno ancora un pannello Sculpt dedicato.'),nav);
+    top.append(U.el('p','desk-note',args.onSelect?'Scegli un parametro da assegnare alla macro. La selezione non modifica alcun valore del banco.':'Struttura e parametri dichiarati dal firmware collegato. Qui trovi anche le funzioni che non hanno ancora un pannello Sculpt dedicato.'),nav);
+    if(args.onSelect&&args.onCancel)top.append(U.button('Torna alla macro',args.onCancel));
     const status=U.el('p','desk-note'),list=U.el('div','wing-nodes');container.append(top,status,list);
     nav.addEventListener('submit',e=>{e.preventDefault();navigate(pathInput.value.trim()||'/');});
     async function navigate(path){explorerPath=path;pathInput.value=path;await load();}
     async function load(refresh=false){
       if(!session.connected()){status.textContent='Collega la WING per leggere i parametri reali.';list.replaceChildren(U.button('Apri connessione',()=>U.open('connection'),'desk-primary'));return;}
-      const target=explorerPath;status.textContent='Lettura dal banco…';list.replaceChildren();
+      const target=explorerPath,epoch=session.epoch;status.textContent='Lettura dal banco…';list.replaceChildren();
       try{
         const own=await native.driver.describe(target);
         const definitions=own.type===0?await native.driver.list(target,{refresh}):[own];
-        for(const def of definitions)session.metadata.set(def.path,def);
-        let values;
+        session.assert(epoch);let values;
         if(own.type===0)values=await native.driver.readTree(target);
         else values={[target]:await native.driver.get(target)};
+        session.assert(epoch);if(disposed||generation!==explorerGeneration||target!==explorerPath)return;
+        for(const def of definitions)session.metadata.set(def.path,def);
         for(const [p,v]of Object.entries(values))session.receive(p,v);session.flush();
         if(disposed||generation!==explorerGeneration||target!==explorerPath)return;
         status.textContent=`${definitions.length} elementi · ${session.writable?'Controllo attivo':'Sola lettura'}`;
@@ -160,6 +165,7 @@
           if(meta.type===0){row.append(U.button('Apri ›',()=>navigate(meta.path)));list.append(row);continue;}
           const value=values[meta.path]??session.values.get(meta.path),valueEl=U.el('output','wing-node-value',formatValue(value));row.append(valueEl);
           if(meta.readOnly){row.append(U.el('span','wing-read-only','LETTURA'));list.append(row);continue;}
+          if(typeof args.onSelect==='function'){const choose=U.button('Usa nella macro',()=>{if(!session.connected()||epoch!==session.epoch){toast('La sessione WING è cambiata. Rileggi il parametro.');return;}const current=session.metadata.get(meta.path);if(!current||current.readOnly||current.revision!==meta.revision){toast('Lo schema è cambiato. Rileggi il parametro.');return;}args.onSelect({path:meta.path,label:meta.longName||meta.name||meta.path,value:session.values.get(meta.path),metadata:clone(current)});});choose.setAttribute('aria-label','Usa nella macro '+meta.path);row.append(choose);list.append(row);continue;}
           let input;
           if(meta.items){input=U.el('select','desk-input');for(const item of meta.items){const option=U.el('option','',item.label||String(item.value));option.value=String(item.value);input.append(option);}input.value=String(value??'');}
           else{input=U.el('input','desk-input');input.type=meta.type===7?'text':'number';input.value=formatValue(value)==='—'?'':String(value);if(meta.type===7)input.maxLength=meta.maxLength||256;else{input.inputMode='decimal';input.step=meta.type===4?'1':'any';if(meta.min!==undefined)input.min=meta.min;if(meta.max!==undefined)input.max=meta.max;if(meta.type===3){input.min=-144;input.max=10;}}}

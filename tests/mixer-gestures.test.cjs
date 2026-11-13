@@ -90,12 +90,15 @@ test('pan from strip buttons never opens the editor, level dialog, mute or SOF; 
   assert.ok(scroller.scrollLeft > 0);
 });
 
-test('only the fader head accepts pointer level gestures; rail, double click and other pointers are inert', t => {
+test('only the fader head accepts pointer drags; deliberate double click resets to unity', t => {
   const f = fixture(t), strip = f.strip('ch-1'), rail = strip.querySelector('.fader'), cap = strip.querySelector('.fader-cap');
   f.C.updateStrip('ch-1', { level: -10 });
   f.pointer(rail, 'pointerdown'); f.pointer(rail, 'pointermove', { y: 100 }); f.pointer(rail, 'pointerup', { y: 100 });
-  rail.dispatchEvent(new f.w.MouseEvent('dblclick', { bubbles: true, cancelable: true }));
   assert.equal(f.C.getStrip('ch-1').level, -10);
+  rail.dispatchEvent(new f.w.MouseEvent('dblclick', { bubbles: true, cancelable: true, button: 0 }));
+  assert.equal(f.C.getStrip('ch-1').level, 0, 'double click on the fader is an explicit unity action');
+  assert.deepEqual(f.opened, [], 'double click must not open the channel editor');
+  f.C.updateStrip('ch-1', { level: -10 });
   f.pointer(cap, 'pointerdown', { button: 2 }); f.pointer(rail, 'pointermove', { y: 100 }); f.pointer(rail, 'pointerup');
   assert.equal(f.C.getStrip('ch-1').level, -10, 'secondary mouse button cannot start a level edit');
   f.pointer(cap, 'pointerdown');
@@ -112,6 +115,17 @@ test('only the fader head accepts pointer level gestures; rail, double click and
   assert.equal(f.C.getStrip('ch-1').level, -10, 'released pointer cannot keep changing the level');
   rail.dispatchEvent(new f.w.KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }));
   assert.equal(f.C.getStrip('ch-1').level, -9.5, 'intentional keyboard editing is retained');
+});
+
+test('fader double click resets the active SOF send only and obeys a denied live write', t => {
+  const f=fixture(t),rail=f.strip('ch-1').querySelector('.fader'),cap=rail.querySelector('.fader-cap'),before=f.C.getStrip('ch-1').level;
+  f.C.setSend('ch-1','bus-2',{level:-18});f.C.setSof('bus-2');
+  cap.dispatchEvent(new f.w.MouseEvent('dblclick',{bubbles:true,cancelable:true,button:0}));
+  assert.equal(f.C.getSend('ch-1','bus-2').level,0);assert.equal(f.C.getStrip('ch-1').level,before);
+  f.C.setSend('ch-1','bus-2',{level:-12});
+  f.w.SculptLive={isLive:()=>true,applying:()=>false,reviewMutation:()=>false,hasStripValue:()=>true,canPersist:()=>false};
+  cap.dispatchEvent(new f.w.MouseEvent('dblclick',{bubbles:true,cancelable:true,button:0}));
+  assert.equal(f.C.getSend('ch-1','bus-2').level,-12,'a denied hardware mutation cannot leave an optimistic zero');
 });
 
 test('thumb dragging in SOF changes the send only, including touch; touch on the rail remains native pan', t => {

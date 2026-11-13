@@ -1,0 +1,28 @@
+/* Row proportions are device preferences, independent of channel/audio state. */
+.console.row-resizable > .mixer-row.outputs { flex: var(--sculpt-upper-row, .5) 1 0px; }
+.console.row-resizable > .mixer-row.inputs { flex: var(--sculpt-lower-row, .5) 1 0px; }
+.console.row-resizable > .console-divider { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); column-gap: 8px; height: 18px; padding: 0 7px; position: relative; z-index: 5; }
+.console.row-resizable > .console-divider.sof-active { height: 31px; }
+.console.row-resizable > .console-divider > #sof-target { grid-column: 1; grid-row: 1; min-width: 0; font-size: 7px; letter-spacing: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.console.row-resizable > .console-divider.sof-active > #sof-target { font-size: 10px; letter-spacing: .2px; }
+.console.row-resizable > .console-divider > #exit-sof { grid-column: 3; grid-row: 1; justify-self: end; }
+.console-divider > button.row-resize-handle { grid-column: 2; grid-row: 1; display: flex; align-items: center; justify-content: center; gap: 8px; width: 104px; height: 16px; min-height: 0; margin: 0; padding: 0 7px; border: 1px solid #7c4a59; border-radius: 5px; background: linear-gradient(#4c343f, #2c212a); color: #cda5b3; cursor: row-resize; touch-action: none; user-select: none; -webkit-user-select: none; }
+.console-divider > button.row-resize-handle::before { content: ''; position: absolute; inset: -5px 0; }
+.console-divider > button.row-resize-handle { position: relative; }
+.console-divider > button.row-resize-handle > .row-resize-value { font: 8px/1 ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; margin: 0; letter-spacing: .4px; pointer-events: none; }
+.row-resize-grip { width: 19px; height: 5px; flex: none; border-top: 1px solid #ba8295; border-bottom: 1px solid #ba8295; pointer-events: none; }
+.console-divider.sof-active > button.row-resize-handle { height: 23px; background: #34212b; }
+.console-divider > button.row-resize-handle:hover { border-color: #db849a; color: #ffe3eb; }
+.console-divider > button.row-resize-handle:focus-visible { outline: 2px solid #ff9aab; outline-offset: 2px; }
+.console-divider > button.row-resize-handle.dragging { border-color: #ff9aab; color: #ffe3eb; box-shadow: 0 0 9px #d44b6d55; }
+.console.row-resizing, .console.row-resizing * { cursor: row-resize!important; user-select: none!important; -webkit-user-select: none!important; }
+@media (max-height: 620px) {
+  .console.row-resizable > .console-divider { height: 16px; }
+  .console-divider > button.row-resize-handle { height: 14px; }
+  .console.row-resizable > .console-divider.sof-active { height: 28px; }
+  .console-divider.sof-active > button.row-resize-handle { height: 22px; }
+}
+@media (max-height: 440px) and (orientation: landscape) {
+  .console.row-resizable > .console-divider.sof-active { height: 25px; }
+  .console-divider.sof-active > button.row-resize-handle { height: 21px; }
+}

@@ -21,13 +21,120 @@
     if(JSON.stringify(value).length>8000000)throw new Error('Il progetto supera il limite di 8 MB.');
     return JSON.parse(JSON.stringify(value),(key,v)=>['__proto__','prototype','constructor'].includes(key)?undefined:v);
   }
+  const UI_ACTIONS=new Set(['menu','editor','sof','layer']);
+  const isLocalAction=action=>UI_ACTIONS.has(action?.type)||action?.type==='wait';
+  const MENU_PAGES=[['bank-menu','Menu del banco'],['mixer','Mixer'],['channel-list','Importa channel list PDF'],['connection','Connessione WING'],['wing','Parametri WING'],['io','I/O e routing'],['fx','Rack FX'],['fx-editor','Editor di un plugin FX'],['dca-bank','Banco DCA'],['groups','DCA / Mute Groups'],['monitor','Monitor / Talkback'],['meters','Meter / RTA'],['scenes','Scene / Library'],['recorder','Recorder / Player'],['setup','Setup'],['layers','Custom Layer'],['macros','Macro Sculpt'],['about','Informazioni']];
+  const MENU_SECTIONS={io:[['inputs','Ingressi'],['sources','Sorgenti'],['outputs','Uscite'],['user','USER'],['devices','Dispositivi']],groups:[['dca','DCA'],['mute','Mute Groups'],['auto','Automix']],monitor:[['a','Monitor A'],['b','Monitor B'],['solo','Solo'],['talk','Talkback']],meters:[['levels','Meter'],['rta','RTA'],['osc','Oscillatori']],scenes:[['show','Show / scene'],['snippets','Snippet'],['presets','Preset canale'],['project','Progetto']],recorder:[['sdA','SD A'],['sdB','SD B'],['usb','USB REC'],['player','Player']],setup:[['audio','Audio / clock'],['hardware','Hardware'],['network','Rete'],['midi','MIDI / GPIO'],['controls','Custom Controls'],['layers','Layer'],['about','Sistema']]};
+  const EDITOR_TABS=[['channel','Canale'],['processing','Processo'],['eq','EQ'],['dynamics','Dinamica'],['sends','Mandate'],['groups','Gruppi']];
+  const validWingPath=path=>typeof path==='string'&&path.length<=256&&/^\/(?:[A-Za-z0-9_$-]+\/)*[A-Za-z0-9_$-]+$/.test(path)&&path.split('/').length<=17;
+  const definitionSignature=definition=>JSON.stringify(definition?{type:definition.type,readOnly:!!definition.readOnly,min:definition.min,max:definition.max,step:definition.step,steps:definition.steps,maxLength:definition.maxLength,items:definition.items,options:definition.options,revision:definition.revision,path:definition.path}:null);
+  function assertMacroSession(env){
+    if(!env.live?.isLive?.())return;
+    if(!env.live.isConnected?.()||!env.live.isWritable?.())throw new Error('Collega la WING e attiva Controllo prima della macro.');
+    if(env.macroSessionToken!==undefined&&env.live.sessionToken?.()!==env.macroSessionToken)throw new Error('La sessione WING è cambiata: macro interrotta.');
+  }
+  function resolveValue(action,definition,current,wire=false){
+    if(!definition||definition.readOnly)throw new Error('Parametro non disponibile o di sola lettura.');
+    const mode=action.mode||'set';if(!['set','offset','toggle','trigger'].includes(mode))throw new Error('Operazione del parametro non valida.');
+    const type=definition.type,enumerated=wire?[5,6].includes(type):type==='enum',boolean=wire?type===4&&definition.min===0&&definition.max===1:type==='boolean',string=wire?type===7:type==='string';
+    const choices=wire?(definition.items||[]).map(item=>item.value):(definition.options||[]);
+    if(wire&&(!Number.isInteger(type)||type<1||type>7))throw new Error('Il percorso scelto non è un parametro WING.');
+    let value=action.value;
+    if(mode==='toggle'){
+      if(boolean)value=wire?(Number(current)?0:1):!current;
+      else if(enumerated&&choices.length===2){const index=choices.findIndex(item=>Object.is(item,current));if(index<0)throw new Error('Il valore corrente non è disponibile.');value=choices[index?0:1];}
+      else throw new Error('Alterna richiede un interruttore o un parametro con due valori.');
+    }else if(mode==='offset'){
+      if(string||enumerated||boolean||!Number.isFinite(Number(current))||!Number.isFinite(Number(value)))throw new Error('La variazione relativa richiede un parametro numerico.');
+      value=Number(current)+Number(value);
+    }else if(mode==='trigger'&&!wire)throw new Error('Usa il comando WING per le azioni del processore.');
+    if(boolean){if(wire){if(value===true)value=1;if(value===false)value=0;if(value==='1'||value==='0')value=Number(value);if(value!==0&&value!==1)throw new Error('Scegli ON oppure OFF.');}else{if(![true,false,0,1,'true','false','on','off','0','1'].includes(value))throw new Error('Scegli ON oppure OFF.');value=[true,1,'true','on','1'].includes(value);}}
+    else if(enumerated){const item=choices.find(item=>Object.is(item,value)||String(item)===String(value));if(item===undefined)throw new Error('Il valore non è presente nelle scelte del parametro.');value=item;}
+    else if(string){if(typeof value!=='string')throw new Error('Il parametro richiede un testo.');const length=wire?new TextEncoder().encode(value).length:value.length;if(length>(definition.maxLength??(wire?0:256)))throw new Error('Il testo supera il limite del parametro.');}
+    else{if(value===''||value===null||typeof value==='boolean'||!Number.isFinite(Number(value))||!Number.isFinite(Math.fround(Number(value))))throw new Error('Il parametro richiede un numero valido.');value=Number(value);if(wire&&type===4&&(!Number.isInteger(value)||value< -0x80000000||value>0x7fffffff))throw new Error('Il parametro richiede un intero a 32 bit.');if((definition.min!==undefined&&value<definition.min)||(definition.max!==undefined&&value>definition.max)||(wire&&type===3&&(value< -144||value>10)))throw new Error('Il valore supera i limiti del parametro.');}
+    return value;
+  }
+  function validateWingParameter(action,env){
+    if(!validWingPath(action.path))throw new Error('Scrivi il percorso completo di un parametro WING, ad esempio /ch/1/mute.');
+    if(!env.live?.isLive?.())throw new Error('I parametri WING diretti richiedono una connessione al banco; la macro resta configurabile in demo.');
+    assertMacroSession(env);
+    const meta=env.live.metadata?.(action.path);
+    if(!meta)throw new Error('Leggi il parametro WING prima di eseguire la macro.');
+    if(action.mode!=='trigger'&&!env.live.hasValue?.(action.path))throw new Error('Il valore del parametro WING non è stato letto.');
+    return {definition:meta,value:resolveValue(action,meta,env.live.value?.(action.path),true)};
+  }
+  function validateProcessorParameter(action,env){
+    const ctx=action.context,processor=ctx&&env.desk.processor(ctx);
+    if(!processor||!action.model||processor.model!==action.model)throw new Error('Il modello del processore è cambiato: riassegna il parametro della macro.');
+    const catalog=env.catalog||root.SculptCatalog,base=catalog?.get(ctx,processor.model)?.parameters?.find(parameter=>parameter.key===action.key);
+    if(!base)throw new Error('Parametro del processore non disponibile.');
+    const live=env.live?.isLive?.();let definition=base;
+    if(live){assertMacroSession(env);const remote=env.live.parameterDefinition?.(ctx,action.key);if(!remote||!remote.path||!env.live.hasValue?.(remote.path))throw new Error('Il parametro del processore non è stato letto dalla WING.');definition={...base,...remote};}
+    return {definition,value:resolveValue(action,definition,processor.params?.[action.key]),processor};
+  }
+  function validateLocalAction(action,env){
+    if(action.type==='menu'){
+      const known=new Set([...MENU_PAGES.map(item=>item[0]),...(env.ui?.listPages?.()||[]).map(item=>item.id)]);
+      if(!known.has(action.target))throw new Error('Menu non disponibile.');
+      if(action.tab&&!MENU_SECTIONS[action.target]?.some(item=>item[0]===action.tab))throw new Error('Sezione del menu non disponibile.');
+      if(action.target==='fx-editor'&&(!Number.isInteger(Number(action.slot))||Number(action.slot)<1||Number(action.slot)>16))throw new Error('Slot FX non valido.');
+      if(action.target==='wing'&&action.path&&action.path!=='/'&&!validWingPath(action.path))throw new Error('Percorso WING non valido.');
+    }else if(action.type==='editor'){
+      if(!env.controller.getStrip(action.target)||!EDITOR_TABS.some(item=>item[0]===(action.tab||'channel')))throw new Error('Canale o sezione editor non disponibile.');
+      if(action.tab==='dynamics'&&action.block&&(!['gate','dyn'].includes(action.block)||!env.desk.processor({type:'strip',id:action.target,block:action.block})))throw new Error('Il processore dinamico non è disponibile su questo canale.');
+    }else if(action.type==='sof'){
+      if(action.target!=='off'&&!['BUS','MTX'].includes(env.controller.getStrip(action.target)?.kind))throw new Error('Scegli un BUS o una matrice per SOF.');
+    }else if(action.type==='layer'&&action.target!=='all'&&!env.desk.get().layers?.some(layer=>layer.id===action.target))throw new Error('Il Custom Layer non è più disponibile.');
+  }
+  function validateKnownAction(action,env){
+    const C=env.controller,D=env.desk,state=D.get(),target=action.target;
+    const number=(value,min,max,label)=>{if(value===''||value===null||typeof value==='boolean'||!Number.isFinite(Number(value))||Number(value)<min||Number(value)>max)throw new Error(label+' non valido.');};
+    const group=(key,max)=>{const id=Number(target);if(!Number.isInteger(id)||id<1||id>max||Array.isArray(state[key])&&!state[key].some(item=>String(item.id)===String(target)))throw new Error('Gruppo '+key+' non disponibile.');};
+    if(['fader','mute','solo','send','sourceAlt'].includes(action.type)&&!C.getStrip(target))throw new Error('Canale non disponibile.');
+    if(action.type==='sourceAlt'&&!/^(ch|aux)-/.test(target))throw new Error('La sorgente Main/Alt richiede un ingresso.');
+    if(['fader','send','dca'].includes(action.type)){
+      const modes=action.type==='fader'?['set','offset']:action.type==='send'?['set','toggle']:['set','mute'];
+      if(action.mode&&!modes.includes(action.mode))throw new Error('Operazione del livello non valida.');
+      if(action.mode!=='toggle'&&action.mode!=='mute')number(action.value,-90,10,'Livello');
+      if(action.duration!==undefined)number(action.duration,0,30,'Durata fade');
+    }
+    if(action.type==='send'){
+      if(!/^(?:bus-(?:[1-9]|1[0-6])|mtx-[1-8]|main-[1-4])$/.test(action.destination)||C.canSend&&C.canSend(target,action.destination)!==true||!C.getSend(target,action.destination))throw new Error('Mandata non disponibile.');
+    }else if(action.type==='dca')group('dca',16);
+    else if(action.type==='muteGroup')group('muteGroups',8);
+    else if(action.type==='talkback'&&!['a','b'].includes(target))throw new Error('Talkback non valido.');
+    else if(action.type==='monitorDim'&&![0,1].includes(Number(target)))throw new Error('Monitor non valido.');
+    else if(action.type==='oscillator'&&![1,2].includes(Number(target)))throw new Error('Oscillatore non valido.');
+    else if(action.type==='fxBypass'&&(!Number.isInteger(Number(target))||Number(target)<1||Number(target)>16||!D.processor({type:'fx',slot:Number(target)})))throw new Error('Slot FX non disponibile.');
+    else if(action.type==='scene'&&!env.live?.isLive?.()&&!state.scenes?.some(scene=>scene.id===target))throw new Error('Scena non disponibile.');
+    else if(action.type==='recorder'&&(!['sdA','sdB','usb','player'].includes(target)||!['play','record','pause','stop','rewind','marker'].includes(action.value||'play')))throw new Error('Comando recorder non disponibile.');
+    else if(action.type==='wait')number(action.value,0,30,'Attesa');
+    if(['mute','solo','muteGroup','talkback','monitorDim','sourceAlt','fxBypass','oscillator'].includes(action.type)){
+      if(action.mode&&!['set','toggle'].includes(action.mode))throw new Error('Operazione ON/OFF non valida.');
+      if(action.mode!=='toggle'&&![true,false,0,1,'on','off'].includes(action.value))throw new Error('Scegli ON, OFF oppure Alterna.');
+    }
+  }
   async function prepareActions(actions,env){
-    const live=env.live;if(!live?.isLive?.())return;
-    if(!live.isConnected()||!live.isWritable())throw new Error('Collega la WING e attiva Controllo prima della macro.');
+    if(!Array.isArray(actions)||actions.length>32)throw new Error('La macro può contenere al massimo 32 azioni.');
+    const supported=new Set([...UI_ACTIONS,'fader','mute','solo','send','dca','muteGroup','talkback','monitorDim','sourceAlt','fxBypass','oscillator','scene','recorder','wait','processorParam','wingParameter']);
+    for(const action of actions){if(!action||!supported.has(action.type))throw new Error('Tipo di azione non riconosciuto.');validateLocalAction(action,env);validateKnownAction(action,env);}
+    const live=env.live,writing=actions.some(action=>!isLocalAction(action));env.preparedActions=new Map();
+    if(live?.isLive?.()&&writing){env.macroSessionToken=live.sessionToken?.();assertMacroSession(env);}
     const done=new Set();
-    const load=async(scope,args)=>{const key=scope+JSON.stringify(args||{});if(done.has(key))return;await live.loadScope(scope,args);done.add(key);};
+    const load=async(scope,args)=>{const key=scope+JSON.stringify(args||{});if(done.has(key))return;await live.loadScope(scope,args);done.add(key);assertMacroSession(env);};
     for(const action of actions){
       if(env.cancelled?.())throw new Error('Macro interrotta');
+      if(isLocalAction(action))continue;
+      if(action.type==='processorParam'){
+        if(live?.isLive?.()){await live.ensureProcessor(action.context);assertMacroSession(env);}
+        const result=validateProcessorParameter(action,env);env.preparedActions.set(action,{signature:definitionSignature(result.definition),model:result.processor.model});continue;
+      }
+      if(action.type==='wingParameter'){
+        if(!live?.isLive?.())throw new Error('I parametri WING diretti richiedono una connessione al banco; la macro resta configurabile in demo.');
+        if(!validWingPath(action.path))throw new Error('Percorso WING non valido.');
+        await live.readNode(action.path,{force:true});assertMacroSession(env);const result=validateWingParameter(action,env);env.preparedActions.set(action,{signature:definitionSignature(result.definition)});continue;
+      }
+      if(!live?.isLive?.())continue;
       switch(action.type){
         case 'fader':case 'mute':case 'solo':if(!env.controller.getStrip(action.target))throw new Error('Canale non disponibile');break;
         case 'send':await load('sends',{fromId:action.target,targetId:action.destination});break;
@@ -36,14 +143,12 @@
         case 'sourceAlt':await load('strip',{id:action.target});break;
         case 'fxBypass':{
           const slot=Number(action.target);if(!Number.isInteger(slot)||slot<1||slot>16)throw new Error('Slot FX non valido');
-          await live.ensureProcessor({type:'fx',slot});
-          await load('inserts');
+          await live.ensureProcessor({type:'fx',slot});assertMacroSession(env);await load('inserts');
           const fx=env.desk.processor({type:'fx',slot});if(!fx?.stripId)throw new Error('FX '+slot+' non assegnato a un insert del banco.');
           await load('strip',{id:fx.stripId});break;
         }
         case 'scene':throw new Error('Le scene Sculpt locali non vengono richiamate sul banco. Usa lo Show WING.');
         case 'recorder':if(!env.nativeTransport)throw new Error('Trasporto recorder WING non disponibile per questa macro.');break;
-        case 'wait':break;
         default:throw new Error('Azione macro senza collegamento WING verificato.');
       }
     }
@@ -53,7 +158,8 @@
     if(['fader','send','dca','wait'].includes(action.type)&&!['toggle','mute'].includes(action.mode)&&!Number.isFinite(Number(action.value)))throw new Error('Valore numerico non valido');
     const C=env.controller,D=env.desk,check=()=>{if(env.cancelled?.())throw new Error('Macro interrotta');};
     check();
-    const live=env.live?.isLive?.()===true,failureBefore=live?env.live.snapshot().failureVersion:undefined;
+    const live=env.live?.isLive?.()===true,writing=!isLocalAction(action),failureBefore=live&&writing?env.live.snapshot().failureVersion:undefined;
+    if(live&&writing)assertMacroSession(env);validateLocalAction(action,env);
     const accepted=(result,get,expected,strict=live)=>{if(result===false&&strict||get&&!Object.is(get(),expected))throw new Error('Il banco non ha accettato il controllo della macro.');};
     const target=action.target;
     const flag=(current)=>action.mode==='toggle'?!current:action.value===true||action.value==='on'||action.value===1;
@@ -65,6 +171,29 @@
       while(fraction<1){check();fraction=Math.min(1,((env.now||Date.now)()-started)/duration);set(Math.round((from+(to-from)*fraction)*10)/10);if(fraction<1)await(env.sleep||((ms)=>new Promise(resolve=>setTimeout(resolve,ms))))(40);}
     };
     switch(action.type){
+      case 'menu':{
+        const ui=env.ui||root.SculptUI;if(!ui)throw new Error('Interfaccia non disponibile.');
+        if(action.target==='bank-menu'){ui.close?.();ui.showMenu();}
+        else if(action.target==='channel-list'){ui.close?.();const importer=env.channelList||root.SculptChannelList;if(!importer?.open)throw new Error('Importatore PDF non disponibile.');importer.open();}
+        else if(action.target==='dca-bank'){ui.close?.();const bank=env.dcaBank||root.SculptDcaBank;if(!bank?.open)throw new Error('Banco DCA non disponibile.');bank.open();}
+        else if(action.target==='fx-editor'){ui.close?.();const fx=env.fx||root.SculptFX;if(!fx?.open)throw new Error('Editor FX non disponibile.');fx.open({type:'fx',slot:Number(action.slot)});}
+        else if(action.target==='wing'&&action.path){if(!env.live?.openExplorer)throw new Error('Parametri WING non disponibili.');env.live.openExplorer(action.path);}
+        else ui.open(action.target,action.tab?{tab:action.tab}:undefined);
+        break;
+      }
+      case 'editor':{const editor=env.editor||root.SculptEditor;if(!editor?.openSection||editor.openSection(target,action.tab||'channel',{block:action.block})===false)throw new Error('Editor del canale non disponibile.');break;}
+      case 'sof':{env.ui?.close?.();if(C.setSof(target==='off'?null:target)===false)throw new Error('Vista SOF non disponibile.');break;}
+      case 'layer':{const layer=target==='all'?null:D.get().layers.find(item=>item.id===target);const result=D.change(state=>{state.activeLayer=layer?.id||null;},'layer');if(result===false)throw new Error('Custom Layer non disponibile.');C.showLayer?.(layer?D.layerRows(layer):null,layer?.name||'LAYER');env.ui?.close?.();break;}
+      case 'processorParam':{
+        const result=validateProcessorParameter(action,env),prepared=env.preparedActions?.get(action);
+        if(env.preparedActions&&(!prepared||prepared.signature!==definitionSignature(result.definition)||prepared.model!==result.processor.model))throw new Error('Lo schema del processore è cambiato: esegui di nuovo la macro.');
+        if(D.setParam(action.context,action.key,result.value)===false)throw new Error('Il banco non ha accettato il parametro del processore.');break;
+      }
+      case 'wingParameter':{
+        const result=validateWingParameter(action,env),prepared=env.preparedActions?.get(action);
+        if(env.preparedActions&&(!prepared||prepared.signature!==definitionSignature(result.definition)))throw new Error('Lo schema WING è cambiato: esegui di nuovo la macro.');
+        if(await env.live.write(action.path,result.value,{trigger:action.mode==='trigger',expectedSchema:copy(result.definition)})===false)throw new Error('La WING non ha accettato il parametro.');break;
+      }
       case 'fader':{
         const strip=C.getStrip(target);if(!strip)throw new Error('Canale non disponibile');
         const to=clamp(action.mode==='offset'?strip.level+numeric(action.value):numeric(action.value),-90,10);
@@ -89,10 +218,10 @@
       case 'wait':await(env.sleep||((ms)=>new Promise(resolve=>setTimeout(resolve,ms))))(clamp(action.value||0,0,30)*1000);check();break;
       default:throw new Error('Tipo di azione non riconosciuto');
     }
-    if(live){await env.live.settled();check();const snapshot=env.live.snapshot();if(!env.live.isConnected()||!env.live.isWritable())throw new Error('Connessione o controllo WING interrotto durante la macro.');if(snapshot.failureVersion!==failureBefore)throw new Error(snapshot.failure||'La WING non ha confermato un comando della macro.');}
+    if(live&&writing){await env.live.settled();check();assertMacroSession(env);const snapshot=env.live.snapshot();if(!env.live.isConnected()||!env.live.isWritable())throw new Error('Connessione o controllo WING interrotto durante la macro.');if(snapshot.failureVersion!==failureBefore)throw new Error(snapshot.failure||'La WING non ha confermato un comando della macro.');}
     return action.type;
   }
-  const Pure={transportPosition,formatTime,validateProject,executeAction,prepareActions};
+  const Pure={transportPosition,formatTime,validateProject,executeAction,prepareActions,isLocalAction,validateWingParameter,validateProcessorParameter,MENU_PAGES,MENU_SECTIONS,EDITOR_TABS};
   if(typeof module!=='undefined'&&module.exports)module.exports=Pure;
   if(!root.document)return;
   const C=()=>root.SculptController,D=()=>root.SculptDesk,U=()=>root.SculptUI;
@@ -162,7 +291,7 @@
       s.meterSettings=Object.assign({family:'CH',tap:'POST',hold:true,source:'ch-1',decay:'MED',freeze:false,range:80,peakRevision:0},s.meterSettings||{});
       s.scenes=s.scenes||[];s.snippets=s.snippets||[];s.stripPresets=s.stripPresets||[];s.safes=s.safes||[];s.showName=s.showName||'Sculpt Live';s.activeScene=s.activeScene||null;
       s.recorder=s.recorder||{};for(const id of ['sdA','sdB','usb','player'])s.recorder[id]=Object.assign({state:'stopped',position:0,startedAt:null,tracks:id.startsWith('sd')?32:2,session:id==='player'?'Playback demo':'Sessione 01',sessions:[],markers:[],duration:600,loop:false,loopStart:0,loopEnd:60,repeat:false,bitDepth:24,autoAlt:false},s.recorder[id]||{});
-      s.macros=s.macros||[];while(s.macros.length<8)s.macros.push({id:s.macros.length+1,name:'Macro '+(s.macros.length+1),actions:[]});
+      s.macros=s.macros||[];while(s.macros.length<16)s.macros.push({id:s.macros.length+1,name:'Macro '+(s.macros.length+1),actions:[]});
       s.customControls=s.customControls||[];if(!s.customControls.length)for(let i=0;i<12;i++)s.customControls.push({id:i+1,name:i<8?'Tasto '+(i+1):'Encoder '+(i-7),type:i<8?'button':'encoder',macroId:1,target:'ch-'+(i<8?i+1:i-7),value:0});
       s.gpio=s.gpio||Array.from({length:4},(_,i)=>({id:i+1,name:'GPIO '+(i+1),mode:'PUSH',macroId:1,delay:0}));
       s.layers=s.layers||[];s.history=s.history||[];s.setup=s.setup||{};
@@ -492,28 +621,52 @@
       timer=setInterval(()=>{const rec=D().get().recorder[id],position=transportPosition(rec);time.textContent=formatTime(position);state.textContent=rec.state.toUpperCase();state.dataset.state=rec.state;if(document.activeElement!==seek)seek.value=position;if(rec.state==='playing'&&!rec.loop&&position>=numeric(rec.duration,600)){if(rec.repeat){transport(id,'rewind');}else{transport(id,'stop');paint();}}},150);
     };paint();return stop;
   }
-  const ACTION_TYPES=[['fader','Fader'],['mute','Mute'],['solo','Solo'],['send','Mandata'],['dca','DCA'],['muteGroup','Mute group'],['scene','Scena'],['talkback','Talkback'],['monitorDim','Dim monitor'],['sourceAlt','Sorgente Main/Alt'],['fxBypass','Attiva FX'],['oscillator','Oscillatore'],['recorder','Recorder'],['wait','Attesa']];
-  function defaultAction(type){return {id:uid('action'),type,target:type==='talkback'?'a':type==='monitorDim'?'0':type==='recorder'?'sdA':type==='scene'?D().get().scenes[0]?.id||'':type==='dca'||type==='muteGroup'||type==='fxBypass'||type==='oscillator'?'1':'ch-1',destination:'bus-1',mode:['mute','solo','muteGroup','talkback','sourceAlt','fxBypass','oscillator','monitorDim'].includes(type)?'toggle':'set',value:type==='recorder'?'play':type==='wait'?1:0,duration:0};}
+  const ACTION_TYPES=[['menu','Apri menu / pagina'],['editor','Apri editor canale'],['sof','Vista Sends on Fader'],['layer','Richiama Custom Layer'],['fader','Fader'],['mute','Mute'],['solo','Solo'],['send','Mandata'],['dca','DCA'],['muteGroup','Mute group'],['processorParam','Parametro di un processore / FX'],['wingParameter','Qualsiasi parametro WING'],['scene','Scena'],['talkback','Talkback'],['monitorDim','Dim monitor'],['sourceAlt','Sorgente Main/Alt'],['fxBypass','Attiva FX'],['oscillator','Oscillatore'],['recorder','Recorder'],['wait','Attesa']];
+  function firstProcessorAction(context={type:'strip',id:'ch-1',block:'eq'}){
+    const processor=D().processor(context),parameter=root.SculptCatalog?.get(context,processor?.model)?.parameters?.find(item=>item.type!=='trigger'&&!item.readOnly);
+    return {context,model:processor?.model||'',key:parameter?.key||'',value:parameter?processor.params?.[parameter.key]??parameter.default:0,mode:'set'};
+  }
+  function defaultAction(type){
+    const action={id:uid('action'),type,target:type==='talkback'?'a':type==='monitorDim'?'0':type==='recorder'?'sdA':type==='scene'?D().get().scenes[0]?.id||'':type==='dca'||type==='muteGroup'||type==='fxBypass'||type==='oscillator'?'1':type==='menu'?'bank-menu':type==='sof'?'bus-1':type==='layer'?'all':'ch-1',destination:'bus-1',mode:['mute','solo','muteGroup','talkback','sourceAlt','fxBypass','oscillator','monitorDim'].includes(type)?'toggle':'set',value:type==='recorder'?'play':type==='wait'?1:0,duration:0};
+    if(type==='editor')action.tab='channel';if(type==='menu'){action.tab='';action.slot=1;}
+    if(type==='processorParam')Object.assign(action,firstProcessorAction());
+    if(type==='wingParameter'){action.path='';action.parameterLabel='';}
+    return action;
+  }
+  function menuChoices(){
+    const choices=new Map(MENU_PAGES),registered=U().listPages?.()||[];
+    for(const page of registered)if(!choices.has(page.id))choices.set(page.id,page.title||page.id);
+    return [...choices].map(([value,label])=>({value,label}));
+  }
+  function macroParameterValue(label,action,definition,update,wire=false){
+    const type=definition?.type,items=wire?definition?.items:definition?.options?.map((value,index)=>({value,label:definition.optionLabels?.[index]||String(value)}));
+    if(items?.length&&action.mode!=='offset'&&action.mode!=='trigger')return select(label,action.value,items.map(item=>({value:item.value,label:item.label||String(item.value)})),raw=>{const item=items.find(item=>String(item.value)===raw);update(item?.value??raw);});
+    const boolean=wire?type===4&&definition.min===0&&definition.max===1:type==='boolean';
+    if(boolean&&action.mode!=='offset')return select(label,action.value===true||action.value===1||action.value==='1'?'1':'0',[{value:'0',label:'OFF'},{value:'1',label:'ON'}],value=>update(wire?Number(value):value==='1'));
+    const text=textInput(label,action.value??'',raw=>update(wire&&type===7||!wire&&type==='string'?raw:raw.replace(',','.')),wire&&type===7||!wire&&type==='string'?'Testo':'Valore');
+    const input=text.querySelector('input');if(wire&&type===7||!wire&&type==='string')input.maxLength=definition?.maxLength||256;else input.inputMode='decimal';
+    return text;
+  }
   function seedExamples(){
     if(!D().get().demoContentSeeded&&!D().get().scenes.length){const soundcheck=captureScene('Soundcheck'),concert=copy(soundcheck);concert.id=uid('scene');concert.name='Concerto';concert.snapshot.values['ch-1'].level=-3;concert.snapshot.values['bus-13'].level=-10;changed(s=>s.scenes.push(soundcheck,concert));}
     if(!D().get().demoContentSeeded)changed(s=>s.demoContentSeeded=true);
     if(!D().get().macrosSeeded){const firstScene=D().get().scenes[0]?.id;changed(s=>{
       const samples=[[{type:'talkback',target:'a',mode:'toggle',value:true}],[{type:'muteGroup',target:'2',mode:'toggle',value:true}],[{type:'fader',target:'ch-1',mode:'offset',value:1,duration:.2}],[{type:'fader',target:'ch-1',mode:'offset',value:-1,duration:.2}],[{type:'recorder',target:'sdA',value:'record'}],[{type:'recorder',target:'sdA',value:'stop'}],[{type:'monitorDim',target:'0',mode:'toggle',value:true}],firstScene?[{type:'scene',target:firstScene}]:[]];
-      s.macros.forEach((m,i)=>{if(!m.actions?.length)m.actions=(samples[i]||[]).map(a=>Object.assign(defaultAction(a.type),a));});s.macrosSeeded=true;
+      s.macros.slice(0,8).forEach((m,i)=>{if(!m.actions?.length)m.actions=(samples[i]||[]).map(a=>Object.assign(defaultAction(a.type),a));});s.macrosSeeded=true;
     });}
   }
   async function runMacro(id){
     const macro=D().get().macros.find(m=>String(m.id)===String(id));if(!macro){toast('Macro non trovata');return {ok:false};}if(activeMacro){toast('Una macro è già in esecuzione');return {ok:false};}if(!macro.actions?.length){U().open('macros',{id:macro.id});toast('Assegna le azioni della macro');return {ok:false};}
     if(live()&&(!L()?.allowMacro||!L().allowMacro(macro)))return {ok:false,error:'Macro WING non autorizzata dal controllo attivo.'};
-    const run={id:macro.id,cancelled:false};activeMacro=run;macroUndo=live()?null:D().capture();root.dispatchEvent(new CustomEvent('sculpt-macro-status',{detail:{id:macro.id,running:true}}));
+    const writing=macro.actions.some(action=>!isLocalAction(action)),run={id:macro.id,cancelled:false};activeMacro=run;if(writing)macroUndo=live()?null:D().capture();root.dispatchEvent(new CustomEvent('sculpt-macro-status',{detail:{id:macro.id,running:true}}));
     try{
-      const actions=copy(macro.actions),env={controller:C(),desk:D(),cancelled:()=>run.cancelled,transport,live:L(),nativeTransport:root.SculptLivePages?.transport};
-      await prepareActions(actions,env);const failureVersion=live()?L().snapshot().failureVersion:undefined;
+      const actions=copy(macro.actions),env={controller:C(),desk:D(),catalog:root.SculptCatalog,ui:U(),editor:root.SculptEditor,dcaBank:root.SculptDcaBank,channelList:root.SculptChannelList,fx:root.SculptFX,cancelled:()=>run.cancelled,transport,live:L(),nativeTransport:root.SculptLivePages?.transport};
+      await prepareActions(actions,env);const failureVersion=live()&&writing?L().snapshot().failureVersion:undefined;
       for(const action of actions){
         if(run.cancelled)throw new Error('Macro interrotta');
         await executeAction(action,env);
       }
-      if(live()){await L().settled();if(run.cancelled)throw new Error('Macro interrotta');if(L().snapshot().failureVersion!==failureVersion)throw new Error(L().snapshot().failure||'Comando non confermato dalla WING.');}
+      if(live()&&writing){await L().settled();assertMacroSession(env);if(run.cancelled)throw new Error('Macro interrotta');if(L().snapshot().failureVersion!==failureVersion)throw new Error(L().snapshot().failure||'Comando non confermato dalla WING.');}
       log('Macro: '+macro.name+' · '+macro.actions.length+' azioni');toast('Eseguita · '+macro.name);return {ok:true,count:macro.actions.length};
     }catch(error){log('Macro '+macro.name+': '+error.message);toast(error.message);return {ok:false,error:error.message};}
     finally{activeMacro=null;root.dispatchEvent(new CustomEvent('sculpt-macro-status',{detail:{id:macro.id,running:false}}));}
@@ -522,15 +675,18 @@
   function renderMacros(container,args){
     if(args?.id)selection.macro=Number(args.id);
     const paint=()=>{container.replaceChildren();const d=D().get(),macro=d.macros.find(m=>Number(m.id)===selection.macro)||d.macros[0];selection.macro=Number(macro.id);
-      const toolbar=h('div','sys-macro-bank');d.macros.forEach(m=>{const b=btn('M'+m.id+' · '+m.name,()=>{selection.macro=Number(m.id);paint();},'sys-macro-pick');b.setAttribute('aria-pressed',String(m.id===macro.id));toolbar.append(b);});container.append(toolbar);
-      const controls=row(btn('▶ Esegui',async()=>{await runMacro(macro.id);paint();},'desk-primary'),btn('■ Interrompi',stopMacros));if(!live())controls.append(btn('Annulla ultima macro',()=>{if(macroUndo){D().recall(macroUndo,SCOPES.map(s=>s[0]),[]);macroUndo=null;toast('Stato precedente ripristinato');paint();}}));
-      const settings=card('MACRO '+macro.id,textInput('Nome macro',macro.name,value=>changed(s=>s.macros.find(m=>m.id===macro.id).name=value)),controls);
+      const toolbar=h('div','sys-macro-bank');d.macros.forEach(m=>{const b=btn('M'+m.id+' · '+(m.name||'Vuota'),()=>{selection.macro=Number(m.id);paint();},'sys-macro-pick');b.setAttribute('aria-pressed',String(m.id===macro.id));toolbar.append(b);});container.append(toolbar);
+      const runButton=btn('▶ Esegui',async()=>{await runMacro(macro.id);if(U().current?.()==='macros')paint();},'desk-primary');runButton.disabled=!macro.actions?.length;
+      const controls=row(runButton,btn('■ Interrompi',stopMacros),btn('Svuota pulsante',()=>{changed(state=>{const item=state.macros.find(item=>item.id===macro.id);item.name='';item.actions=[];});paint();},'sys-small'));if(!live())controls.append(btn('Annulla ultima macro',()=>{if(macroUndo){D().recall(macroUndo,SCOPES.map(s=>s[0]),[]);macroUndo=null;toast('Stato precedente ripristinato');paint();}}));
+      const nameField=textInput('Nome macro',macro.name,value=>changed(s=>s.macros.find(m=>m.id===macro.id).name=value));
+      nameField.querySelector('input').addEventListener('input',event=>changed(s=>s.macros.find(m=>m.id===macro.id).name=event.target.value));
+      const settings=card('MACRO '+macro.id,nameField,controls);
       if(live())settings.append(note('Prima dell’esecuzione vengono letti tutti i parametri coinvolti. Ogni azione attende il riscontro del banco; un errore interrompe la sequenza.'));
       const list=h('div','sys-actions');(macro.actions||[]).forEach((action,index)=>{
         const change=(key,value)=>changed(s=>{const a=s.macros.find(m=>m.id===macro.id).actions.find(a=>a.id===action.id);if(a)a[key]=value;});
         const head=row(h('span','sys-action-number',String(index+1).padStart(2,'0')),select('Tipo azione '+(index+1),action.type,ACTION_TYPES.map(([value,label])=>({value,label})),value=>{changed(s=>{s.macros.find(m=>m.id===macro.id).actions[index]=defaultAction(value);});paint();}),btn('↑',()=>{changed(s=>moveItem(s.macros.find(m=>m.id===macro.id).actions,index,-1));paint();},'sys-small'),btn('↓',()=>{changed(s=>moveItem(s.macros.find(m=>m.id===macro.id).actions,index,1));paint();},'sys-small'),btn('×',()=>{changed(s=>s.macros.find(m=>m.id===macro.id).actions.splice(index,1));paint();},'sys-small'));
         const item=card('',head),number=index+1;let choices=[];
-        if(['fader','mute','solo','send','sourceAlt'].includes(action.type))choices=stripChoices().filter(s=>action.type!=='sourceAlt'||/^(ch|aux)-/.test(s.value));
+        if(['fader','mute','solo','send','sourceAlt','editor'].includes(action.type))choices=stripChoices().filter(s=>action.type!=='sourceAlt'||/^(ch|aux)-/.test(s.value));
         else if(action.type==='dca')choices=d.dca.map(g=>({value:g.id,label:'DCA '+g.id+' · '+g.name}));
         else if(action.type==='muteGroup')choices=d.muteGroups.map(g=>({value:g.id,label:'Mute '+g.id+' · '+g.name}));
         else if(action.type==='scene')choices=d.scenes.map(g=>({value:g.id,label:g.name}));
@@ -540,6 +696,38 @@
         else if(action.type==='oscillator')choices=[{value:'1',label:'Oscillatore 1'},{value:'2',label:'Oscillatore 2'}];
         else if(action.type==='recorder')choices=[{value:'sdA',label:'SD A'},{value:'sdB',label:'SD B'},{value:'usb',label:'USB REC'},{value:'player',label:'Player'}];
         if(choices.length)item.append(select('Destinazione azione '+number,action.target,choices,value=>{change('target',value);if(action.type==='send')paint();}));
+        if(action.type==='menu'){
+          item.append(select('Menu da aprire '+number,action.target,menuChoices(),value=>{const old=MENU_PAGES.find(entry=>entry[0]===action.target)?.[1],next=MENU_PAGES.find(entry=>entry[0]===value)?.[1];if(macro.actions.length===1&&(!macro.name||macro.name===old||macro.name==='Apri menu / pagina'))changed(state=>state.macros.find(m=>m.id===macro.id).name=next||'Apri menu');change('target',value);change('tab','');paint();}));
+          if(MENU_SECTIONS[action.target])item.append(select('Sezione del menu '+number,action.tab||'',[{value:'',label:'Pagina principale'},...MENU_SECTIONS[action.target].map(([value,label])=>({value,label}))],value=>change('tab',value)));
+          if(action.target==='fx-editor')item.append(select('Plugin FX da aprire '+number,action.slot||1,d.fx.map(fx=>({value:fx.slot,label:'FX '+fx.slot+' · '+fx.model})),value=>change('slot',Number(value))));
+          if(action.target==='wing')item.append(textInput('Percorso da aprire '+number,action.path||'/',value=>change('path',value),'/ch/1/eq'));
+        }else if(action.type==='editor'){
+          item.append(select('Sezione editor '+number,action.tab||'channel',EDITOR_TABS.map(([value,label])=>({value,label})),value=>{change('tab',value);paint();}));
+          if(action.tab==='dynamics')item.append(select('Processore dinamica '+number,action.block||'dyn',[{value:'gate',label:'Gate'},{value:'dyn',label:'Compressore'}],value=>change('block',value)));
+        }else if(action.type==='sof')item.append(select('Bus SOF '+number,action.target,[{value:'off',label:'Esci da SOF'},...stripChoices().filter(choice=>/^(bus|mtx)-/.test(choice.value))],value=>change('target',value)));
+        else if(action.type==='layer')item.append(select('Custom Layer '+number,action.target,[{value:'all',label:'Tutti i canali'},...d.layers.map(layer=>({value:layer.id,label:layer.name}))],value=>change('target',value)));
+        else if(action.type==='processorParam'){
+          const ctx=action.context||{type:'strip',id:'ch-1',block:'eq'},setContext=context=>{const patch=firstProcessorAction(context);changed(state=>Object.assign(state.macros.find(m=>m.id===macro.id).actions.find(a=>a.id===action.id),patch));paint();};
+          item.append(select('Ambito processore '+number,ctx.type,[{value:'strip',label:'Processore di un canale'},{value:'fx',label:'Slot FX'}],value=>setContext(value==='fx'?{type:'fx',slot:1}:{type:'strip',id:'ch-1',block:'eq'})));
+          if(ctx.type==='fx')item.append(select('Slot processore '+number,ctx.slot,d.fx.map(fx=>({value:fx.slot,label:'FX '+fx.slot+' · '+fx.model})),value=>setContext({type:'fx',slot:Number(value)})));
+          else{item.append(select('Canale processore '+number,ctx.id,stripChoices(),value=>setContext({...ctx,id:value})),select('Blocco processore '+number,ctx.block,[['filter','Filtri'],['eq','EQ'],['gate','Gate'],['dyn','Compressore']].filter(([block])=>root.SculptCatalog?.list({...ctx,block}).length).map(([value,label])=>({value,label})),value=>setContext({...ctx,block:value})));}
+          const processor=D().processor(ctx),parameters=root.SculptCatalog?.get(ctx,processor?.model)?.parameters?.filter(parameter=>parameter.type!=='trigger'&&!parameter.readOnly)||[],parameter=parameters.find(p=>p.key===action.key),remote=live()?L()?.parameterDefinition?.(ctx,action.key):null,definition={...parameter,...remote};
+          item.append(note('Modello assegnato: '+(action.model||'—')+'. Cambiare modello richiede una nuova assegnazione.'));
+          if(parameters.length){item.append(select('Parametro processore '+number,action.key,parameters.map(p=>({value:p.key,label:p.label||p.name||p.key})),value=>{const parameter=parameters.find(p=>p.key===value);change('key',value);change('model',processor.model);change('value',processor.params?.[value]??parameter.default);change('mode','set');paint();}),select('Operazione parametro '+number,action.mode,[{value:'set',label:'Imposta valore'},{value:'offset',label:'Variazione relativa'},{value:'toggle',label:'Alterna ON / OFF'}],value=>{change('mode',value);paint();}));if(action.mode!=='toggle')item.append(macroParameterValue('Valore parametro '+number,action,definition,value=>change('value',value)));}
+          else item.append(note('Questo processore non espone parametri assegnabili nel modello attuale.'));
+        }else if(action.type==='wingParameter'){
+          const returnToMacro=()=>U().open('macros',{id:macro.id}),browse=btn('Scegli dal banco',()=>{
+            if(!L()?.isConnected?.()){toast('Collega la WING per scegliere i parametri reali.');return;}
+            L().openExplorer(action.path||'/',{onSelect:entry=>{changed(state=>{const a=state.macros.find(m=>m.id===macro.id)?.actions.find(a=>a.id===action.id);if(!a)return;a.path=entry.path;a.parameterLabel=entry.label;a.value=entry.value??(entry.metadata?.type===7?'':0);a.mode='set';});returnToMacro();},onCancel:returnToMacro});
+          },'desk-primary');
+          item.append(browse,textInput('Percorso WING azione '+number,action.path||'',value=>{change('path',value);change('parameterLabel','');paint();},'/ch/1/mute'));
+          if(action.parameterLabel)item.append(note(action.parameterLabel));
+          const meta=L()?.metadata?.(action.path);
+          item.append(select('Operazione WING '+number,action.mode,[{value:'set',label:'Imposta valore'},{value:'offset',label:'Variazione relativa'},{value:'toggle',label:'Alterna ON / OFF'},{value:'trigger',label:'Esegui comando WING'}],value=>{change('mode',value);paint();}));
+          if(action.mode!=='toggle')item.append(macroParameterValue('Valore WING '+number,action,meta,value=>change('value',value),true));
+          item.append(note(meta?meta.readOnly?'Parametro di sola lettura: scegli un altro controllo.':`Schema letto dal banco${meta.min!==undefined?' · minimo '+meta.min:''}${meta.max!==undefined?' · massimo '+meta.max:''}.`:'Lo schema e i valori reali vengono letti dalla WING prima dell’esecuzione. La macro rimane configurabile offline.'));
+        }
+
         if(action.type==='send')item.append(select('Bus / matrice azione '+number,action.destination,targetChoices().filter(s=>C().canSend(action.target,s.value)),value=>change('destination',value)));
         if(['fader','send','dca'].includes(action.type)){
           if(action.type==='fader')item.append(select('Operazione azione '+number,action.mode,[{value:'set',label:'Livello assoluto'},{value:'offset',label:'Variazione relativa'}],value=>change('mode',value)));
@@ -549,8 +737,11 @@
         else if(action.type==='wait')item.append(range('Attesa azione '+number,numeric(action.value,1),0,30,.1,value=>change('value',value),'s'));
         list.append(item);
       });
-      const add=btn('+ Aggiungi azione',()=>{if(macro.actions.length>=32){toast('Massimo 32 azioni per macro');return;}changed(s=>s.macros.find(m=>m.id===macro.id).actions.push(defaultAction('fader')));paint();},'desk-primary');
-      container.append(settings,list,add,note('Le azioni vengono eseguite in ordine. Fade e attese fanno parte della sequenza; tutti i valori agiscono sullo stesso banco demo.'));
+      let newType='';const choose=select(macro.actions.length?'Aggiungi un’altra azione':'Cosa vuoi assegnare?',newType,[{value:'',label:'Scegli un’azione…'},...ACTION_TYPES.map(([value,label])=>({value,label}))],value=>{newType=value;add.disabled=!value||macro.actions.length>=32;});
+      const add=btn(macro.actions.length?'+ Aggiungi azione':'Assegna azione',()=>{if(!newType)return;if(macro.actions.length>=32){toast('Massimo 32 azioni per macro');return;}changed(state=>{const item=state.macros.find(m=>m.id===macro.id);item.actions.push(defaultAction(newType));if(!item.name)item.name=newType==='menu'?'Menu del banco':ACTION_TYPES.find(([type])=>type===newType)?.[1]||'Macro '+item.id;});paint();},'desk-primary');add.disabled=true;
+      const assign=card(macro.actions.length?'AGGIUNGI ALLA SEQUENZA':'PULSANTE LIBERO',note(macro.actions.length?'Puoi combinare più comandi e aperture di menu in ordine.':'Scegli una funzione del mixer, un parametro oppure il menu da aprire.'),choose,add);
+      container.append(settings,list,assign,note('Le azioni vengono eseguite in ordine. I menu si aprono anche in sola lettura; i comandi audio live richiedono Controllo e riscontro dalla WING.'));
+
     };paint();
   }
   function renderSetup(container){
@@ -600,6 +791,7 @@
       ['macros','Macro Sculpt','Azioni e sequenze del banco',renderMacros]
     ];
     for(const [id,title,subtitle,render]of definitions)U().register(id,{title,subtitle,render(container,args){
+      if(args?.tab&&MENU_SECTIONS[id]?.some(item=>item[0]===args.tab)&&id in selection)selection[id]=args.tab;
       currentPage=id;let cleanup=null,disposed=false,mode=live()?L().snapshot().mode+':'+L().isWritable():'demo';
       const draw=()=>{if(disposed)return;container.replaceChildren();cleanup=render(container,args);};
       if(live()&&['groups','monitor'].includes(id)){

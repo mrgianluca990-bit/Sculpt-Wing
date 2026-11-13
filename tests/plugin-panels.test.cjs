@@ -32,16 +32,16 @@ test('every model has an authored surface with each parameter reachable once',()
 });
 
 test('all 109 model surfaces render controls with isolated state and dispose their listeners',()=>{
-  const f=fixture();let rendered=0;
+  const f=fixture(),baselineListeners=[...f.listeners];let rendered=0;
   for(const model of Cat.models){
     const ctx=contextFor(model);assert.equal(f.D.setModel(ctx,model.id),true,model.id);
     const cleanup=f.w.SculptFX.renderProcessor(f.panel,ctx);
     assert.equal(f.panel.querySelectorAll('[data-parameter]').length,model.parameters.length,`${model.category}/${model.id}`);
     assert.ok(f.panel.querySelector(`[data-model="${model.id}"]`));
-    cleanup();assert.equal(f.listeners.size,0,'panel listener released');rendered++;
+    cleanup();assert.deepEqual([...f.listeners],baselineListeners,'panel listeners released; application persistence listener retained');rendered++;
   }
   const ctx={type:'strip',id:'main-1',block:'eq'};f.D.setModel(ctx,'STD');const cleanup=f.w.SculptFX.renderProcessor(f.panel,ctx);
-  assert.equal(f.panel.querySelectorAll('[data-parameter]').length,27);assert.equal(f.panel.querySelectorAll('.fx-eq-point').length,8);cleanup();
+  assert.equal(f.panel.querySelectorAll('[data-parameter]').length,27);assert.equal(f.panel.querySelectorAll('.fx-eq-point').length,8);cleanup();assert.deepEqual([...f.listeners],baselineListeners);
   assert.equal(rendered,109);f.dom.window.close();
 });
 

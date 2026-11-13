@@ -37,11 +37,25 @@ function assertOnlyAllowedChanges(before,after,draft){
 test('grouped instruments receive shared primary buses, muted inputs and minimum faders before any state mutation',()=>{
   const f=fixture(),before=clone(f.state),draft=Scene.prepareDraft(parsed(),f.state);
   assert.deepEqual(draft.rows.map(row=>row.primaryBusId),['bus-1','bus-1','bus-2','bus-3','bus-4']);
-  assert.equal(draft.monitors.length,4);assert.equal(draft.monitors[0].name,'Batteria');assert.equal(draft.monitors[0].color,'#e31b44');
+  assert.equal(draft.monitors.length,4);assert.equal(draft.monitors[0].name,'Batteria MON');assert.equal(draft.monitors[0].color,'#e31b44');
   assert(draft.rows.every(row=>row.mute===true&&row.level===-90));
   assert.equal(draft.remaining.length,43);assert(draft.remaining.every(row=>row.initialize===false));
   assert.equal(draft.remainingMode,'keep');assert.equal(Scene.validateDraft(draft,f.state).ok,true);assert.deepEqual(f.state,before);
   for(const row of draft.rows)for(const monitor of draft.monitors)assert.deepEqual(row.sends[monitor.busId],{on:true,level:monitor.busId===row.primaryBusId?-5:-8,mode:monitor.busId===row.primaryBusId?'PRE':'POST',followMute:true});
+});
+
+test('monitor proposals and remaps are numerically ordered without changing ownership or send values',()=>{
+  const f=fixture(),source=parsed();source.monitors=[
+    {id:'ten',busId:'bus-10',name:'Basso',instrumentKey:'bass'},
+    {id:'two',busId:'bus-2',name:'Batteria',instrumentKey:'drums'},
+    {id:'one',busId:'bus-1',name:'Voce Gianluca',instrumentKey:'voice1'}
+  ];
+  const before=clone(f.state),draft=Scene.prepareDraft(source,f.state);
+  assert.deepEqual(draft.monitors.map(m=>m.busId),['bus-1','bus-2','bus-10']);assert.deepEqual(draft.monitors.map(m=>m.id),['one','two','ten']);
+  assert.equal(draft.rows.find(row=>row.id==='bass').primaryBusId,'bus-10');assert.equal(draft.rows.find(row=>row.id==='kick').primaryBusId,'bus-2');
+  const row=draft.rows[0];row.sends['bus-10'].level=-13.7;
+  assert.equal(Scene.setMonitorBus(draft,'ten','bus-3').ok,true);assert.deepEqual(draft.monitors.map(m=>m.busId),['bus-1','bus-2','bus-3']);assert.equal(row.sends['bus-3'].level,-13.7);assert.equal(draft.rows.find(row=>row.id==='bass').primaryBusId,'bus-3');
+  assert.deepEqual(f.state,before,'ordering remains wholly inside the editable proposal');
 });
 
 test('apply uses one transaction, all four monitor sends per input, and preserves routing, processing and unrelated sends',()=>{
@@ -60,7 +74,7 @@ test('every imported value can be overridden in the draft, including mute, fader
   row.targetId='ch-10';row.name='Cassa esterna';row.color='#0089ff';row.mute=false;row.level=-12.7;row.instrumentName='Kit esterno';
   assert.equal(Scene.setPrimary(draft,row.id,'bus-2').ok,true);
   row.sends['bus-2']={on:true,level:-2.4,mode:'POST',followMute:false};row.sends['bus-3']={on:false,level:-21.2,mode:'PRE',followMute:true};
-  draft.monitors[1].name='IEM Batterista';draft.monitors[1].color='#ff5a2d';draft.monitors[0].applyIdentity=false;
+  Scene.setMonitorName(draft,draft.monitors[1].id,'IEM Batterista');draft.monitors[1].color='#ff5a2d';draft.monitors[0].applyIdentity=false;
   Scene.syncDraft(draft,f.state);const before=clone(f.state),validation=Scene.validateDraft(draft,f.state);
   assert.equal(validation.ok,true);assert(validation.warnings.some(w=>w.includes('non segue il mute')));
   assert.equal(Scene.applyDraft(draft,f.env).ok,true);
@@ -142,6 +156,46 @@ test('PDF monitor ownership must match unambiguously; unmatched rows never inher
   const draft=Scene.prepareDraft(list,f.state);assert.equal(draft.rows[0].primaryBusId,'bus-2');assert.equal(draft.rows[1].primaryBusId,'bus-2');assert.equal(draft.rows[2].primaryBusId,'');assert.equal(draft.rows[3].primaryBusId,'');assert.equal(Scene.validateDraft(draft,f.state).ok,true);
   assert.equal(draft.rows[2].sends['bus-1'].level,-8);assert.equal(draft.rows[2].sends['bus-2'].mode,'POST');
   list.monitors.push({name:'Wedge Batteria',instrumentName:'Batteria',sourceNumbers:['AUX 8'],format:'Mono'});const ambiguous=Scene.prepareDraft(list,f.state);assert.equal(ambiguous.rows[0].primaryBusId,'');assert.equal(Scene.validateDraft(ambiguous,f.state).ok,true);
+});
+
+test('an explicit IEM label proposes the second principal, including dotted and lowercase forms',()=>{
+  for(const monitor of [
+    {name:'IEM Batteria'},
+    {name:'i.e.m. Batteria'},
+    {name:'Batteria IEM'},
+    {name:'Mix batterista',originalName:'I.E.M. Batteria'},
+    {name:'Batteria elettronica IEM',instrumentKey:'drums'}
+  ]){
+    const f=fixture(),list=parsed();list.monitors=[monitor];
+    const draft=Scene.prepareDraft(list,f.state);
+    for(const row of draft.rows.filter(row=>row.instrumentKey==='drums')){
+      assert.equal(row.primaryBusId,'');assert.equal(row.secondaryPrimaryBusId,'bus-1');
+      assert.deepEqual(row.sends['bus-1'],{on:true,level:-5,mode:'PRE',followMute:true});
+    }
+    assert.equal(draft.monitors[0].name,'Batteria IEM');assert.equal(Scene.validateDraft(draft,f.state).ok,true);
+  }
+});
+
+test('one matched MON and one matched IEM can propose both principals regardless of PDF order',()=>{
+  for(const reverse of [false,true])for(const monName of ['MON Batteria','Batteria']){
+    const f=fixture(),list=parsed();list.monitors=[{name:monName,busId:'bus-2'},{name:'IEM Batteria',busId:'bus-1'}];if(reverse)list.monitors.reverse();
+    const draft=Scene.prepareDraft(list,f.state);
+    for(const row of draft.rows.filter(row=>row.instrumentKey==='drums')){
+      assert.equal(row.primaryBusId,'bus-2');assert.equal(row.secondaryPrimaryBusId,'bus-1');
+      assert.equal(row.sends['bus-1'].level,-5);assert.equal(row.sends['bus-2'].level,-5);assert.equal(row.sends['bus-1'].mode,'PRE');assert.equal(row.sends['bus-2'].mode,'PRE');
+    }
+    assert.equal(draft.monitors.find(monitor=>monitor.busId==='bus-1').name,'Batteria IEM');assert.equal(draft.monitors.find(monitor=>monitor.busId==='bus-2').name,'Batteria MON');
+    assert(!draft.warnings.some(warning=>warning.includes('univoco per Batteria')));
+  }
+});
+
+test('multiple matching IEM proposals remain unassigned rather than guessing which bus or role to use',()=>{
+  for(const extraMon of [false,true]){
+    const f=fixture(),list=parsed();list.monitors=[{name:'IEM Batteria'},{name:'I.E.M. Batteria'}];if(extraMon)list.monitors.push({name:'MON Batteria'});
+    const draft=Scene.prepareDraft(list,f.state);
+    for(const row of draft.rows.filter(row=>row.instrumentKey==='drums')){assert.equal(row.primaryBusId,'');assert.equal(row.secondaryPrimaryBusId,'');assert(Object.values(row.sends).every(send=>send.level===-8&&send.mode==='POST'));}
+    assert(draft.warnings.some(warning=>warning.includes('univoco per Batteria')));assert.equal(Scene.validateDraft(draft,f.state).ok,true);
+  }
 });
 
 test('an existing post-fader shared tap prevents false PRE promises and is never rewritten',()=>{

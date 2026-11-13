@@ -81,7 +81,7 @@
     document.getElementById('input-title').textContent=layerMembers?`${layerName} · RIGA 2`:target?'MANDATE':'INGRESSI';
     document.getElementById('outputs-mode').textContent=layerLayout?`${layerLayout.top.length} STRIP · RIGA SUPERIORE${target?' · SOF':''}`:target?'MANDATE / MASTER':'BUS · MATRICI · MASTER';
     document.getElementById('inputs-mode').textContent=layerLayout?`${layerLayout.bottom.length} STRIP · RIGA INFERIORE${target?' · SOF':''}`:target?`48 INGRESSI → ${shortLabel(target)}`:'40 CANALI · 8 AUX';
-    all().forEach(updateStrip);updateSelection();
+    all().forEach(updateStrip);updateSelection();window.SculptDcaBank?.refresh();
   }
   function setSof(targetId){if(!M.setSof(state,targetId))return false;updateMode();emit('sof');return true;}
   function changeLevel(id,level,targetId,persist=true){
@@ -91,16 +91,16 @@
   }
   function makeStrip(strip,index,row){
     const article=document.createElement('article');
-    article.className=`strip${(strip.kind==='MTX'||strip.kind==='MAIN'||strip.kind==='AUX')&&strip.number===1?' group-first':''}`;
+    article.className=`strip${['CH','AUX'].includes(strip.kind)?' input-strip':''}${(strip.kind==='MTX'||strip.kind==='MAIN'||strip.kind==='AUX')&&strip.number===1?' group-first':''}`;
     article.dataset.id=strip.id;
     article.innerHTML=`<button class="strip-label" type="button"><span class="strip-index"><span class="strip-number"></span><i aria-hidden="true"></i></span><span class="strip-name"></span></button>
       <button class="level-readout" type="button"><span></span><small>dB</small></button>
       <div class="fader-well"><div class="fader" role="slider" tabindex="0" aria-valuemin="-90" aria-valuemax="10" aria-orientation="vertical">
       <div class="fader-scale" aria-hidden="true">${[10,0,-10,-20,-40,-90].map(v=>`<div class="tick${v===0?' zero':''}${v===-10||v===-40?' secondary':''}${v===10||v===-20?' compact-hide':''}" style="top:${(1-toPosition(v))*100}%"><span>${v===-90?'−∞':v>0?'+'+v:String(v).replace('-','−')}</span></div>`).join('')}</div><div class="fader-cap" aria-hidden="true"></div></div>
-      <div class="meter-pair" aria-hidden="true"><div class="meter"><i class="meter-fill"></i><i class="meter-peak"></i></div><div class="meter"><i class="meter-fill"></i><i class="meter-peak"></i></div></div></div>
+      <div class="meter-pair" aria-hidden="true"><div class="meter"><i class="meter-fill"></i><i class="meter-peak"></i></div><div class="meter"><i class="meter-fill"></i><i class="meter-peak"></i></div></div>${['CH','AUX'].includes(strip.kind)?'<div class="strip-gr-pair" aria-label="Riduzione di guadagno"><div class="strip-gr gate-gr" role="meter" aria-label="GR gate" aria-valuemin="0" aria-valuemax="100"><span>G</span><i></i></div><div class="strip-gr comp-gr" role="meter" aria-label="GR compressore" aria-valuemin="0" aria-valuemax="100"><span>C</span><i></i></div></div>':''}</div>
       <div class="strip-buttons"><button class="mute-button" type="button" aria-pressed="false">MUTE</button>${strip.kind==='BUS'||strip.kind==='MTX'?'<button class="sof-button" type="button" aria-pressed="false">SOF</button>':''}</div>`;
     const fader=article.querySelector('.fader'),readout=article.querySelector('.level-readout'),mute=article.querySelector('.mute-button'),sof=article.querySelector('.sof-button'),labelButton=article.querySelector('.strip-label');
-    elements.set(strip.id,{article,fader,readout,mute,sof,labelButton,number:article.querySelector('.strip-number'),name:article.querySelector('.strip-name'),mode:article.querySelector('.strip-index i'),meters:[...article.querySelectorAll('.meter')],visible:true,index,row});
+    elements.set(strip.id,{article,fader,readout,mute,sof,labelButton,number:article.querySelector('.strip-number'),name:article.querySelector('.strip-name'),mode:article.querySelector('.strip-index i'),meters:[...article.querySelectorAll('.meter')],gr:[...article.querySelectorAll('.strip-gr')],visible:true,index,row});
     labelButton.addEventListener('click',()=>openEditor(strip.id,labelButton));
     article.addEventListener('click',event=>{if(!event.target.closest('button,[role="slider"]'))openEditor(strip.id,labelButton);});
     readout.addEventListener('click',()=>openLevel(strip.id));
@@ -118,6 +118,12 @@
     const endDrag=event=>{if(!drag||drag.pointer!==event.pointerId)return;const {targetId,moved,pointer}=drag;drag=null;article.classList.remove('dragging');if(fader.hasPointerCapture?.(pointer))fader.releasePointerCapture(pointer);save();if(moved)emit(targetId?'send':'strip',strip.id);};
     fader.addEventListener('pointerup',endDrag);fader.addEventListener('pointercancel',endDrag);fader.addEventListener('lostpointercapture',endDrag);
     window.addEventListener('blur',()=>{if(drag)endDrag({pointerId:drag.pointer});});
+    fader.title='Trascina la testa · doppio clic: 0 dB · Maiusc: regolazione fine';
+    fader.addEventListener('dblclick',event=>{
+      if(event.button!==0)return;
+      const view=M.display(state,strip.id);select(strip.id,false);changeLevel(strip.id,0,view.targetId);
+      fader.focus({preventScroll:true});event.preventDefault();event.stopPropagation();
+    });
     fader.addEventListener('keydown',event=>{
       const view=M.display(state,strip.id);let next=view.level;const step=event.shiftKey?.1:.5;
       if(event.key==='ArrowUp'||event.key==='ArrowRight')next+=step;
@@ -169,6 +175,7 @@
     const scroller=document.getElementById(`${row}-scroll`),buttons=[...document.querySelectorAll(`.bank-button[data-row="${row}"]`)];
     bindBankPan(scroller);
     const updateBank=()=>{
+      if(row==='outputs'&&window.SculptDcaBank?.isOpen())return window.SculptDcaBank.refreshProgress();
       const progress=document.getElementById(`${row}-progress`),total=Math.max(scroller.scrollWidth,scroller.clientWidth,1);
       progress.style.width=`${Math.min(100,scroller.clientWidth/total*100)}%`;progress.style.left=`${scroller.scrollLeft/total*100}%`;
       const width=bank.querySelector('.strip:not([hidden])')?.getBoundingClientRect().width||0;
@@ -183,6 +190,8 @@
     scroller.addEventListener('keydown',event=>{if(event.target!==scroller)return;if(event.key==='ArrowRight'||event.key==='ArrowLeft'){scroller.scrollBy({left:(event.key==='ArrowRight'?1:-1)*scroller.clientWidth*.75,behavior:'smooth'});event.preventDefault();}});
   }
   document.querySelectorAll('.bank-button').forEach(button=>button.addEventListener('click',()=>{
+    if(button.dataset.row==='outputs')window.SculptDcaBank?.hide();
+    if(window.SculptStripPins?.navigate(button.dataset.row,Number(button.dataset.index)))return;
     const row=button.dataset.row,strip=state[row][Number(button.dataset.index)],el=elements.get(strip.id).article;
     document.getElementById(`${row}-scroll`).scrollTo({left:el.offsetLeft-3,behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});
   }));
@@ -196,16 +205,29 @@
   let lastFrame=0;
   function animateMeters(time){
     if(time-lastFrame>120){lastFrame=time;for(const [i,strip]of all().entries()){
-      const el=elements.get(strip.id);if(!el.visible)continue;const view=M.display(state,strip.id),t=state.meters?time*.001:12;
-      if(window.SculptLive?.isLive()){const m=window.SculptLive.meter(strip.id,el.row==='inputs'?'input':'output');el.meters.forEach((meter,ch)=>{const db=m?(ch?m.right:m.left):-144,pct=clamp((db+60)/60,0,1)*100;meter.style.setProperty('--meter',`${pct}%`);meter.style.setProperty('--peak',`${pct}%`);});continue;}
+      const el=elements.get(strip.id);if(!el.visible&&!window.SculptStripPins?.isPinnedVisible(strip.id))continue;const view=M.display(state,strip.id),t=state.meters?time*.001:12;
+      if(window.SculptLive?.isLive()){const m=window.SculptLive.meter(strip.id,['CH','AUX'].includes(strip.kind)?'input':'output');el.meters.forEach((meter,ch)=>{const db=m?(ch?m.right:m.left):-144,pct=clamp((db+60)/60,0,1)*100;meter.style.setProperty('--meter',`${pct}%`);meter.style.setProperty('--peak',`${pct}%`);});updateGr(el,window.SculptLive.gainReduction?.(strip.id));continue;}
       const effective=window.SculptDesk?.effective(strip.id);
       const meterLevel=view.send?view.level:(effective?.level??view.level);
-      const base=meterLevel<=-89||!view.on||effective?.muted?0:clamp(.32+meterLevel*.012,.035,.68);
+      const input=['CH','AUX'].includes(strip.kind);
+      const base=input?.34+(i%5)*.025:meterLevel<=-89||!view.on||effective?.muted?0:clamp(.32+meterLevel*.012,.035,.68);
       const wave=.15*Math.sin(t*3.1+i*2.3)+.08*Math.sin(t*7.3+i*.9)+.04*Math.sin(t*13+i*2);
       el.meters.forEach((meter,ch)=>{const value=base===0?0:clamp(base+wave+(ch===1?.035*Math.sin(t*4.3+i):0),.015,.96);meter.style.setProperty('--meter',`${value*100}%`);meter.style.setProperty('--peak',`${base===0?0:clamp(base+.18,.05,.97)*100}%`);});
+      // Offline movement is explicitly labelled DEMO. Live bars above only use received meter reports.
+      const processing=window.SculptDesk?.get().processing[strip.id];
+      updateGr(el,{gate:{fraction:processing?.gate?.enabled?clamp(-wave*2,0,.7):0,db:null},comp:{fraction:processing?.dyn?.enabled?clamp((wave+.06)*1.6,0,.65):0,db:null}},true);
     }}requestAnimationFrame(animateMeters);
   }
   requestAnimationFrame(animateMeters);
+  function updateGr(el,reduction,demo=false){
+    el.gr.forEach((meter,index)=>{
+      const value=reduction?.[index?'comp':'gate'],available=Number.isFinite(value?.fraction),pct=available?clamp(value.fraction,0,1)*100:0;
+      const name=index?'Compressore':'Gate',text=!available?'Dato non disponibile':Number.isFinite(value.db)?`${value.db.toFixed(1)} dB di riduzione`:`${Math.round(pct)}% della scala GR`;
+      meter.style.setProperty('--gr',`${pct}%`);meter.classList.toggle('gr-unavailable',!available);
+      if(available)meter.setAttribute('aria-valuenow',String(Math.round(pct)));else meter.removeAttribute('aria-valuenow');
+      meter.setAttribute('aria-valuetext',`${demo?'Demo · ':''}${text}`);meter.title=`GR ${name} · ${demo?'simulata · ':''}${text}`;
+    });
+  }
   const infoDialog=document.getElementById('info-dialog'),levelDialog=document.getElementById('level-dialog'),meterToggle=document.getElementById('meters-toggle');
   const updateMeterToggle=()=>meterToggle.setAttribute('aria-checked',String(state.meters));updateMeterToggle();
   document.getElementById('info-button').addEventListener('click',()=>{document.getElementById('reset-confirm').hidden=true;infoDialog.showModal();});
@@ -240,6 +262,7 @@
   function toast(message){const el=document.getElementById('toast');clearTimeout(toastTimer);el.textContent=message;el.classList.add('show');toastTimer=setTimeout(()=>el.classList.remove('show'),2200);}
   window.SculptController=Object.freeze({
     showLayer(members,name='LAYER'){
+      window.SculptDcaBank?.hide();
       const supplied=members&&typeof members==='object',layout={top:[],bottom:[]},seen=new Set();
       const append=(key,id)=>{if(typeof id==='string'&&stripById(id)&&!seen.has(id)){seen.add(id);layout[key].push(id);}};
       if(Array.isArray(members))for(const id of members){const item=elements.get(id);if(item)append(item.row==='outputs'?'top':'bottom',id);}
@@ -281,6 +304,8 @@
       updateMode();updateMeterToggle();save();emit('restore');return true;
     },
     toast,
+    faderScale:Object.freeze({toPosition,toDb,format}),
+    bindStripPan:bindBankPan,
     getStrip:stripById,listStrips:all,
     updateStrip(id,patch){const strip=stripById(id);if(!strip)return false;if(!commit(()=>M.patchStrip(strip,patch),'strip',id))return false;updateStrip(strip);updateSelection();if(state.sof===id)updateMode();save();emit('strip',id);return true;},
     getSend:(sourceId,targetId)=>M.getSend(state,sourceId,targetId),

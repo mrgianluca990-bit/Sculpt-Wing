@@ -1,10 +1,71 @@
-SCULPT WING 0.6.4 — STRUMENTI COLLEGATI E DOPPIO MONITOR · MAC M1
+SCULPT WING 0.6.6 — GRUPPI, NOMI MON/IEM E 16 MACRO · MAC M1
 
 Questo ZIP contiene i file modificati per aggiornare il repository esistente
 mrgianluca990-bit/Sculpt-Wing. Conserva gli altri file già presenti.
 Dopo il caricamento, GitHub Actions prepara Sculpt Wing.app per Mac M1 /
 Apple Silicon arm64. Questa consegna è un aggiornamento dei sorgenti:
-il nuovo binario 0.6.4 deve essere compilato dal workflow del repository.
+il nuovo binario 0.6.6 deve essere compilato dal workflow del repository.
+La base verificata è la versione 0.6.4 già caricata su main, commit
+d376463b87ba9389f39f33aa1600e23656e21a6b.
+Il pacchetto include anche tutte le modifiche della 0.6.5: puoi caricare
+soltanto questo aggiornamento, sia sulla 0.6.4 sia sulla 0.6.5.
+
+GRUPPI DEGLI STRUMENTI E NOMI MONITOR
+Apri la nuova scheda STRUMENTI nell’anteprima del PDF, oppure premi
+Modifica gruppo nell’intestazione di uno strumento. Puoi rinominare il
+gruppo, scegliere più canali e creare un nuovo gruppo, spostarli in uno
+esistente oppure renderli indipendenti. Se sposti tutti i membri, unisci
+i gruppi; se ne scegli solo alcuni, puoi dividere uno strumento in due.
+Le caselle di questa scheda non cambiano la selezione Usa per l’importazione.
+
+Principale 1 = MON (monitor da palco). Principale 2 = IEM.
+Un IEM riconosciuto nel PDF viene proposto direttamente nel secondo slot.
+Un MON e un IEM abbinati senza ambiguità possono essere assegnati insieme.
+Il nome del gruppo genera il nome del relativo BUS: Batteria MON e
+Batteria IEM. Rinominando lo strumento, i nomi automatici si aggiornano.
+Il suffisso MON/IEM resta sempre visibile anche con nomi lunghi.
+Puoi correggere il nome in MANDATE. Se un BUS è condiviso, scegli da
+quale strumento/ruolo deve prendere il nome. I principali restano
+facoltativi; per il solo IEM usa il secondo e lascia il primo su Nessuno.
+
+Quando crei un gruppo, scegli il canale di riferimento per i principali.
+Quando sposti canali in un gruppo, adottano i principali della destinazione.
+Le assegnazioni sono mostrate prima dell’azione. Separare canali mantiene
+le loro mandate. Il routing è sempre conservato. Le modifiche entrano
+nel progetto solo dopo Applica scena.
+
+SEDICI MACRO ASSEGNABILI
+Gli otto pulsanti nuovi M9–M16 partono vuoti. Premi Assegna per scegliere
+cosa devono fare. Puoi aprire menu, pagine, sezioni dell’editor, banco DCA,
+SOF e Custom Layer, oppure eseguire comandi del mixer e dei processori.
+Per i parametri WING specifici usa la struttura letta dal banco collegato.
+Una macro può contenere più azioni. I pulsanti già configurati si eseguono
+con un clic; tasto destro, F2 o Maiusc+Invio apre la modifica.
+Nomi e assegnazioni rimangono salvati anche se li modifichi durante il live.
+I menu funzionano in sola lettura; i comandi audio richiedono Controllo.
+Guida: docs/MACROS.md.
+
+NOVITÀ DEL MIXER GIÀ INCLUSE
+- DCA: premi DCA in alto a destra nella riga superiore del mixer.
+  Si apre il banco dei 16 DCA. Premi il nome o il pulsante dei membri per
+  rinominare il gruppo e assegnare i canali. Fader, MUTE e SOLO lavorano
+  sugli stessi gruppi già disponibili in Menu del banco -> DCA / Mute Groups.
+  Premi nuovamente DCA per tornare alla vista delle uscite.
+- Editor: i valori numerici modificabili hanno una manopola e un campo
+  per digitare il valore. Trascina la manopola su/giù; Maiusc durante il
+  trascinamento permette una regolazione fine. La disposizione usa moduli
+  affiancati lungo la riga, con scorrimento locale per gli altri controlli.
+  Le mandate conservano i fader verticali e hanno anche la manopola.
+- Fader: il trascinamento parte soltanto dalla testa. Un doppio clic sul
+  fader lo porta a 0 dB. In SOF il comando porta a 0 dB la mandata mostrata;
+  il livello principale del canale resta quello impostato. Vale anche per
+  i fader del banco DCA.
+- Meter degli ingressi CH/AUX: mostrano il livello d’ingresso, prima del
+  fader e del mute, anche quando il canale cambia riga nel Custom Layer.
+- GR: accanto al meter di ogni ingresso ci sono due piccole barre,
+  G per il gate e C per il compressore. In live usano i dati ricevuti dalla
+  WING. Quando un dato non è disponibile la barra è tratteggiata e attenuata;
+  non viene mostrato uno zero inventato. In demo il movimento è simulato.
 
 IMPORTARE IL PDF DI PRODUCER
 1. Apri Menu del banco -> Importa channel list e scegli il PDF.
@@ -12,12 +73,24 @@ IMPORTARE IL PDF DI PRODUCER
 2. In CANALI controlla destinazioni, nomi, colori, mute e fader.
    Le righe sono riunite per strumento: assegna i principali una sola volta
    nell’intestazione del gruppo. Tutti i suoi canali seguono l’assegnazione.
-3. In MANDATE controlla i monitor assegnati. Scegli Tutto lo strumento per
-   modificare un invio su tutti i canali collegati, oppure Solo questo canale.
-4. In RIMANENTI scegli se conservare gli altri ingressi o inizializzarne
+3. In STRUMENTI correggi i gruppi e i loro nomi, scegliendo più canali insieme.
+   Controlla Principale 1 MON e Principale 2 IEM, entrambi facoltativi.
+4. In MANDATE controlla i monitor assegnati e i loro nomi automatici.
+   Scegli Tutto lo strumento per modificare un invio su tutti i canali
+   collegati, oppure Solo questo canale.
+5. In RIMANENTI scegli se conservare gli altri ingressi o inizializzarne
    nome, colore, mute e fader. Puoi escluderli e correggerli singolarmente.
-5. Premi Applica scena. Annulla importazione resta disponibile nello stesso
-   dialogo, purché i valori interessati non siano stati modificati dopo.
+6. Premi Applica scena: dopo un’applicazione riuscita la finestra si chiude
+   e compare la conferma sul mixer. In caso di errore rimane aperta.
+7. Per annullare, riapri Menu del banco -> Importa channel list e premi
+   Annulla importazione, senza ricaricare il PDF. È disponibile nella
+   sessione corrente, purché i valori interessati non siano cambiati dopo.
+
+Cambiare un principale o un BUS conserva la posizione della schermata:
+scorrimento verticale, orizzontale e lista dei monitor. Ogni scheda ricorda
+la propria posizione. L’elenco dei monitor, le scelte dei principali e le
+righe delle mandate seguono l’ordine numerico BUS 1, 2, 3... 10... 16.
+Aggiungi monitor propone il BUS libero con il numero più basso.
 
 PRINCIPALI FACOLTATIVI E STRUMENTI COLLEGATI
 Ogni strumento può avere nessuno, uno o due monitor principali: per esempio
@@ -60,6 +133,29 @@ caso le mandate esistenti del progetto restano conservate.
 La palette richiesta è: batteria rosso, basso verde, chitarre blu,
 tastiere bianco, voci rosa, fiati giallo, archi arancio.
 
+NOME STANDARD DEL CANALE
+Per ripristinare il nome standard, cancella il nome nell’editor e premi
+Invio oppure esci dal campo: CH 1, AUX 1, BUS 1, MTX 1 o MAIN 1.
+Durante la digitazione puoi lasciare il campo vuoto e scrivere un nome nuovo.
+
+COLORE DELLA STRIP
+Il colore assegnato compare anche come sfumatura tenue lungo l’intera
+strip, inclusi i canali ancorati. Si aggiorna insieme al colore del canale.
+
+ALTEZZA DELLE RIGHE E CANALI ANCORATI
+Il divisore tra le due righe si trascina per ingrandire la parte superiore
+o inferiore. Le frecce permettono di regolarlo anche da tastiera; doppio
+clic sul divisore ripristina 50 / 50. L’editor segue l’altezza della riga
+che lo ospita. L’app conserva la proporzione scelta.
+
+Ogni strip ha il comando per ancorarla a sinistra o a destra della sua
+riga. Puoi fissare più canali: rimangono visibili mentre il centro scorre.
+Lo stesso menu permette di liberarli. La preferenza segue la posizione
+reale del canale anche nel Custom Layer. Se gli ancorati sono numerosi,
+le loro aree scorrono separatamente e il centro rimane utilizzabile.
+Altezza e ancoraggi vengono ricordati come preferenze di visualizzazione;
+non modificano livelli, mandate, DCA, assegnazioni o routing audio.
+
 EDITOR NELLA RIGA OPPOSTA
 L’editor aperto dalla strip occupa la riga opposta del mixer: canale nella
 riga inferiore -> editor superiore; strip superiore -> editor inferiore.
@@ -87,7 +183,7 @@ Applicazione e annullamento sono bloccati durante una sessione live.
 Questa consegna non attesta un collaudo sul mixer fisico.
 
 CARICAMENTO SU GITHUB E APP MAC
-1. Estrai lo ZIP dell’aggiornamento sul Mac.
+1. Estrai Sculpt-Wing-0.6.6-Aggiornamento-Mac-M1.zip sul Mac.
 2. Apri https://github.com/mrgianluca990-bit/Sculpt-Wing, ramo main,
    quindi Add file -> Upload files.
 3. Carica i file estratti mantenendo i loro percorsi: dist, native, desktop,
@@ -100,13 +196,13 @@ CARICAMENTO SU GITHUB E APP MAC
 5. Premi Commit changes su main. In Actions attendi il verde di
    Build Sculpt Wing - Mac M1.
 6. Scarica l’artifact Sculpt-Wing-Mac-M1 e apri lo ZIP contenuto:
-   Sculpt-Wing-0.6.4-mac-arm64.zip. Dentro trovi Sculpt Wing.app.
+   Sculpt-Wing-0.6.6-mac-arm64.zip. Dentro trovi Sculpt Wing.app.
 7. Chiudi la vecchia app e sostituiscila con la nuova in Applicazioni.
 
 Restano fader dalla sola testa, scorrimento con trascinamento, Custom Layer
 a due righe e i pannelli dei processori già completati.
 
 DETTAGLI E VERIFICHE
-Vedi docs/CHANNEL_LIST_IMPORT.md e docs/RELEASE_0.6.4_MAC_M1.md.
+Vedi docs/CHANNEL_LIST_IMPORT.md e docs/RELEASE_0.6.6_MAC_M1.md.
 I risultati della preparazione non sostituiscono la nuova compilazione
-macOS né un test di avvio dell’app 0.6.4 sul Mac M1.
+macOS né un test di avvio dell’app 0.6.6 sul Mac M1.

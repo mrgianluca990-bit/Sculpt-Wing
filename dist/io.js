@@ -22,7 +22,7 @@
   function loading(container,message='Lettura dei valori dalla WING…'){const p=U.el('p','desk-note',message);p.setAttribute('role','status');container.replaceChildren(p);return p;}
   const names={OFF:'Non assegnato',LCL:'Local',AUX:'AUX analogici',A:'AES50 A',B:'AES50 B',C:'AES50 C',SC:'StageCONNECT',USB:'USB Audio',CRD:'Scheda / WING-LIVE',MOD:'Modulo / Dante',PLAY:'USB Player',AES:'AES/EBU',USR:'User',OSC:'Oscillatori',CH:'Canali',AUXP:'AUX processing',BUS:'Bus',MAIN:'Main',MTX:'Matrici',MON:'Monitor',REC:'USB Recorder'};
   const label=id=>{if(id==='OFF')return '—';const s=D.signals().find(v=>v.id===id);if(!s)return id;const known=!live()||s.stripId&&L()?.hasStripValue?.(s.stripId)||read(inputPath(id)+'/name');return `${s.group} ${String(s.index).padStart(2,'0')}${known?' · '+s.name:''}`;};
-  const textInput=(caption,value,onChange)=>{const input=U.el('input','desk-input');input.value=value??'';input.maxLength=40;input.addEventListener('change',()=>onChange(input.value));return U.field(caption,input);};
+  const textInput=(caption,value,onChange)=>{const input=U.el('input','desk-input');input.value=value??'';input.maxLength=40;const commit=()=>{const result=onChange(input.value);if(typeof result==='string')input.value=result;};input.addEventListener('change',commit);input.addEventListener('blur',commit);input.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();commit();input.blur();}});return U.field(caption,input);};
   let tab='inputs',inputBank=0,sourceGroup='LCL',outputGroup='LCL',outputBank=0,userBank=0,query='',appliedArgs=null;
   function pickSource(title,current,callback,{signals=false,exclude=null,allowedGroups=null}={}){
     const root=U.el('div'),top=U.el('div','desk-toolbar'),search=U.el('input','desk-input io-search'),grid=U.el('div','io-port-grid');search.placeholder='Cerca sorgente o nome…';search.setAttribute('aria-label','Cerca sorgente');
@@ -41,7 +41,7 @@
     function paint(){
       root.replaceChildren();target.replaceChildren();const p=inputPath(id);
       if(live()&&!read(p+'/name')){root.append(U.el('p','desk-note','Sorgente non disponibile fra i parametri letti dal banco.'),nativeButton(p));return;}
-      root.append(guard(textInput('Nome sorgente',s.name,value=>{if(s.stripId)C.updateStrip(s.stripId,{name:value});else D.patchSource(id,{name:value});}),p+'/name'),guard(U.select('Formato sorgente',s.mode,['M','ST','M/S'],v=>D.patchSource(id,{mode:v})),p+'/mode'));
+      root.append(guard(textInput('Nome sorgente',s.name,value=>{if(s.stripId){C.updateStrip(s.stripId,{name:value});return C.getStrip(s.stripId).name;}D.patchSource(id,{name:value});}),p+'/name'),guard(U.select('Formato sorgente',s.mode,['M','ST','M/S'],v=>D.patchSource(id,{mode:v})),p+'/mode'));
       const gain=L()?.metadata?.(p+'/g');
       if(s.preamp&&(!live()||gain)){root.append(guard(U.number('Gain headamp',s.gain,gain?.min??s.gainMin,gain?.max??s.gainMax,.5,v=>D.patchSource(id,{gain:v}),'dB'),p+'/g'));target.append(guard(U.toggle('+48 V',s.phantom,v=>D.patchSource(id,{phantom:v})),p+'/vph'));}
       target.append(guard(U.toggle('Mute sorgente',s.mute,v=>D.patchSource(id,{mute:v})),p+'/mute'));if(!live()||read(p+'/pol'))target.append(guard(U.toggle('Polarità Ø',s.polarity,v=>D.patchSource(id,{polarity:v})),p+'/pol'));root.append(target);

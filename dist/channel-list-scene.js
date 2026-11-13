@@ -10,8 +10,9 @@
   const clean=value=>String(value??'').replace(/[\u0000-\u001f]/g,' ').replace(/\s+/g,' ').trim();
   const fold=value=>clean(value).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
   function instrumentLabel(value){
-    return fold(value).replace(/^(?:(?:iem|monitor|mon|wedge|mix)\s*\d*[\s:._-]*)+/,'').replace(/[._·-]+/g,' ').replace(/\b(batteria|batterista|drum|drums|drummer)\b/g,'drums').replace(/\b(basso|bassista|bass)\b/g,'bass').replace(/\b(keyboard|keyboards|key|keys|tastiera|tastiere|tastierista)\b/g,'keys').replace(/\b(chitarra|chitarre|gtr|guitars|guitar|chitarrista)\b/g,'guitar').replace(/\b(voce|vocal|vocals|vox)\b/g,'vocal').replace(/\s+/g,' ').trim();
+    return fold(value).replace(/^(?:(?:i\.?e\.?m\.?|monitor|mon|wedge|mix)\s*\d*[\s:._-]*)+/,'').replace(/(^|[\s:._·/()-])(?:i\.?e\.?m\.?|mon)(?=$|[\s:._·/()-])/g,'$1').replace(/[._·-]+/g,' ').replace(/\b(batteria|batterista|drum|drums|drummer)\b/g,'drums').replace(/\b(basso|bassista|bass)\b/g,'bass').replace(/\b(keyboard|keyboards|key|keys|tastiera|tastiere|tastierista)\b/g,'keys').replace(/\b(chitarra|chitarre|gtr|guitars|guitar|chitarrista)\b/g,'guitar').replace(/\b(voce|vocal|vocals|vox)\b/g,'vocal').replace(/\s+/g,' ').trim();
   }
+  const proposedMonitorSlot=monitor=>[monitor.originalName,monitor.name].some(name=>/(^|[^a-z0-9])i\.?e\.?m\.?(?=$|[^a-z0-9])/i.test(String(name||'')))?2:1;
   const inputId=id=>/^(?:ch-(?:[1-9]|[1-3]\d|40)|aux-[1-8])$/.test(String(id||''));
   const busId=id=>/^bus-(?:[1-9]|1[0-6])$/.test(String(id||''));
   const label=id=>String(id||'').toUpperCase().replace('-',' ');
@@ -27,25 +28,27 @@
   const nameFor=(row,index)=>clean(row.instrumentName||row.originalName||row.name)||'Monitor '+(index+1);
   const instrumentFor=(row,index)=>clean(row.instrumentKey)||'row:'+(row.id||index);
   const unique=values=>[...new Set(values)];
+  const sortMonitors=draft=>draft.monitors.sort((a,b)=>(busId(a.busId)?Number(a.busId.slice(4)):Infinity)-(busId(b.busId)?Number(b.busId.slice(4)):Infinity));
 
   function prepareDraft(parsed,state){
     const rows=(parsed?.rows||[]).map((row,index)=>({...clone(row),id:clean(row.id)||'channel-list-'+index,instrumentKey:instrumentFor(row,index),instrumentName:nameFor(row,index),mute:true,level:-90,primaryBusId:'',secondaryPrimaryBusId:'',sends:{}}));
     const groups=new Map();
     rows.filter(row=>row.selected&&!row.empty).forEach((row,index)=>{if(!groups.has(row.instrumentKey))groups.set(row.instrumentKey,{key:row.instrumentKey,name:nameFor(row,index),color:row.color,rows:rows.filter(member=>member.instrumentKey===row.instrumentKey)});});
-    const proposed=Array.isArray(parsed?.monitors)?parsed.monitors:[],monitors=[],used=new Set(),warnings=[...(parsed?.warnings||[])];
+    const proposed=Array.isArray(parsed?.monitors)?parsed.monitors:[],monitors=[],monitorSlots=new Map(),used=new Set(),warnings=[...(parsed?.warnings||[])];
     if(proposed.length){
       for(const [index,monitor]of proposed.entries()){
         if(index>=16){warnings.push('Il PDF propone più di 16 monitor: scegli come condividerli nei 16 BUS disponibili.');break;}
         const available=Array.from({length:16},(_,i)=>'bus-'+(i+1)).find(id=>!used.has(id));
         const target=busId(monitor.busId)&&!used.has(monitor.busId)?monitor.busId:available;used.add(target);
-        monitors.push({...clone(monitor),id:clean(monitor.id)||'monitor-'+(index+1),busId:target,name:clean(monitor.name||monitor.instrumentName||'Monitor '+(index+1)).slice(0,MAX_NAME),color:/^#[0-9a-f]{6}$/i.test(monitor.color||'')?monitor.color:GRAY,applyIdentity:monitor.applyIdentity!==false});
+        const proposal={...clone(monitor),id:clean(monitor.id)||'monitor-'+(index+1),busId:target,name:clean(monitor.name||monitor.instrumentName||'Monitor '+(index+1)).slice(0,MAX_NAME),color:/^#[0-9a-f]{6}$/i.test(monitor.color||'')?monitor.color:GRAY,applyIdentity:monitor.applyIdentity!==false};
+        monitors.push(proposal);monitorSlots.set(proposal,proposedMonitorSlot(monitor));
       }
       const ordered=[...groups.values()];
       ordered.forEach(group=>{
         const row=group.rows[0];
         const matches=monitors.filter(m=>(m.instrumentKey&&m.instrumentKey===group.key)||(row.monitorNumber!==undefined&&(String(m.number??m.sourceNumber)===String(row.monitorNumber)||m.sourceNumbers?.map(String).includes(String(row.monitorNumber))))||(row.monitorName&&instrumentLabel(m.originalName||m.name)===instrumentLabel(row.monitorName))||(Array.isArray(m.channelNumbers)&&group.rows.some(r=>m.channelNumbers.map(String).includes(String(r.sourceNumber))))||[m.instrumentName,m.originalName,m.name].some(name=>name&&instrumentLabel(name)===instrumentLabel(group.name)));
-        const monitor=matches.length===1?matches[0]:null;
-        if(monitor){for(const member of group.rows)member.primaryBusId=monitor.busId;if(monitor.color===GRAY&&/^#[0-9a-f]{6}$/i.test(group.color||''))monitor.color=group.color;}
+        const unambiguous=matches.length===1||matches.length===2&&monitorSlots.get(matches[0])!==monitorSlots.get(matches[1]);
+        if(unambiguous){for(const monitor of matches){const field=primaryFields[monitorSlots.get(monitor)-1];for(const member of group.rows)member[field]=monitor.busId;if(monitor.color===GRAY&&/^#[0-9a-f]{6}$/i.test(group.color||''))monitor.color=group.color;}}
         else warnings.push('Il PDF non indica un monitor univoco per '+group.name+': puoi scegliere fino a due principali oppure lasciare Nessuno.');
       });
     }else{
@@ -64,6 +67,7 @@
   function syncDraft(draft,state){
     if(!Array.isArray(draft.rows))draft.rows=[];
     if(!Array.isArray(draft.monitors))draft.monitors=[];
+    sortMonitors(draft);
     const buses=new Set(draft.monitors.map(m=>m.busId).filter(busId));
     for(const [index,row]of draft.rows.entries()){
       if(!row.id)row.id='channel-list-'+index;
@@ -83,6 +87,7 @@
     draft.remaining=strips(state).filter(strip=>inputId(strip.id)&&['CH','AUX'].includes(strip.kind)&&!imported.has(strip.id)).map(strip=>old.get(strip.id)||{...defaultRemaining(strip),initialize:draft.remainingMode==='initialize'});
     if(!['keep','initialize'].includes(draft.remainingMode))draft.remainingMode='keep';
     if(!Array.isArray(draft.warnings))draft.warnings=[];
+    syncMonitorNames(draft);
     return draft;
   }
 
@@ -94,6 +99,52 @@
       const group=groups.get(key);group.rows.push(row);if(row.selected)group.selectedRows.push(row);
     }
     return [...groups.values()];
+  }
+
+  function instrumentMonitorName(name,slot){
+    const role=slot===2?'IEM':'MON',source=clean(name)||'Monitor';let base='';
+    // Keep the role visible and do not cut a surrogate pair at the name limit.
+    for(const character of source){if(base.length+character.length>MAX_NAME-role.length-1)break;base+=character;}
+    return base.trimEnd()+' '+role;
+  }
+
+  function monitorNameSources(draft,monitorId){
+    const monitor=draft?.monitors?.find(item=>item.id===monitorId);if(!monitor)return [];
+    return instrumentGroups(draft).filter(group=>group.selectedRows.length).flatMap(group=>primaryFields.flatMap((field,index)=>group.selectedRows.some(row=>row[field]===monitor.busId)?[{key:group.key,instrumentKey:group.key,slot:index+1,name:group.name,role:index===1?'IEM':'MON',label:instrumentMonitorName(group.name,index+1)}]:[]));
+  }
+
+  function syncMonitorNames(draft){
+    for(const monitor of draft.monitors||[]){
+      if(monitor.nameMode==='manual')continue;
+      monitor.nameMode='auto';
+      const sources=monitorNameSources(draft,monitor.id),chosen=sources.find(source=>source.instrumentKey===monitor.nameSource?.instrumentKey&&source.slot===monitor.nameSource?.slot);
+      if(!chosen)monitor.nameSource=null;
+      // A unique implicit owner is not an explicit choice. If the BUS later
+      // becomes shared, retain its displayed name until the operator chooses.
+      const source=chosen||(sources.length===1?sources[0]:null);
+      if(source)monitor.name=source.label;
+    }
+  }
+
+  function setMonitorName(draft,monitorId,name){
+    const monitor=draft?.monitors?.find(item=>item.id===monitorId);
+    if(!monitor)return {ok:false,message:'Monitor non disponibile.'};
+    if(typeof name!=='string')return {ok:false,message:'Scrivi un nome valido per il monitor.'};
+    const changed=monitor.name!==name||monitor.nameMode!=='manual';
+    // Keep empty text while editing. Name validation and the UI commit fallback
+    // remain responsible for an incomplete manual field.
+    monitor.name=name;monitor.nameMode='manual';
+    return {ok:true,changed};
+  }
+
+  function setMonitorNameSource(draft,monitorId,source=null){
+    const monitor=draft?.monitors?.find(item=>item.id===monitorId);
+    if(!monitor)return {ok:false,message:'Monitor non disponibile.'};
+    const candidates=monitorNameSources(draft,monitorId),choice=source===null?null:candidates.find(candidate=>candidate.instrumentKey===source?.instrumentKey&&candidate.slot===source?.slot);
+    if(source!==null&&!choice)return {ok:false,message:'Scegli uno strumento e un ruolo assegnati a questo monitor.'};
+    const before={name:monitor.name,nameMode:monitor.nameMode,nameSource:monitor.nameSource};
+    monitor.nameMode='auto';monitor.nameSource=choice?{instrumentKey:choice.instrumentKey,slot:choice.slot}:null;syncMonitorNames(draft);
+    return {ok:true,changed:!equal(before,{name:monitor.name,nameMode:monitor.nameMode,nameSource:monitor.nameSource})};
   }
 
   // Linking belongs to the proposal only. It never creates a physical/stereo link.
@@ -117,6 +168,7 @@
     if(target&&members.some(member=>member[otherField]===target))return {ok:false,message:'I due monitor principali devono usare BUS diversi.'};
     let changed=false;
     for(const member of members)changed=assignPrimaries(member,slot===1?target:member.primaryBusId||'',slot===2?target:member.secondaryPrimaryBusId||'')||changed;
+    syncMonitorNames(draft);
     return {ok:true,changed,count:members.length};
   }
 
@@ -125,6 +177,7 @@
     if(!row)return {ok:false,message:'Riga non disponibile.'};
     const value=clean(name).slice(0,60),members=groupRows(draft,row);
     for(const member of members)member.instrumentName=value;
+    syncMonitorNames(draft);
     return {ok:true,count:members.length};
   }
 
@@ -138,6 +191,7 @@
       let independent=base,index=2;while(keys.has(independent))independent=base+':'+index++;
       row.instrumentKey=independent;
       row.instrumentName=clean(row.originalName||row.name)||'Canale vuoto';
+      syncMonitorNames(draft);
       return {ok:true,changed:true};
     }
     const leader=draft.rows.find(member=>member!==row&&member.instrumentKey===key);
@@ -146,7 +200,70 @@
     if(first&&first===second)return {ok:false,message:'I due monitor principali devono usare BUS diversi.'};
     row.instrumentKey=key;row.instrumentName=leader.instrumentName;
     assignPrimaries(row,first,second);
+    syncMonitorNames(draft);
     return {ok:true,changed:true};
+  }
+
+  // A group-edit selection is independent of the checkbox that includes a row
+  // in the import. Resolve every ID before changing any row, in PDF order.
+  function selectedInstrumentRows(draft,rowIds){
+    if(!draft||!Array.isArray(draft.rows))return {ok:false,message:'L’anteprima non è disponibile.'};
+    if(!Array.isArray(rowIds)||!rowIds.length)return {ok:false,message:'Scegli almeno un canale da modificare.'};
+    if(rowIds.some(id=>typeof id!=='string'||!id))return {ok:false,message:'La selezione dei canali non è valida.'};
+    const ids=new Set(rowIds),rows=draft.rows.filter(row=>ids.has(row.id));
+    if(rows.length!==ids.size||new Set(rows.map(row=>row.id)).size!==ids.size)return {ok:false,message:'Uno dei canali scelti non è più disponibile. Controlla la selezione.'};
+    return {ok:true,rows};
+  }
+
+  function instrumentPrimaryPair(draft,row){
+    const pair=primaryFields.map(field=>row[field]===undefined?'':row[field]);
+    if(pair.some(id=>typeof id!=='string'||id&&(!busId(id)||!draft.monitors?.some(m=>m.busId===id))))return null;
+    return pair[0]&&pair[0]===pair[1]?null:pair;
+  }
+
+  function createInstrumentGroup(draft,rowIds,name,referenceRowId){
+    const selection=selectedInstrumentRows(draft,rowIds);if(!selection.ok)return selection;
+    const value=typeof name==='string'?clean(name).slice(0,60):'';
+    if(!value)return {ok:false,message:'Scrivi il nome del nuovo strumento.'};
+    const reference=referenceRowId===undefined?selection.rows[0]:selection.rows.find(row=>row.id===referenceRowId);
+    if(!reference)return {ok:false,message:'Scegli il riferimento dei monitor tra i canali selezionati.'};
+    const pair=instrumentPrimaryPair(draft,reference);
+    if(!pair||selection.rows.some(row=>!instrumentPrimaryPair(draft,row)))return {ok:false,message:'Correggi i monitor principali dei canali scelti prima di creare il gruppo.'};
+    const keys=new Set(draft.rows.map(row=>row.instrumentKey));
+    let index=1,key;do{key='manual-instrument:'+index++;}while(keys.has(key));
+    for(const row of selection.rows){row.instrumentKey=key;row.instrumentName=value;assignPrimaries(row,...pair);}
+    syncMonitorNames(draft);
+    return {ok:true,changed:true,key,count:selection.rows.length,message:'Gruppo “'+value+'” creato con '+selection.rows.length+' canali.'};
+  }
+
+  function moveInstrumentRows(draft,rowIds,targetKey){
+    const selection=selectedInstrumentRows(draft,rowIds);if(!selection.ok)return selection;
+    const leader=typeof targetKey==='string'&&targetKey?draft.rows.find(row=>row.instrumentKey===targetKey):null;
+    if(!leader)return {ok:false,message:'Scegli uno strumento disponibile come destinazione.'};
+    const pair=instrumentPrimaryPair(draft,leader);
+    if(!pair||selection.rows.some(row=>!instrumentPrimaryPair(draft,row)))return {ok:false,message:'Correggi i monitor principali dei canali scelti e dello strumento di destinazione.'};
+    const name=nameFor(leader,draft.rows.indexOf(leader));let changed=false;
+    for(const row of selection.rows){
+      if(row.instrumentKey===targetKey)continue;
+      row.instrumentKey=targetKey;row.instrumentName=name;assignPrimaries(row,...pair);changed=true;
+    }
+    syncMonitorNames(draft);
+    return {ok:true,changed,key:targetKey,count:selection.rows.length,message:changed?'Canali spostati nello strumento “'+name+'”.':'I canali scelti appartengono già a questo strumento.'};
+  }
+
+  function separateInstrumentRows(draft,rowIds){
+    const selection=selectedInstrumentRows(draft,rowIds);if(!selection.ok)return selection;
+    const selected=new Set(selection.rows),counts=new Map();
+    for(const row of draft.rows)counts.set(row.instrumentKey,(counts.get(row.instrumentKey)||0)+1);
+    const changedRows=selection.rows.filter(row=>counts.get(row.instrumentKey)>1),changed=new Set(changedRows);
+    // Reserve keys of retained groups, including selected single-channel groups.
+    const keys=new Set(draft.rows.filter(row=>!selected.has(row)||!changed.has(row)).map(row=>row.instrumentKey));
+    for(const row of changedRows){
+      const base='row:'+row.id;let key=base,index=2;while(keys.has(key))key=base+':'+index++;
+      keys.add(key);row.instrumentKey=key;row.instrumentName=clean(row.originalName||row.name)||'Canale vuoto';
+    }
+    syncMonitorNames(draft);
+    return {ok:true,changed:changedRows.length>0,count:selection.rows.length,message:changedRows.length?'I canali scelti sono ora indipendenti.':'I canali scelti sono già indipendenti.'};
   }
 
   function patchInstrumentSend(draft,rowId,target,patch){
@@ -186,6 +303,8 @@
       if(own(row.sends,previous)){row.sends[target]=row.sends[previous];delete row.sends[previous];}
       else row.sends[target]=defaultSend(primaryIds(row).includes(target),row.empty);
     }
+    sortMonitors(draft);
+    syncMonitorNames(draft);
     return {ok:true,changed:true};
   }
 
@@ -348,6 +467,6 @@
     },'channel-list-undo');
     return accepted!==false&&restored?{ok:true,message:'Importazione annullata. Ripristinati solo i valori modificati; routing conservato.'}:{ok:false,message:conflict?'Alcuni valori sono cambiati dopo l’importazione: annullamento non applicato.':'Il progetto non è più disponibile offline.'};
   }
-  const API={prepareDraft,syncDraft,instrumentGroups,setPrimary,setInstrument,setInstrumentName,patchInstrumentSend,addEmptyRow,setMonitorBus,changeRemainingMode,validateDraft,planDraft,applyDraft,undoDraft};
+  const API={prepareDraft,syncDraft,instrumentGroups,setPrimary,setInstrument,setInstrumentName,createInstrumentGroup,moveInstrumentRows,separateInstrumentRows,monitorNameSources,setMonitorName,setMonitorNameSource,patchInstrumentSend,addEmptyRow,setMonitorBus,changeRemainingMode,validateDraft,planDraft,applyDraft,undoDraft};
   if(typeof module!=='undefined'&&module.exports)module.exports=API;else root.SculptChannelScene=API;
 })(typeof window!=='undefined'?window:globalThis);

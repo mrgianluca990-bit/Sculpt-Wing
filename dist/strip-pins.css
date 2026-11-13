@@ -1,0 +1,30 @@
+/* Fixed side rails share the row height; the existing bank remains the center scroller. */
+.strip-pin-body{display:flex;flex:1;min-height:0;min-width:0;width:100%;position:relative;--pin-rail-max:40%}
+.strip-pin-body.has-pins-both{--pin-rail-max:32%}
+.strip-pin-body>.fader-scroll{flex:1 1 0;min-width:0;height:100%}
+.strip-pin-rail{position:relative;flex:0 1 auto;width:calc(var(--pin-count,0)*var(--strip-width) + 8px);max-width:var(--pin-rail-max);min-width:0;height:100%;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;overscroll-behavior-x:contain;touch-action:pan-x;cursor:grab;background:#241d26}
+.strip-pin-rail::-webkit-scrollbar{display:none}
+.strip-pin-rail.panning{cursor:grabbing;scroll-behavior:auto}
+.strip-pin-rail:focus-visible{outline:2px solid #d687a3;outline-offset:-2px}
+.strip-pin-left{border-right:2px solid #9b5d76;box-shadow:3px 0 6px #0006;z-index:1}
+.strip-pin-right{border-left:2px solid #9b5d76;box-shadow:-3px 0 6px #0006;z-index:1}
+.strip-pin-bank{background:#211b24}
+.strip-pin-bank>.strip{background-color:#6b37571c}
+.strip.has-pin-control .strip-index{padding-right:17px}
+.strip-pin-button{position:absolute;z-index:2;top:2px;right:1px;display:flex;align-items:center;justify-content:center;width:17px;height:16px;padding:1px;color:#b49aa9;background:#211a2488;border:1px solid #5b425366;border-radius:3px;touch-action:pan-x}
+.strip-pin-button svg{width:11px;height:13px;pointer-events:none}
+.strip-pin-button:hover{color:#ffe1eb;background:#6c3b51}
+.strip-pin-button.is-pinned{color:#ffd0e3;border-color:#b96e8e;background:#65354e}
+.strip-pin-button.is-pinned::after{position:absolute;right:-1px;top:-2px;padding:0 1px;font-size:6px;line-height:8px;background:#3b1d2c;color:#ffdce9}
+.strip-pin-button[data-side=left]::after{content:'L'}
+.strip-pin-button[data-side=right]::after{content:'R'}
+.strip-pin-center-empty{align-self:center;min-width:100%;padding:15px;text-align:center;color:#a790a0;font-size:11px;line-height:1.5}
+.strip-pin-modal{width:min(430px,calc(100vw - 24px))}
+.strip-pin-options{display:flex;flex-direction:column;gap:9px}
+.strip-pin-options>.desk-note{margin:0 0 5px;line-height:1.6}
+.strip-pin-options>.desk-button{min-height:39px;text-align:left}
+.strip-pin-options .strip-pin-current{background:#5c3449;border-color:#b77794;color:#f7d5e4}
+.strip-pin-order{display:flex;flex-wrap:wrap;gap:7px;border-top:1px solid #58404e;margin-top:5px;padding-top:12px}
+.strip-pin-order>.desk-note{flex:0 0 100%;margin:0 0 3px}
+.strip-pin-order>.desk-button{flex:1;font-size:12px}
+@media(max-height:620px){.strip-pin-button{width:15px;height:14px;top:1px}.strip-pin-button svg{width:10px;height:11px}.strip.has-pin-control .strip-index{padding-right:15px}.strip-pin-center-empty{font-size:9px;padding:8px}}

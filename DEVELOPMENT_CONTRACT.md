@@ -68,3 +68,47 @@ I canali dello stesso strumento sono collegati nell’anteprima: la scelta delle
 L’editor di una strip si apre nella **riga opposta a quella da cui è stato richiamato**, lasciando accessibili i fader della riga sorgente. Usare l’effettiva posizione nel mixer anche nel Custom Layer: un ingresso nella riga superiore apre l’editor in basso, un’uscita nella riga inferiore lo apre in alto. Conservare gesti del mixer, mandate verticali, sei sezioni dell’editor, rinomina, chiusura da tastiera e verifiche della sessione live.
 
 La versione conserva il workflow M1 corretto, già riuscito nel run GitHub `43496123183` sul commit `bd89e3dbe9a331d29aecfb6746f299ff82fee9df`: runner Mac Intel e target esplicito ARM64 con verifica dell’eseguibile e della firma. Questo successo riguarda la 0.6.3; la nuova 0.6.4 richiede la propria compilazione e prova sul Mac M1.
+
+## Aggiornamento 0.6.5 — comandi del mixer e disposizione personalizzabile
+
+Ogni valore numerico modificabile nell’editor del canale deve avere una manopola collegata allo stesso stato del campo numerico e dell’eventuale fader. Conservare la forma dei pannelli dei processori e organizzare i controlli per la vista orizzontale. Le selezioni discrete non numeriche, i nomi e gli interruttori conservano controlli adatti al valore. Le mandate rimangono verticali e l’editor continua a occupare la riga opposta.
+
+Rendere i 16 DCA raggiungibili dal mixer nella riga superiore, con fader, mute, solo, nome e assegnazioni collegati ai gruppi esistenti. Conservare idratazione e controlli di scrittura live: nessun valore demo non ricevuto deve apparire come dato del banco.
+
+L’anteprima della channel list mantiene lo scorrimento durante l’assegnazione dei monitor e ordina numericamente i BUS. Un monitor nuovo usa il primo BUS libero. Dopo un’applicazione riuscita, la finestra si chiude automaticamente; l’annullamento deve rimanere raggiungibile riaprendo l’importatore nella stessa sessione. Errori e conflitti lasciano aperta l’anteprima.
+
+Il doppio clic sul fader lo porta a **0 dB**, compresi i fader DCA e le mandate. In SOF agisce sulla mandata visualizzata. Questa azione esplicita supera il precedente comportamento inerte del doppio clic; il trascinamento resta consentito soltanto dalla testa e il singolo clic sul binario non cambia il livello.
+
+Il meter delle strip CH/AUX misura l’ingresso, indipendentemente da mute, fader, SOF o riga effettiva nel Custom Layer. Aggiungere due piccoli meter G/C per la riduzione di guadagno di gate e compressore. In live utilizzare i dati del protocollo ricevuti e segnalare quelli mancanti o scaduti; non calcolare la GR dal fader né attribuire una conversione in dB non documentata al modello.
+
+La richiesta successiva nella stessa sessione aggiunge **altezza regolabile delle due righe** e **ancoraggio di uno o più canali a sinistra o a destra**. Usare un divisore trascinabile con alternativa da tastiera, limiti minimi leggibili e ripristino 50/50. Le strip ancorate restano visibili durante lo scorrimento del centro, riutilizzando gli stessi elementi e controlli del mixer. La preferenza segue il canale nella sua riga attuale, compreso il Custom Layer; deve poter essere rimossa. Altezza e ancoraggi sono preferenze locali di interfaccia persistenti, distinte dai parametri audio e dal routing.
+
+Il target resta esclusivamente Mac M1 / Apple Silicon ARM64. La base remota osservata per questo aggiornamento è la 0.6.4, commit `d376463b87ba9389f39f33aa1600e23656e21a6b`. Distinguere build e prove locali, compilazione macOS su GitHub, avvio sul Mac e collaudo sul mixer fisico.
+
+La richiesta finale aggiunge una **sfumatura molto tenue del colore assegnato lungo tutta la strip**, visibile anche nelle aree ancorate e aggiornata insieme al colore del canale. Conservare contrasto e leggibilità di nomi, fader e meter.
+
+La cancellazione esplicita del nome di un ingresso o di un’uscita, confermata con Invio o uscita dal campo, ripristina il nome standard della famiglia e del numero (CH 1, AUX 1, BUS 1, MTX 1, MAIN 1). Durante la digitazione il campo può restare vuoto. Conservare le regole dei nomi collegati alla sorgente e i blocchi di scrittura live.
+
+## Aggiornamento 0.6.6 — gruppi di strumenti modificabili nell’anteprima
+
+L’utente richiede di modificare i gruppi di canali riconosciuti durante l’importazione del PDF. Aggiungere una scheda **Strumenti**, raggiungibile anche dall’intestazione del gruppo nella scheda Canali. Permettere di rinominare un gruppo, selezionare più canali, crearne uno nuovo, spostare i canali in un gruppo esistente e separarli in gruppi indipendenti. I gruppi vuoti scompaiono senza cancellare i canali. La selezione per riordinare i gruppi deve restare distinta dall’inclusione nell’importazione.
+
+I gruppi sono identificati indipendentemente dal nome visualizzato. Creare un gruppo richiede almeno un canale e un nome; tutti gli identificativi devono essere validati prima di cambiare la proposta, senza modifiche parziali in caso di errore. Il nuovo gruppo eredita i principali da un canale di riferimento scelto fra i membri selezionati. Spostare dei canali in un gruppo esistente adotta i suoi due principali, anche quando uno o entrambi sono Nessuno. Mostrare queste assegnazioni prima dell’azione.
+
+Separare canali conserva principali e mandate già preparate. Creare o spostare un gruppo aggiorna soltanto le mandate che cambiano ruolo: un nuovo principale è attivo a −5 dB PRE; un precedente principale non più assegnato diventa −8 dB POST, oppure disattivato a −∞ per una riga vuota. Le altre personalizzazioni degli invii restano conservate. Nomi dei canali, colori, destinazioni, mute, fader e inclusione nell’importazione non cambiano spostando i gruppi. I due principali restano facoltativi e modificabili per strumento.
+
+Tutte queste azioni lavorano sulla sola anteprima. Applicazione e annullamento conservano il comportamento offline, i controlli di conflitto e la protezione del routing delle versioni precedenti. Il collegamento dei gruppi non crea link stereo o assegnazioni DCA. La consegna resta cumulativa sulla 0.6.4 remota e include le funzioni della 0.6.5; target esclusivo Mac M1 / Apple Silicon ARM64.
+
+La richiesta aggiuntiva assegna un significato ai due slot: **Principale 1 = MON**, **Principale 2 = IEM**. Il nome dello strumento genera automaticamente il nome del BUS assegnato, ad esempio **Batteria MON** e **Batteria IEM**, e lo aggiorna quando cambia il nome dello strumento. Per rispettare i 16 caratteri, accorciare il nome dello strumento conservando sempre il suffisso MON/IEM. I nomi dei singoli ingressi non sono il nome dello strumento.
+
+I nomi dei BUS restano correggibili nell’anteprima, con scelta esplicita fra nome automatico e manuale. Un BUS condiviso può avere un solo nome: quando più strumenti lo usano, offrire la scelta dello strumento/ruolo da cui derivarlo senza usare implicitamente l’ultimo modificato. Il nome automatico è applicato al BUS solo con l’inclusione dell’identità del monitor e con Applica scena. Non cambiare fader, mute, patch, formato stereo o routing del BUS per rinominarlo.
+
+Rispettare i ruoli espliciti nel PDF: un monitor etichettato IEM/I.E.M. viene proposto nel secondo slot; MON e monitor senza indicazione IEM nel primo. Una coppia univoca MON+IEM può riempire entrambi. Candidati multipli dello stesso ruolo richiedono una scelta nell’anteprima. Il riconoscimento usa il nome originale prima dell’accorciamento.
+
+## Macro aggiuntive — richiesta nella consegna 0.6.6
+
+L’utente richiede altri **otto pulsanti macro vuoti**, per un totale di **16**. Le prime otto assegnazioni esistenti devono rimanere conservate; i pulsanti M9–M16 partono senza azioni. Cliccare un pulsante vuoto apre la scelta di cosa assegnare; una macro configurata si esegue con un clic e deve restare modificabile. Supportare anche apertura di menu, pagine, sezioni dell’editor, SOF e layer, oltre ai comandi del mixer e ai parametri dei processori. Per gli altri parametri WING usare lo schema esposto dal banco e i controlli di lettura/scrittura esistenti, senza inventare percorsi, tipi o intervalli.
+
+Le azioni di navigazione dell’interfaccia non richiedono l’abilitazione delle scritture audio. Le macro che contengono comandi al mixer devono conservare la validazione preventiva dell’intera sequenza, i controlli della sessione, l’abilitazione di Controllo, lo schema dei parametri e il riscontro delle scritture. Una macro con un comando non disponibile non deve eseguire la prima parte della sequenza prima di rilevare il problema. Le definizioni delle macro sono configurazione locale e possono essere modificate e conservate durante una sessione live senza salvare dati audio del banco come progetto demo.
+
+Conservare creazione e modifica di sequenze, scelta del nome, riordino e rimozione delle azioni. Prevedere un’azione esplicita per svuotare una macro senza eliminarne il pulsante. Mantenere il mixer a due righe, il divisore regolabile e la raggiungibilità di tutti i16 pulsanti. Questa richiesta supera il rinvio delle macro indicato nelle versioni precedenti.

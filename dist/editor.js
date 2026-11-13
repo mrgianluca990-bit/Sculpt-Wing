@@ -131,50 +131,93 @@
   }
 
   function parameter({ caption, get, set, min, max, step = 1, unit = '', log = false, compact = false, vertical = false, format, disabled }) {
-    const wrap = el('div', `editor-parameter${compact ? ' editor-parameter-compact' : ''}${vertical ? ' editor-parameter-vertical' : ''}`);
-    const heading = el('div', 'editor-parameter-heading');
-    const display = el('output', 'editor-parameter-value');
+    const wrap = el('div', `editor-parameter editor-parameter-rotary${compact ? ' editor-parameter-compact' : ''}${vertical ? ' editor-parameter-vertical' : ''}`);
+    const heading = el('div', 'editor-parameter-heading'), display = el('output', 'editor-parameter-value');
     const displayValue = value => format ? format(value) : `${dec(value, step < 1 ? (step < .1 ? 2 : 1) : 0)}${unit ? ` ${unit}` : ''}`;
     heading.append(el('span', 'editor-parameter-label', caption), display);
     const row = el('div', 'editor-parameter-controls');
-    const slider = el('input', 'editor-range');
-    slider.type = 'range'; slider.min = log ? '0' : String(min); slider.max = log ? '1000' : String(max); slider.step = log ? '1' : String(step);
-    slider.setAttribute('aria-label', `${caption} — cursore`);
-    if (vertical) slider.setAttribute('aria-orientation', 'vertical');
+    const knob = el('div', 'editor-knob'); knob.tabIndex = 0;
+    knob.setAttribute('role', 'slider'); knob.setAttribute('aria-label', `${caption} — manopola`);
+    knob.setAttribute('aria-valuemin', String(min)); knob.setAttribute('aria-valuemax', String(max));
+    knob.append(el('i', 'editor-knob-pointer'));
     const input = el('input', 'editor-number');
     input.type = 'number'; input.min = String(min); input.max = String(max); input.step = String(step);
     input.inputMode = step < 1 ? 'decimal' : 'numeric'; input.setAttribute('aria-label', `${caption}${unit ? ` in ${unit}` : ''}`);
-    const toSlider = value => log ? Math.log(clamp(value, min, max) / min) / Math.log(max / min) * 1000 : value;
-    const fromSlider = value => log ? min * (max / min) ** (value / 1000) : value;
+    const slider = vertical ? el('input', 'editor-range') : null;
+    if (slider) {
+      slider.type = 'range'; slider.min = '0'; slider.max = '1000'; slider.step = '1';
+      // Keep the send's native value and keyboard step. Other parameters use the rotary only.
+      if (!log) { slider.min = String(min); slider.max = String(max); slider.step = String(step); }
+      slider.setAttribute('aria-label', `${caption} — cursore`); slider.setAttribute('aria-orientation', 'vertical');
+    }
+    const toPosition = value => log ? Math.log(clamp(value, min, max) / min) / Math.log(max / min) : (clamp(value, min, max) - min) / (max - min);
+    const fromPosition = position => log ? min * (max / min) ** clamp(position, 0, 1) : min + clamp(position, 0, 1) * (max - min);
     const normalize = value => Number((Math.round((clamp(value, min, max) - min) / step) * step + min).toFixed(4));
+    const writable = () => !disabled?.() && !(window.SculptLive?.isLive?.() && (!window.SculptLive.isConnected?.() || !window.SculptLive.isWritable?.()));
     const update = () => {
       const value = Number(get()); if (!Number.isFinite(value)) return;
-      slider.value = String(toSlider(value));
-      const position = (Number(slider.value) - Number(slider.min)) / (Number(slider.max) - Number(slider.min));
-      slider.style.setProperty('--editor-fill', `${position * 100}%`);
-      if (vertical) wrap.style.setProperty('--editor-position', position);
-      slider.setAttribute('aria-valuetext', displayValue(value));
-      if (document.activeElement !== input) input.value = String(value);
-      display.textContent = displayValue(value);
-      if (disabled) { slider.disabled = !!disabled(); input.disabled = !!disabled(); wrap.classList.toggle('editor-disabled', !!disabled()); }
-    };
-    const commitSlider = () => { if (slider.disabled) { update(); return; } set(normalize(fromSlider(Number(slider.value)))); input.value = String(get()); update(); };
-    slider.addEventListener('input', commitSlider);
-    const commit = () => {
-      if (input.value.trim() && Number.isFinite(input.valueAsNumber)) {
-        const value = normalize(input.valueAsNumber);
-        if (value !== Number(get())) set(value);
+      const position = toPosition(value), enabled = writable();
+      knob.style.setProperty('--editor-turn', `${-135 + position * 270}deg`);
+      knob.style.setProperty('--editor-sweep', `${position * 270}deg`);
+      knob.setAttribute('aria-valuenow', String(value)); knob.setAttribute('aria-valuetext', displayValue(value));
+      knob.setAttribute('aria-disabled', String(!enabled)); knob.tabIndex = enabled ? 0 : -1;
+      knob.title = `${caption}: ${displayValue(value)} · trascina su/giù, Maiusc per la regolazione fine`;
+      if (slider) {
+        slider.value = String(log ? position * 1000 : value); slider.disabled = !enabled;
+        slider.style.setProperty('--editor-fill', `${position * 100}%`); slider.setAttribute('aria-valuetext', displayValue(value));
+        wrap.style.setProperty('--editor-position', position);
       }
+      if (document.activeElement !== input) input.value = String(value);
+      input.disabled = !enabled; display.textContent = displayValue(value); wrap.classList.toggle('editor-disabled', !enabled);
+    };
+    const commitValue = value => {
+      if (writable() && Number.isFinite(value)) { const next = normalize(value); if (next !== Number(get())) set(next); }
+      update();
+    };
+    let rotaryDrag = null;
+    const finishRotary = () => {
+      if (!rotaryDrag) return;
+      const pointer = rotaryDrag.pointer; rotaryDrag = null; knob.classList.remove('dragging');
+      if (knob.hasPointerCapture?.(pointer)) knob.releasePointerCapture(pointer);
+    };
+    knob.addEventListener('pointerdown', event => {
+      if (rotaryDrag || !writable() || event.button !== 0) return;
+      rotaryDrag = { pointer: event.pointerId, y: event.clientY, position: toPosition(Number(get())) };
+      knob.focus({ preventScroll: true }); knob.setPointerCapture?.(event.pointerId); knob.classList.add('dragging'); event.preventDefault();
+    });
+    knob.addEventListener('pointermove', event => {
+      if (!rotaryDrag || rotaryDrag.pointer !== event.pointerId) return;
+      if (!writable()) { finishRotary(); return; }
+      // Incremental deltas keep a continuous value when Shift changes mid-drag.
+      rotaryDrag.position = clamp(rotaryDrag.position + (rotaryDrag.y - event.clientY) / 180 * (event.shiftKey ? .15 : 1), 0, 1);
+      rotaryDrag.y = event.clientY; commitValue(fromPosition(rotaryDrag.position)); event.preventDefault();
+    });
+    const endRotary = event => { if (rotaryDrag?.pointer === event.pointerId) finishRotary(); };
+    for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) knob.addEventListener(type, endRotary);
+    knob.addEventListener('keydown', event => {
+      if (!writable()) return;
+      const direction = { ArrowUp: 1, ArrowRight: 1, ArrowDown: -1, ArrowLeft: -1, PageUp: 10, PageDown: -10 }[event.key];
+      let value;
+      if (direction !== undefined) value = Number(get()) + direction * step * (event.shiftKey ? 10 : 1);
+      else if (event.key === 'Home') value = min;
+      else if (event.key === 'End') value = max;
+      else return;
+      event.preventDefault(); commitValue(value);
+    });
+    if (caption === 'Fader' || vertical) knob.addEventListener('dblclick', () => commitValue(0));
+    const commit = () => {
+      if (input.value.trim() && Number.isFinite(input.valueAsNumber)) commitValue(input.valueAsNumber);
       input.value = String(get()); update();
     };
     input.addEventListener('change', commit); input.addEventListener('blur', commit);
     input.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); commit(); input.blur(); } });
+    window.addEventListener('blur', finishRotary);
+    cleanups.push(() => { finishRotary(); window.removeEventListener?.('blur', finishRotary); });
     if (vertical) {
       const rail = el('div', 'editor-fader-rail'), scale = el('div', 'editor-fader-scale'), cap = el('span', 'editor-fader-cap');
-      scale.setAttribute('aria-hidden', 'true');
-      cap.setAttribute('aria-hidden', 'true');
-      // Keep the native range for keyboard/accessibility, but make only the
-      // visible head a pointer target. Pressing its rail cannot jump a send.
+      scale.setAttribute('aria-hidden', 'true'); cap.setAttribute('aria-hidden', 'true');
+      const commitSlider = () => commitValue(log ? fromPosition(Number(slider.value) / 1000) : Number(slider.value));
+      slider.addEventListener('input', commitSlider);
       slider.addEventListener('pointerdown', event => event.preventDefault());
       let drag = null;
       const finish = () => {
@@ -183,29 +226,28 @@
         if (cap.hasPointerCapture?.(pointer)) cap.releasePointerCapture(pointer);
       };
       cap.addEventListener('pointerdown', event => {
-        if (drag || slider.disabled || event.button !== 0) return;
+        if (drag || !writable() || event.button !== 0) return;
         drag = { pointer: event.pointerId, startY: event.clientY, startValue: Number(slider.value), travel: Math.max(1, rail.getBoundingClientRect().height - (cap.getBoundingClientRect().height || 22)) };
         slider.focus({ preventScroll: true }); cap.setPointerCapture(event.pointerId); cap.classList.add('dragging'); event.preventDefault();
       });
       cap.addEventListener('pointermove', event => {
         if (!drag || drag.pointer !== event.pointerId) return;
-        if (slider.disabled) { finish(); return; }
+        if (!writable()) { finish(); return; }
         const range = Number(slider.max) - Number(slider.min), fine = event.shiftKey ? .2 : 1;
         slider.value = String(clamp(drag.startValue + (drag.startY - event.clientY) / drag.travel * range * fine, Number(slider.min), Number(slider.max)));
         commitSlider(); event.preventDefault();
       });
       const endPointer = event => { if (drag?.pointer === event.pointerId) finish(); };
       cap.addEventListener('pointerup', endPointer); cap.addEventListener('pointercancel', endPointer); cap.addEventListener('lostpointercapture', endPointer);
-      window.addEventListener('blur', finish);
-      cleanups.push(() => { finish(); window.removeEventListener?.('blur', finish); });
+      rail.addEventListener('dblclick', () => commitValue(0));
+      window.addEventListener('blur', finish); cleanups.push(() => { finish(); window.removeEventListener?.('blur', finish); });
       for (const value of [10, 0, -10, -20, -40, -60, -90]) {
         const tick = el('span', '', value <= -90 ? '−∞' : `${value > 0 ? '+' : ''}${value}`);
         tick.style.top = `${(max - value) / (max - min) * 100}%`;
-        if (value === 0) tick.className = 'editor-fader-unity';
-        scale.append(tick);
+        if (value === 0) tick.className = 'editor-fader-unity'; scale.append(tick);
       }
-      rail.append(scale, slider, cap); row.append(rail, input);
-    } else row.append(slider, input);
+      rail.append(scale, slider, cap); row.append(rail, knob, input);
+    } else row.append(knob, input);
     wrap.append(heading, row); bind(update); return wrap;
   }
 
@@ -261,7 +303,7 @@
 
   function nameAccess() {
     const live = window.SculptLive;
-    if (!live?.isLive?.()) return { enabled: true, maxLength: 16, message: 'Conferma con Invio o tocca fuori dal campo.' };
+    if (!live?.isLive?.()) return { enabled: true, maxLength: 16, message: `Conferma con Invio o tocca fuori dal campo. Vuoto → ${window.SculptModel.defaultName(sourceStrip())}.` };
     if (!live.isConnected?.() || !live.isWritable?.()) return { enabled: false, maxLength: 16, message: 'Attiva Controllo nella connessione WING per rinominare.' };
     const map = window.SculptWingMap, base = map?.stripPath(currentId);
     const linked = isInput() && !!Number(live.value?.(`${base}/clink`));
@@ -270,7 +312,7 @@
     const meta = path && live.metadata?.(path);
     const enabled = !!meta && !meta.readOnly && !!live.hasValue?.(path);
     return { enabled, maxLength: Number.isInteger(meta?.maxLength) && meta.maxLength > 0 ? Math.min(16, meta.maxLength) : 16,
-      message: !enabled ? 'Il nome non è modificabile nei parametri letti dalla WING.' : linked ? 'Nome collegato alla sorgente: si aggiorna anche sui canali che usano questa sorgente.' : 'Conferma con Invio o tocca fuori dal campo.' };
+      message: !enabled ? 'Il nome non è modificabile nei parametri letti dalla WING.' : linked ? `Nome collegato alla sorgente: si aggiorna anche sui canali che usano questa sorgente. Vuoto → ${window.SculptModel.defaultName(sourceStrip())}.` : `Conferma con Invio o tocca fuori dal campo. Vuoto → ${window.SculptModel.defaultName(sourceStrip())}.` };
   }
   function focusName() {
     if (renameFocusId !== currentId || activeTab !== 'channel') return;
@@ -288,7 +330,8 @@
     focusName();
   }
   function renderIdentity() {
-    const identity = module('Identità', textField('Nome', () => sourceStrip().name, value => { if (nameAccess().enabled && value !== sourceStrip().name) patch({ name: value }); }, { id: 'editor-channel-name', maxLength: 16, disabled: () => !nameAccess().enabled, limit: () => nameAccess().maxLength }));
+    const identity = module('Identità', textField('Nome', () => sourceStrip().name, value => { if (nameAccess().enabled && value !== sourceStrip().name) patch({ name: value }); }, { id: 'editor-channel-name', maxLength: 16, allowEmpty: true, disabled: () => !nameAccess().enabled, limit: () => nameAccess().maxLength }));
+    identity.classList.add('editor-module-identity');
     const help = note(''); help.id = 'editor-name-help';
     identity.querySelector('#editor-channel-name').setAttribute('aria-describedby', help.id);
     bind(() => { help.textContent = nameAccess().message; }); identity.append(help);
@@ -321,7 +364,7 @@
 
   function renderChannel() {
     const strip = sourceStrip();
-    const fader = module('Fader e immagine stereo');
+    const fader = module('Fader e immagine stereo'); fader.classList.add('editor-module-fader');
     const mainButtons = el('div', 'editor-button-row');
     mainButtons.append(
       toggle('MUTE', () => sourceStrip().mute, value => patch({ mute: value }), { className: 'editor-mute', ariaLabel: 'Mute del canale' }),
@@ -329,11 +372,12 @@
       button('0 dB', () => patch({ level: 0 }), 'editor-small-button', 'Porta fader a zero decibel'),
       button('−∞', () => patch({ level: -90 }), 'editor-small-button', 'Porta fader a meno infinito')
     );
-    fader.append(mainButtons, parameter({ caption: 'Fader', get: () => sourceStrip().level, set: value => patch({ level: value }), min: -90, max: 10, step: .1, unit: 'dB', format: value => `${db(value)} dB` }));
-    fader.append(grid(
+    fader.append(mainButtons);
+    const faderControls = grid(parameter({ caption: 'Fader', get: () => sourceStrip().level, set: value => patch({ level: value }), min: -90, max: 10, step: .1, unit: 'dB', format: value => `${db(value)} dB` }),
       parameter({ caption: 'Pan', get: () => sourceStrip().pan, set: value => patch({ pan: value }), min: -100, max: 100, step: 1, format: value => value === 0 ? 'C' : `${Math.abs(value)} ${value < 0 ? 'L' : 'R'}` }),
       parameter({ caption: 'Width', get: () => channel().width ?? 100, set: value => patchChannel({ width: value }), min: -150, max: 150, step: 5, unit: '%' })
-    ));
+    );
+    faderControls.classList.add('editor-level-controls'); fader.append(faderControls);
     const effective = el('div', 'editor-effective');
     bind(() => {
       const actual = D().effective(currentId);
@@ -344,14 +388,15 @@
     panel.append(fader);
 
     if (isInput()) {
-      const sources = module('Sorgente di ingresso');
+      const sources = module('Sorgente di ingresso'); sources.classList.add('editor-module-source');
+      let inputHeadamp = null;
       const switcher = el('div', 'editor-main-alt');
       for (const [value, text] of [[false, 'MAIN'], [true, 'ALT']]) {
         const choice = button(text, () => { patchChannel({ useAlt: value, ...(!value && D().get().io?.globalAlt ? { sourceAuto: false } : {}) }); renderPanel(false); }, 'editor-segment', `Usa sorgente ${text}`);
         bind(() => choice.setAttribute('aria-pressed', String(usesAlt() === value))); switcher.append(choice);
       }
       switcher.append(toggle('AUTO', () => channel().sourceAuto, value => patchChannel({ sourceAuto: value }), { ariaLabel: 'Cambio sorgente automatico' }));
-      sources.append(switcher, sourcePicker('Sorgente Main', 'source'), sourcePicker('Sorgente Alt', 'altSource'));
+      sources.append(switcher);
       const sourceInfo = el('div', 'editor-source-active');
       bind(() => sourceInfo.textContent = `${usesAlt() ? 'ALT' : 'MAIN'}${D().get().io?.globalAlt && channel().sourceAuto ? ' · globale' : ''} → ${sourceName(activeSource())}`);
       sources.append(sourceInfo);
@@ -371,24 +416,27 @@
           const headamp = el('div', 'editor-headamp');
           headamp.append(parameter({ caption: 'Gain preamp', get: () => D().source(src.id)?.gain ?? 0, set: value => D().patchSource(src.id, { gain: value }), min: src.gainMin ?? -3, max: src.gainMax ?? 45.5, step: src.gainStep ?? .5, unit: 'dB' }),
             toggle('+48 V', () => !!activeSource()?.phantom, value => D().patchSource(activeSource().id, { phantom: value }), { className: 'editor-phantom', ariaLabel: 'Alimentazione phantom 48 volt' }));
-          sources.append(headamp);
+          inputHeadamp = headamp;
         }
         const users = C().listStrips().filter(item => ['CH', 'AUX'].includes(item.kind) && (() => { const c = D().channel(item.id); return c && (c.source === src.id || c.altSource === src.id); })());
-        sources.append(note(`Controlli condivisi della sorgente · ${users.length} ${users.length === 1 ? 'canale assegnato' : 'canali assegnati'}.`));
+        sources.append(note(`Sorgente condivisa · ${users.length} ${users.length === 1 ? 'canale assegnato' : 'canali assegnati'}.`));
       }
-      const trim = module('Ingresso del canale', grid(
+      sources.append(disclosure('Assegnazione sorgenti Main / Alt', sourcePicker('Sorgente Main', 'source'), sourcePicker('Sorgente Alt', 'altSource')));
+      const trim = module('Preamplificatore e ingresso', inputHeadamp, grid(
         parameter({ caption: 'Trim', get: () => sourceStrip().trim, set: value => patch({ trim: value }), min: -18, max: 18, step: .1, unit: 'dB' }),
         parameter({ caption: 'Balance ingresso', get: () => channel().balance ?? 0, set: value => patchChannel({ balance: value }), min: -9, max: 9, step: .1, unit: 'dB' })
       ), toggle('Ø canale', () => sourceStrip().polarity, value => patch({ polarity: value }), { ariaLabel: 'Inverti polarità del canale' }));
-      panel.append(sources, trim);
+      trim.classList.add('editor-module-input'); if (inputHeadamp) trim.classList.add('editor-module-input-with-preamp');
+      panel.append(trim, sources);
     } else {
       panel.append(module('Formato del bus', selectField('Modo', () => channel().mode || 'ST', [{ value: 'ST', label: 'Stereo' }, { value: 'M', label: 'Mono' }], value => patchChannel({ mode: value }))));
       renderOutputAssignments();
     }
-    panel.append(renderIdentity(), module('Ascolto', grid(
+    const monitor = module('Ascolto', grid(
       selectField('Monitor solo', () => channel().monitor || 'A', ['A', 'B', 'A+B'], value => patchChannel({ monitor: value })),
       toggle('Solo safe', () => !!channel().soloSafe, value => patchChannel({ soloSafe: value }), { ariaLabel: 'Solo safe del canale' })
-    )), button('Preset del canale', () => { close(); window.SculptUI?.open('scenes', { tab: 'presets', target: currentId }); }, 'editor-link-button'));
+    ), button('Preset del canale', () => { close(); window.SculptUI?.open('scenes', { tab: 'presets', target: currentId }); }, 'editor-link-button'));
+    monitor.classList.add('editor-module-monitor'); panel.append(renderIdentity(), monitor);
   }
 
   function renderOutputAssignments() {
@@ -404,7 +452,7 @@
   function renderProcessor(block, destination = panel) {
     const host = el('div', 'editor-plugin-host');
     host.dataset.processorBlock = block; destination.append(host);
-    const cleanup = window.SculptFX?.renderProcessor(host, { type: 'strip', id: currentId, block });
+    const cleanup = window.SculptFX?.renderProcessor(host, { type: 'strip', id: currentId, block }, { rotaryBank: true });
     if (typeof cleanup === 'function') cleanups.push(cleanup);
     if (!window.SculptFX) host.append(note('Caricamento editor del processore…'));
     return host;
@@ -472,7 +520,7 @@
   function renderProcessing() {
     panel.append(renderOrder());
     if (isChannel()) {
-      const filter = module('Filtri d’ingresso'); filter.id = 'editor-filter-section';
+      const filter = module('Filtri d’ingresso'); filter.classList.add('editor-module-filters'); filter.id = 'editor-filter-section';
       const low = el('div', 'editor-filter-block');
       low.append(toggle('LOW CUT', () => !!channel().lowCutOn, value => patchChannel({ lowCutOn: value }), { ariaLabel: 'Low cut attivo' }),
         parameter({ caption: 'Low cut', get: () => channel().lowCut ?? 80, set: value => patchChannel({ lowCut: value }), min: 20, max: 2000, step: 1, log: true, unit: 'Hz' }),
@@ -505,7 +553,7 @@
     const patchBand = (index, key, value) => {
       const data = clone(read()); data.bands[index][key] = value; patchChannel({ sendEQ: data });
     };
-    const wrap = disclosure('Tap e EQ delle mandate PRE');
+    const wrap = disclosure('Tap e EQ delle mandate PRE'); wrap.classList.add('editor-presend');
     wrap.append(selectField('Punto di prelievo PRE', () => inputTap(currentId), TAP_INPUT, value => patchChannel({ tap: value })),
       parameter({ caption: 'Width mandate PRE', get: () => channel().tapWidth ?? 100, set: value => patchChannel({ tapWidth: value }), min: -150, max: 150, step: 5, unit: '%' }),
       toggle('PRE SEND EQ', () => !!read().enabled, value => patchObject('sendEQ', { enabled: value }), { ariaLabel: 'EQ delle mandate PRE attivo' }));
@@ -520,13 +568,13 @@
     wrap.append(bands); panel.append(wrap);
   }
 
-  function renderSidechain(block) {
+  function renderSidechain(block, destination = panel) {
     const key = block === 'gate' ? 'gateSC' : 'dynSC';
     const get = () => channel()[key];
     const patchSC = changes => patchObject(key, changes);
     const scope = isChannel() ? C().listStrips().filter(strip => strip.kind === 'CH') : C().listStrips().filter(strip => strip.kind !== 'CH');
     const srcOptions = [{ value: 'SELF', label: 'Self · questo canale' }, ...scope.map(strip => ({ value: strip.id, label: fullLabel(strip) }))];
-    const pane = disclosure(block === 'gate' ? 'Sidechain del gate' : 'Sidechain della dinamica');
+    const pane = disclosure(block === 'gate' ? 'Sidechain del gate' : 'Sidechain della dinamica'); pane.classList.add('editor-sidechain'); pane.open = true;
     pane.append(grid(
       selectField('Sorgente sidechain', () => get().source || 'SELF', srcOptions, value => patchSC({ source: value })),
       selectField('Tap sidechain', () => (isChannel() ? TAP_INPUT : TAP_OUTPUT).includes(get().tap) ? get().tap : isChannel() ? 'IN' : 'BUS', isChannel() ? TAP_INPUT : TAP_OUTPUT, value => patchSC({ tap: value }))
@@ -539,16 +587,16 @@
       ));
     }
     pane.append(toggle('Ascolta key', () => !!get().listen, value => patchSC({ listen: value }), { ariaLabel: 'Solo sidechain' }));
-    panel.append(pane);
+    destination.append(pane);
     if (block === 'dyn' && sourceStrip().kind !== 'AUX') {
       const read = () => channel().dynCrossover;
-      const crossover = disclosure('Dynamics crossover');
+      const crossover = disclosure('Dynamics crossover'); crossover.classList.add('editor-crossover');
       crossover.append(selectField('Tipo crossover', () => read().type || 'OFF', ['OFF', 'LO', 'HI', 'S6', 'S12', 'PEAK'], value => patchObject('dynCrossover', { type: value })), grid(
         parameter({ caption: 'Crossover frequenza', get: () => read().frequency || 1000, set: value => patchObject('dynCrossover', { frequency: value }), min: 20, max: 20000, step: 1, log: true, unit: 'Hz' }),
         parameter({ caption: 'Crossover depth', get: () => read().depth ?? 6, set: value => patchObject('dynCrossover', { depth: value }), min: 0, max: 20, step: .5, unit: 'dB' }),
         parameter({ caption: 'Crossover Q', get: () => read().q || 1, set: value => patchObject('dynCrossover', { q: value }), min: .4, max: 4, step: .01, log: true })
       ), toggle('Ascolta crossover', () => !!read().listen, value => patchObject('dynCrossover', { listen: value }), { ariaLabel: 'Solo crossover' }));
-      panel.append(crossover);
+      destination.append(crossover);
     }
   }
 
@@ -562,7 +610,8 @@
       }); panel.append(nav);
     }
     renderProcessor(dynamicsBlock);
-    renderSidechain(dynamicsBlock);
+    const details = el('div', 'editor-dynamics-details'); panel.append(details);
+    renderSidechain(dynamicsBlock, details);
   }
 
   function allowedGroups(direction) {
@@ -772,20 +821,20 @@
   function renderPanel(resetScroll = true) {
     if (!panel || !sourceStrip() || rendering) return;
     rendering = true;
-    const scrollTop = resetScroll ? 0 : panel.scrollTop;
+    const scrollTop = resetScroll ? 0 : panel.scrollTop, scrollLeft = resetScroll ? 0 : panel.scrollLeft;
     if (panel.contains(document.activeElement) && document.activeElement.matches('input,select')) document.activeElement.blur();
     disposePanel(); bindings = []; panel.replaceChildren();
     panel.id = `editor-panel-${activeTab}`; panel.setAttribute('aria-labelledby', `editor-tab-${activeTab}`);
     tabList.querySelectorAll('[role="tab"]').forEach(tab => { const on = tab.dataset.tab === activeTab; tab.setAttribute('aria-selected', String(on)); tab.tabIndex = on ? 0 : -1; });
     const ready = readyLivePanel();
-    if (!ready) { panel.scrollTop = scrollTop; structure = structuralKey(); rendering = false; sync(); return; }
+    if (!ready) { panel.scrollTop = scrollTop; panel.scrollLeft = scrollLeft; structure = structuralKey(); rendering = false; sync(); return; }
     if (activeTab === 'channel') renderChannel();
     else if (activeTab === 'processing') renderProcessing();
     else if (activeTab === 'eq') renderProcessor('eq');
     else if (activeTab === 'dynamics') renderDynamics();
     else if (activeTab === 'sends') renderSends();
     else if (activeTab === 'groups') renderGroups();
-    panel.scrollTop = scrollTop; structure = structuralKey(); rendering = false; sync(); focusName();
+    panel.scrollTop = scrollTop; panel.scrollLeft = scrollLeft; structure = structuralKey(); rendering = false; sync(); focusName();
   }
   function switchTab(id) {
     if (!TABS.some(([key]) => key === id)) return;
@@ -906,5 +955,15 @@
     if (dialog.parentElement !== document.body) document.body.append(dialog);
     if (previousFocus?.isConnected && !previousFocus.closest?.('[hidden]')) previousFocus.focus({ preventScroll: true });
   }
-  window.SculptEditor = Object.freeze({ open, close, isOpen: () => !!dialog?.open });
+  function openSection(id, tab = 'channel', options = {}) {
+    if (!TABS.some(([key]) => key === tab) || !C()?.getStrip(id) || !D()) return false;
+    const block = options?.block;
+    if (tab === 'dynamics' && block !== undefined && (!['gate', 'dyn'].includes(block) || !D().processor({ type: 'strip', id, block }))) return false;
+    window.SculptUI?.close();
+    if (!open(id, false, options?.origin)) return false;
+    if (tab === 'dynamics' && block) dynamicsBlock = block;
+    switchTab(tab);
+    return true;
+  }
+  window.SculptEditor = Object.freeze({ open, openSection, close, sections: () => TABS.map(([id, name]) => ({ id, name })), isOpen: () => !!dialog?.open });
 })();

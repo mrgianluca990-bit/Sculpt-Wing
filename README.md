@@ -1,14 +1,16 @@
-# Sculpt Wing 0.6
+# Sculpt Wing 0.6.6
 
-Controller WING per iPhone/iPad, macOS e Windows, con la stessa interfaccia e un’anteprima web offline.
+Controller WING. La distribuzione attuale è **Mac M1 / Apple Silicon ARM64**; il repository conserva anche i precedenti progetti per altre piattaforme.
+
+La 0.6.6 aggiunge la scheda **Strumenti** all’anteprima della channel list: puoi rinominare i gruppi, crearli scegliendo più canali, unire o spostare i membri e renderli indipendenti. La prima assegnazione principale è MON e la seconda IEM; il nome dello strumento genera il nome del BUS, ad esempio **Batteria MON** e **Batteria IEM**. Le due mandate restano facoltative e modificabili per gruppo. Sono disponibili anche **16 macro**, con otto nuovi pulsanti vuoti assegnabili a comandi, parametri, menu ed editor: [guida alle macro](docs/MACROS.md). L’aggiornamento include anche tutte le novità della 0.6.5: manopole, banco DCA, meter G/C, righe ridimensionabili, canali ancorati, sfumature e ripristino del nome standard. [Note e verifiche della versione](docs/RELEASE_0.6.6_MAC_M1.md).
 
 ## Compilare con GitHub
 
 Questo pacchetto contiene i sorgenti pronti per il repository **sculpt wing**. Segui [CARICA_SU_GITHUB.md](CARICA_SU_GITHUB.md) per il caricamento e l’avvio della compilazione.
 
-Il workflow reale è **`.github/workflows/build-desktop.yml`**, incluso anche se Finder nasconde le cartelle che iniziano con un punto. In GitHub compare come **Build Sculpt Wing** e parte con un push su `main` o `master`, oppure da **Actions → Build Sculpt Wing → Run workflow**.
+Il workflow reale è **`.github/workflows/build-desktop.yml`**, incluso anche se Finder nasconde le cartelle che iniziano con un punto. In GitHub compare come **Build Sculpt Wing - Mac M1** e parte con un push su `main` o `master`, oppure da **Actions → Build Sculpt Wing - Mac M1 → Run workflow**.
 
-Dopo i test produce tre artefatti: app Mac Apple Silicon, app Mac Intel e installer Windows x64. Non occorre installare Node sul proprio computer per usare GitHub Actions. I dettagli di runner, firma e output sono in [docs/GITHUB_ACTIONS.md](docs/GITHUB_ACTIONS.md).
+Dopo i test produce l’artifact **Sculpt-Wing-Mac-M1**, contenente `Sculpt-Wing-0.6.6-mac-arm64.zip`. Non occorre installare Node sul proprio computer per usare GitHub Actions. Runner, firma e verifiche della consegna sono descritti nelle [note 0.6.6](docs/RELEASE_0.6.6_MAC_M1.md).
 
 ## Cosa aprire
 
@@ -22,7 +24,7 @@ La connessione usa TCP/UDP nativi sulla rete locale: **WING + router + dispositi
 
 ## Interfaccia
 
-Le **mandate nell’editor canale hanno fader verticali**. Per cambiare nome: apri una strip, premi **Rinomina**, modifica **Nome** e conferma con Invio o uscendo dal campo. Il comando porta anche a **Canale → Identità**. In collegamento live va prima attivato **Controllo** e attesa la lettura dal mixer.
+Le **mandate nell’editor canale hanno fader verticali**. Per cambiare nome: apri una strip, premi **Rinomina**, modifica **Nome** e conferma con Invio o uscendo dal campo. Lasciando il nome vuoto si ripristina il nome standard del canale. Il comando porta anche a **Canale → Identità**. In collegamento live va prima attivato **Controllo** e attesa la lettura dal mixer.
 
 Due file compatte: **16 BUS + 8 MTX + 4 MAIN** sopra, **40 CH + 8 AUX** sotto. Gli AUX sono ingressi. SOF su ogni BUS/MTX, editor da nome strip, macro nella barra inferiore e tema Sculpt rosso.
 
@@ -42,7 +44,7 @@ Il cambio di modello invalida i parametri precedenti e i gesti accodati. La disc
 
 ## Sviluppo e verifiche
 
-Da `native/`, con Node 22 aggiornato (almeno 22.12.0, richiesto anche dalla versione desktop):
+Da `native/`, con Node 22 aggiornato (almeno 22.13.0 per il progetto nativo):
 
 ```sh
 npm ci
@@ -62,4 +64,4 @@ Il pacchetto contiene codice sorgente, test, documentazione e risorse. **Non con
 
 Il bundle desktop include la stessa cartella `dist/` e lo stesso driver WING di iOS. La connessione parte in lettura; la modifica dei parametri richiede **Attiva controllo**. I pacchetti del mixer vengono isolati per sessione e i comandi pendenti sono annullati alla disconnessione o alla sospensione.
 
-Il progetto prevede pacchetti macOS Apple Silicon/Intel e Windows x64. Gli esiti effettivi di compilazione, distribuzione e collaudo sono riportati in `docs/STATO_0.6.md`; il codice sorgente non equivale a una build firmata o a un test su WING reale.
+Il workflow corrente compila soltanto Mac M1 / Apple Silicon ARM64. La nuova app macOS deve essere prodotta dal workflow dopo il caricamento di questo aggiornamento. Le prove effettuate sono elencate in [RELEASE_0.6.6_MAC_M1.md](docs/RELEASE_0.6.6_MAC_M1.md); il codice sorgente non equivale a un collaudo su WING reale.

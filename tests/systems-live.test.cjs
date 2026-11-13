@@ -13,7 +13,7 @@ function actionEnv(){
   return {env:{live,controller,desk},strip,send,state,calls,status};
 }
 test('macro preflight reads all required scopes before any action and coalesces duplicate scopes',async()=>{
-  const f=actionEnv();await prepareActions([{type:'fader',target:'ch-1'},{type:'send',target:'ch-1',destination:'bus-2'},{type:'dca',target:'1'},{type:'muteGroup',target:'2'},{type:'talkback',target:'a'},{type:'monitorDim',target:'0'},{type:'sourceAlt',target:'ch-1'},{type:'fxBypass',target:'1'}],f.env);
+  const f=actionEnv();await prepareActions([{type:'fader',target:'ch-1',value:-4},{type:'send',target:'ch-1',destination:'bus-2',value:-10},{type:'dca',target:'1',value:0},{type:'muteGroup',target:'2',mode:'toggle'},{type:'talkback',target:'a',mode:'toggle'},{type:'monitorDim',target:'0',mode:'toggle'},{type:'sourceAlt',target:'ch-1',mode:'toggle'},{type:'fxBypass',target:'1',mode:'toggle'}],f.env);
   assert.equal(f.strip.level,-4);assert.deepEqual(f.calls.filter(c=>c[0]==='scope'&&c[1]==='groups'),[['scope','groups',undefined]]);
   assert(f.calls.some(c=>c[0]==='scope'&&c[1]==='sends'&&c[2].targetId==='bus-2'));
   assert(f.calls.some(c=>c[0]==='scope'&&c[1]==='inserts'));

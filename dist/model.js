@@ -11,6 +11,7 @@
   const colors={CH:'#ef7277',AUX:'#d7a25d',BUS:'#ef414b',MTX:'#b28ac8',MAIN:'#e4c780'};
   const list=state=>[...state.outputs,...state.inputs];
   const find=(state,id)=>list(state).find(strip=>strip.id===id);
+  const defaultName=strip=>`${strip.kind} ${strip.number}`;
   function makeStrip(kind,n,name,level,color){
     const frequencies=(kind==='CH'||kind==='AUX')?[60,180,600,1800,6000,12000]:[40,100,250,630,1600,4000,8000,14000];
     return {id:`${kind.toLowerCase()}-${n}`,kind,number:n,name,color:color||colors[kind],level,mute:false,pan:0,trim:0,polarity:false,hpfEnabled:false,hpf:80,
@@ -33,7 +34,7 @@
     number('level',-90,10);number('pan',-100,100);
     if(['CH','AUX'].includes(strip.kind)){number('trim',-18,18);if(typeof patch.polarity==='boolean')strip.polarity=patch.polarity;}
     if(strip.kind==='CH'){number('hpf',20,2000);if(typeof patch.hpfEnabled==='boolean')strip.hpfEnabled=patch.hpfEnabled;}
-    if(typeof patch.name==='string'&&patch.name.trim())strip.name=patch.name.trim().slice(0,40);
+    if(typeof patch.name==='string')strip.name=patch.name.trim().slice(0,40)||defaultName(strip);
     if(typeof patch.color==='string'&&/^#[0-9a-f]{6}$/i.test(patch.color))strip.color=patch.color;
     if(typeof patch.mute==='boolean')strip.mute=patch.mute;
     if(patch.eq&&typeof patch.eq==='object'){
@@ -107,6 +108,6 @@
     }
     return state;
   }
-  const API={KEY,LEGACY_KEY,defaults,list,find,canRoute,patchStrip,getSend,setSend,setSof,display,serialize,restore,clamp};
+  const API={KEY,LEGACY_KEY,defaults,list,find,defaultName,canRoute,patchStrip,getSend,setSend,setSof,display,serialize,restore,clamp};
   if(typeof module!=='undefined'&&module.exports)module.exports=API;else root.SculptModel=API;
 })(typeof window!=='undefined'?window:globalThis);

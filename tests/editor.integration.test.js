@@ -20,6 +20,7 @@ class Element {
     };
   }
   append(...nodes) { for (const node of nodes) { assert(node instanceof Element, 'append must receive DOM nodes'); node.parentElement = this; this.children.push(node); } }
+  insertBefore(node, reference) { const index = this.children.indexOf(reference); if (index < 0) { this.append(node); return node; } node.parentElement = this; this.children.splice(index, 0, node); return node; }
   replaceChildren(...nodes) { for (const node of this.children) node.parentElement = null; this.children = []; this._text = ''; this.append(...nodes); }
   set textContent(value) { this.replaceChildren(); this._text = String(value); }
   get textContent() { return this._text + this.children.map(n => n.textContent).join(''); }
@@ -82,6 +83,7 @@ const C = context.SculptController = {
 context.SculptUI = { toast: C.toast, register() {}, open() {}, modal() { throw new Error('No modal expected in this test'); } };
 run('desk.js'); run('plugin-panels.js'); run('plugins.js'); run('editor.js');
 const D = context.SculptDesk, E = context.SculptEditor;
+const baselineSubscriptions = [...subscriptions];
 const editor = () => document.querySelector('.editor-dialog');
 const named = (name, scope = editor()) => scope.querySelectorAll('[aria-label]').find(node => node.getAttribute('aria-label') === name);
 const textButton = value => editor().querySelectorAll('button').find(node => node.textContent === value);
@@ -97,7 +99,7 @@ for (const strip of C.listStrips()) {
       assert(choices.includes(String(select.value)), `${strip.id}/${name}: selector ${select.getAttribute('aria-label')} has invalid value ${select.value}`);
     }
   }
-  E.close(); assert.equal(subscriptions.size, 0, 'editor/processor subscriptions are disposed');
+  E.close(); assert.deepEqual([...subscriptions], baselineSubscriptions, 'editor/processor subscriptions are disposed; local profile persistence remains');
 }
 E.open('ch-1'); tab('channel');
 const fader = named('Fader in dB');
@@ -145,7 +147,7 @@ D.patchChannel('ch-2', { sourceAuto: false, useAlt: false, altSource: 'A:1' });
 const oldGain = named('Gain preamp in dB'); oldGain.focus(); oldGain.value = '9.5';
 const altGain = D.source('A:1').gain; D.patchChannel('ch-2', { useAlt: true });
 assert.equal(D.source('LCL:1').gain, 9.5); assert.equal(D.source('A:1').gain, altGain, 'pending edit remains on the old preamp');
-E.close(); assert.equal(subscriptions.size, 0);
+E.close(); assert.deepEqual([...subscriptions], baselineSubscriptions);
 (async () => {
   let writable = true, readOnlyName = false;
   let unblockRead;
@@ -177,6 +179,6 @@ E.close(); assert.equal(subscriptions.size, 0);
   writable = true; readOnlyName = true; emit();
   assert.equal(named('Nome').disabled, true, 'firmware read-only metadata disables the field');
   E.close(); delete context.SculptLive; delete context.SculptWingMap;
-  assert.equal(subscriptions.size, 0);
+  assert.deepEqual([...subscriptions], baselineSubscriptions);
   console.log(`PASS: ${rendered} page renders across 76 strips; vertical sends, numeric commits, rename shortcut and asynchronous/read-only live identity, source sharing/ALT, plugins, automix and cleanup.`);
 })().catch(error => { console.error(error); process.exitCode = 1; });
