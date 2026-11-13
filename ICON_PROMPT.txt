@@ -1,0 +1,11 @@
+Sculpt Control 0.3 — red icon
+Mode: built-in Imagegen, edit of the existing Sculpt Control icon.
+Edit target: previous Sculpt Control icon, dist/sculpt-control-icon.png.
+Output asset: dist/sculpt-control-icon-red.png.
+App exports: dist/icon-red-180.png, dist/icon-red-192.png, dist/icon-red-512.png.
+
+Edit specification:
+Recolor the existing Sculpt Control app icon from turquoise to red #ef414b. Preserve the metallic sculptural ribbon letter S, its shape and position, the brushed silver material, the anthracite rounded square tile, the bevels and the two horizontal banks of small mixer faders behind the S. Change only the turquoise illumination, reflections, fader-track accents and glow to a restrained premium red palette centered on #ef414b. Keep the silver fader caps, layout, proportions, square framing and opaque background unchanged. Maintain the original Sculpt identity and legibility at iPhone home-screen icon size. Add no text, letters, objects, borders or phone mockup.
+
+Provenance:
+The previous Control icon was generated using the authentic Sculpt DAW icon (assets/sculpt-daw/sculpt-daw-512.png in mrgianluca990-bit/SculptDAW) as its visual reference. It introduced the two fader banks behind the metallic S. Version 0.3 changes the accent color while preserving that design.

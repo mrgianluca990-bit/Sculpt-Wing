@@ -1,0 +1,34 @@
+# Sculpt Wing — obiettivo e contratto di sviluppo
+
+Aggiornato il 13 novembre 2026 a seguito della richiesta dell’utente di prevedere tutte le funzioni della WING, tutti i plugin con i rispettivi editor e il menu I/O.
+
+## Specifica di riferimento
+
+La specifica completa è [docs/WING_COMPLETE_SCOPE.md](docs/WING_COMPLETE_SCOPE.md). Questo documento adotta come obiettivo il controllo completo WING, con priorità WING RACK. La limitazione alle sole mandate monitor del primo prototipo nativo descrive la sua implementazione iniziale; non è più il perimetro finale del prodotto.
+
+## Requisiti vincolanti
+
+1. Preservare il mixer a due file compatte, lo stile Sculpt rosso, l’editor dalla strip, SOF e area macro.
+2. Prevedere menu I/O, tutti i modelli dei processori di strip, 16 slot FX e tutte le funzioni globali censite.
+3. Creare pannelli specifici dei plugin, coerenti con controlli, scale e identità del processore WING; non dichiarare completo un editor generico.
+4. Unificare modello e interfacce dei driver demo/live prima di espandere il controller. Nessuna seconda copia indipendente dello stato tra UI, SOF e rete.
+5. Mantenere il requisito mixer + router + tablet per l’uso reale. Il collegamento diretto usa il trasporto nativo dell’app installata; la pagina web pubblicata resta una simulazione finché non dispone di un trasporto adeguato.
+6. Rilevare capacità e schema del mixer. Rileggere i parametri dopo cambi di algoritmo o stato che modifichino i nodi. Non trattare ID o range del PDF come invarianti tra firmware e contesti.
+7. Preservare isolamento di sessione, riscontro delle scritture e cancellazione dei comandi obsoleti. Non applicare automaticamente dati demo alla WING.
+8. Distinguere funzioni documentate, editor implementati, prove demo e prove remote/hardware. Non promettere parità completa prima delle verifiche.
+
+## Stato della consegna 0.4 (storico)
+
+La demo ora comprende le 76 strip, i sei pannelli dell’editor, l’intero catalogo censito dei processori con pannelli interattivi, 16 slot FX, I/O e routing, DCA/mute/automix, monitor/talkback, meter/RTA, scene/librerie, recorder virtuali, setup e macro configurabili. Tutte le sezioni usano lo stato condiviso e sono incluse nella cache offline.
+
+Questo completa il perimetro dimostrativo dell’interfaccia. La parità con il banco reale resta un obiettivo da verificare sul trasporto nativo e sull’hardware: non sono stati implementati DSP nel browser né una connessione remota nella pagina pubblicata. Le precisioni dei controlli, gli editor ricostruiti e i limiti dei preset factory sono documentati nei file di implementazione. La consegna non modifica il prototipo nativo separato.
+
+## Aggiornamento 0.5
+
+La richiesta successiva porta i pannelli a organizzazioni specifiche per modello e collega la stessa interfaccia al trasporto nativo iPhone/iPad. Il driver legge lo schema WING, conferma le scritture e invalida i nodi dinamici al cambio modello. Il progetto nativo è ora in `native/`; la build incorpora `dist/`. Il sito rimane la modalità demo.
+
+La copertura implementata e i limiti ancora presenti sono descritti in `docs/STATO_0.5.md`; i risultati delle verifiche sono in `docs/VERIFICA_0.5.md`. La compilazione con SDK Apple, la firma e il collaudo sul mixer fisico non sono stati eseguiti. La consegna non equivale a parità completa certificata con WING EDIT.
+
+## Aggiornamento 0.6 — richiesta del 13 novembre 2026
+
+L’utente richiede mandate verticali nell’editor, una rinomina facilmente raggiungibile e versioni macOS e Windows. Il supporto Windows è ora esplicitamente incluso. Le app desktop riusano interfaccia e protocollo WING; il loro trasporto TCP/UDP locale non richiede relay, servizi cloud o un secondo computer. Per iPhone/iPad resta valido il funzionamento senza un computer durante l’uso. La pagina web rimane la demo. Non dichiarare installatori firmati, compatibilità hardware o verifiche su un sistema operativo che non sono state effettivamente eseguite.
