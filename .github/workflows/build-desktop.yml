@@ -1,90 +1,90 @@
-name: Build Sculpt Wing
+name: Build Sculpt Wing - Mac M1
+
 on:
   push:
     branches: [main, master]
   workflow_dispatch:
-permissions: {contents: read}
+
+permissions:
+  contents: read
+
 concurrency:
   group: sculpt-wing-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
 jobs:
   verify:
-    name: Test e compilazione
+    name: Verifica interfaccia e protocollo
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 15
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
     steps:
       - uses: actions/checkout@v6
-        with: {persist-credentials: false}
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v6
-        with: {node-version: '22'}
-      - name: Verifica interfaccia, protocollo e desktop
-        shell: bash
-        env: {ELECTRON_SKIP_BINARY_DOWNLOAD: '1'}
+        with:
+          node-version: '22'
+      - name: Compila e verifica l'interfaccia
         run: |
           npm ci --prefix native --no-audit --no-fund
           npm run build --prefix native
           npm run test:all --prefix native
+      - name: Verifica il trasporto desktop
+        timeout-minutes: 2
+        run: |
           npm ci --prefix desktop --no-audit --no-fund
           npm test --prefix desktop
-  build:
-    name: ${{ matrix.artifact }}
+
+  build-m1:
+    name: Sculpt Wing - Mac M1 (arm64)
     needs: verify
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: macos-15
-            arch: arm64
-            app_dir: mac-arm64
-            artifact: Sculpt-Wing-macOS-arm64
-            file: Sculpt-Wing-*-mac-arm64.zip
-          - runner: macos-15-intel
-            arch: x64
-            app_dir: mac
-            artifact: Sculpt-Wing-macOS-x64
-            file: Sculpt-Wing-*-mac-x64.zip
-          - runner: windows-2025
-            arch: x64
-            app_dir: win-unpacked
-            artifact: Sculpt-Wing-Windows-x64
-            file: Sculpt-Wing-*-win-x64.exe
+    # Build the ARM64 Electron bundle on the available Intel Mac runner.
+    # Target architecture is explicit below and verified with lipo.
+    runs-on: macos-15-intel
+    timeout-minutes: 20
     defaults:
-      run: {shell: bash}
+      run:
+        shell: bash
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-      SCULPT_ARCH: ${{ matrix.arch }}
-      SCULPT_APP_DIR: ${{ matrix.app_dir }}
     steps:
       - uses: actions/checkout@v6
-        with: {persist-credentials: false}
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v6
-        with: {node-version: '22'}
-      - name: Compila e prepara il desktop
+        with:
+          node-version: '22'
+      - name: Verifica il Mac di compilazione
+        run: test "$(uname -s)" = Darwin
+      - name: Compila l'interfaccia
         run: |
           npm ci --prefix native --no-audit --no-fund
           npm run build --prefix native
-          npm ci --prefix desktop --no-audit --no-fund
-          npm test --prefix desktop
-          npm run prepare:app --prefix desktop
-      - name: Crea e verifica l'app Mac
-        if: runner.os == 'macOS'
+      - name: Installa gli strumenti desktop
+        run: npm ci --prefix desktop --no-audit --no-fund
+      - name: Test TCP e UDP sul Mac di compilazione
+        timeout-minutes: 2
+        run: npm test --prefix desktop
+      - name: Crea l'app ARM64 per Mac M1
         working-directory: desktop
         run: |
-          npx --no-install electron-builder --mac zip "--$SCULPT_ARCH" --publish never -c.mac.identity=- -c.mac.hardenedRuntime=false -c.mac.notarize=false
-          codesign --verify --deep --strict --verbose=2 "release/$SCULPT_APP_DIR/Sculpt Wing.app"
-          SCULPT_SIGNATURE="$(codesign -dv --verbose=2 "release/$SCULPT_APP_DIR/Sculpt Wing.app" 2>&1)"
-          printf '%s\n' "$SCULPT_SIGNATURE"
-          [[ "$SCULPT_SIGNATURE" == *"Signature=adhoc"* ]]
-      - name: Crea l'installer Windows
-        if: runner.os == 'Windows'
+          npm run prepare:app
+          npx --no-install electron-builder --mac zip --arm64 --publish never -c.mac.identity=- -c.mac.hardenedRuntime=false -c.mac.notarize=false
+      - name: Verifica architettura e firma dell'app
         working-directory: desktop
-        run: npx --no-install electron-builder --win nsis --x64 --publish never
+        run: |
+          app="release/mac-arm64/Sculpt Wing.app"
+          test "$(lipo -archs "$app/Contents/MacOS/Sculpt Wing")" = arm64
+          codesign --verify --deep --strict --verbose=2 "$app"
+          signature="$(codesign -dv --verbose=2 "$app" 2>&1)"
+          printf '%s\n' "$signature"
+          [[ "$signature" == *"Signature=adhoc"* ]]
       - uses: actions/upload-artifact@v6
         with:
-          name: ${{ matrix.artifact }}
-          path: desktop/release/${{ matrix.file }}
+          name: Sculpt-Wing-Mac-M1
+          path: desktop/release/Sculpt-Wing-*-mac-arm64.zip
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
