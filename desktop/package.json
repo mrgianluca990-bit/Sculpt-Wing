@@ -14,9 +14,9 @@
     "prepare:app": "node scripts/prepare.mjs",
     "prestart": "npm run prepare:app",
     "start": "electron .",
-    "test": "node --test tests/*.test.cjs",
+    "test": "node --test --test-timeout=30000 --test-reporter=spec tests/*.test.cjs",
     "pack": "npm run prepare:app && electron-builder --dir --publish never",
-    "dist:mac": "npm run prepare:app && electron-builder --mac --publish never",
+    "dist:mac": "npm run prepare:app && electron-builder --mac zip --arm64 --publish never -c.mac.identity=- -c.mac.hardenedRuntime=false -c.mac.notarize=false",
     "dist:win": "npm run prepare:app && electron-builder --win --x64 --publish never"
   },
   "devDependencies": {
@@ -45,17 +45,9 @@
       "darkModeSupport": true,
       "target": [
         {
-          "target": "dmg",
-          "arch": [
-            "arm64",
-            "x64"
-          ]
-        },
-        {
           "target": "zip",
           "arch": [
-            "arm64",
-            "x64"
+            "arm64"
           ]
         }
       ],

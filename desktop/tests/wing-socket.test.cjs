@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const net = require('node:net');
 const dgram = require('node:dgram');
-const { EventEmitter } = require('node:events');
+const { EventEmitter, once } = require('node:events');
 const { WingSocket, isPrivateIPv4, LIMITS } = require('../src/wing-socket.cjs');
 
 const tick = () => new Promise(resolve => setImmediate(resolve));
@@ -83,8 +83,9 @@ test('private IPv4 boundary matches iOS; invalid connect never replaces a live s
   assert.equal(f.tcp.length, 1);
 });
 
-test('real sockets carry ordered initial/TCP bytes, UDP identity and meter frames directly', async t => {
+test('real sockets carry ordered initial/TCP bytes, UDP identity and meter frames directly', { timeout: 10_000 }, async t => {
   const peers = new Set(), received = [], events = [];
+  let socket;
   const server = net.createServer(peer => {
     peers.add(peer);
     peer.on('close', () => peers.delete(peer));
@@ -92,28 +93,39 @@ test('real sockets carry ordered initial/TCP bytes, UDP identity and meter frame
     peer.write(Buffer.from([0xdf, 0xd1, 0x41]));
     peer.write(Buffer.from([0x42, 0x43]));
   });
-  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  const port = server.address().port;
   const consoleUDP = dgram.createSocket('udp4');
-  await new Promise(resolve => consoleUDP.bind(port, '127.0.0.1', resolve));
+  // Register cleanup before either bind, including partially initialized fixtures.
+  t.after(async () => {
+    await socket?.close();
+    for (const peer of peers) peer.destroy();
+    await Promise.all([
+      new Promise(resolve => server.close(resolve)),
+      new Promise((resolve, reject) => {
+        try { consoleUDP.close(resolve); }
+        catch (err) {
+          if (err.code === 'ERR_SOCKET_DGRAM_NOT_RUNNING') resolve();
+          else reject(err);
+        }
+      }),
+    ]);
+  });
+  const tcpListening = once(server, 'listening', { signal: t.signal });
+  server.listen(0, '127.0.0.1');
+  await tcpListening;
+  const port = server.address().port;
+  const udpListening = once(consoleUDP, 'listening', { signal: t.signal });
+  consoleUDP.bind(port, '127.0.0.1');
+  await udpListening;
   const datagrams = [];
   consoleUDP.on('message', (bytes, peer) => {
     datagrams.push({ bytes, peer });
     consoleUDP.send(Buffer.from('WING,127.0.0.1,Console,WING,serial,3.1.2'), peer.port, peer.address);
   });
-  const socket = new WingSocket({
+  socket = new WingSocket({
     emit: (name, event) => events.push({ name, ...event }),
     // Dependency configuration is confined to this test. Production permits private IPv4 only.
     validateHost: host => host === '127.0.0.1', port, bindAddress: '127.0.0.1',
     connectTimeoutMs: 1000, sendTimeoutMs: 1000,
-  });
-  t.after(async () => {
-    await socket.close();
-    for (const peer of peers) peer.destroy();
-    await Promise.all([
-      new Promise(resolve => server.close(resolve)),
-      new Promise(resolve => consoleUDP.close(resolve)),
-    ]);
   });
   const result = await socket.connect({ host: '127.0.0.1', requestId: 'real-one' });
   assert.ok(result.meterPort > 0);
@@ -127,18 +139,15 @@ test('real sockets carry ordered initial/TCP bytes, UDP identity and meter frame
   const meter = Buffer.from([0, 0, 0, 7, 0xab, 0xcd]);
   await new Promise((resolve, reject) => consoleUDP.send(meter, result.meterPort, '127.0.0.1', err => err ? reject(err) : resolve()));
   await until(() => events.some(event => event.transport === 'udp' && event.data === meter.toString('base64')));
-  const stream = Buffer.concat(events.filter(event => event.transport === 'tcp').map(event => Buffer.from(event.data, 'base64')));
-  assert.deepEqual(stream, Buffer.concat([Buffer.from([0xdf, 0xd1, 0x41, 0x42, 0x43]), Buffer.from('onetwothree')]));
+  const expectedStream = Buffer.concat([Buffer.from([0xdf, 0xd1, 0x41, 0x42, 0x43]), Buffer.from('onetwothree')]);
+  const tcpStream = () => Buffer.concat(events.filter(event => event.transport === 'tcp').map(event => Buffer.from(event.data, 'base64')));
+  // UDP delivery does not imply that the TCP echo has arrived yet.
+  await until(() => tcpStream().length >= expectedStream.length);
+  assert.deepEqual(tcpStream(), expectedStream);
   assert.equal(events.filter(event => event.state === 'ready').length, 1);
   assert.ok(events.every(event => event.sessionId === result.sessionId));
-
-  const stranger = dgram.createSocket('udp4');
-  await new Promise(resolve => stranger.bind(0, '127.0.0.2', resolve));
-  const foreign = encoded('foreign-host');
-  await new Promise((resolve, reject) => stranger.send(Buffer.from('foreign-host'), result.meterPort, '127.0.0.1', err => err ? reject(err) : resolve()));
-  await new Promise(resolve => stranger.close(resolve));
-  await new Promise(resolve => setTimeout(resolve, 20));
-  assert.equal(events.some(event => event.data === foreign), false);
+  // Foreign-source filtering is covered by fakeTransport below, without requiring
+  // an additional loopback address that may not be configured on macOS.
 });
 
 test('cancel pending connect by request ID; late completion and old disconnect cannot touch replacement', async t => {

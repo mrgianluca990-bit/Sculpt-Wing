@@ -1,0 +1,49 @@
+SCULPT WING — CORREZIONE BUILD MAC M1
+
+Questo ZIP contiene soltanto i tre file da aggiornare nel repository esistente
+mrgianluca990-bit/Sculpt-Wing. Non è l’app compilata.
+
+FILE DA SOSTITUIRE, MANTENENDO QUESTI PERCORSI
+.github/workflows/build-desktop.yml
+desktop/package.json
+desktop/tests/wing-socket.test.cjs
+
+CARICAMENTO SU GITHUB
+1. Estrai questo ZIP sul Mac e apri la cartella estratta.
+2. Nel Finder premi Cmd + Shift + . per vedere la cartella .github.
+3. Apri https://github.com/mrgianluca990-bit/Sculpt-Wing, scheda Code,
+   ramo main. Premi Add file → Upload files.
+4. Trascina le due cartelle .github e desktop contenute nello ZIP.
+   Non trascinare lo ZIP o la cartella che le contiene.
+5. Verifica che i tre percorsi mostrati corrispondano esattamente all’elenco
+   sopra. Scegli il commit sul ramo main e premi Commit changes.
+
+La nuova compilazione parte automaticamente. In Actions compare
+“Build Sculpt Wing - Mac M1”. Dopo l’esito verde del job Mac, scarica
+l’artifact “Sculpt-Wing-Mac-M1”. Contiene lo ZIP con Sculpt Wing.app ARM64.
+
+CORREZIONE
+Il vecchio job Mac rimaneva nei test desktop fino al timeout di 45 minuti.
+Il test di rete usava 127.0.0.2, indirizzo non necessariamente disponibile
+su macOS, e attendeva soltanto il successo del bind, senza gestirne l’errore.
+
+La correzione rimuove quella dipendenza dal test reale, preserva la prova
+TCP/UDP su 127.0.0.1 e il test deterministico del filtro dei mittenti, gestisce
+gli errori di apertura e chiude anche le risorse inizializzate parzialmente.
+Il test reale ha un limite di 10 secondi e la suite un limite di 30 secondi.
+È corretta anche un’attesa che presumeva un ordine tra TCP e UDP.
+
+Il workflow crea solo il pacchetto Mac ARM64/M1. Lo script dist:mac e il target
+Mac predefinito sono allineati a ZIP ARM64 con firma ad hoc. Il codice del
+trasporto WING e l’interfaccia non sono modificati da questa correzione.
+
+VERIFICA EFFETTUATA
+- 17 test desktop superati su Linux con Node 24.22.1.
+- Riprodotto il blocco della fixture precedente con errore di bind simulato.
+- Verificati rigetto immediato e cleanup dopo errori TCP/UDP.
+- Verificato un echo TCP ritardato rispetto al pacchetto UDP.
+- Workflow validato con actionlint; package e lockfile coerenti.
+
+La nuova compilazione su macOS deve ancora essere eseguita. L’accesso GitHub
+usato per preparare questa correzione ha restituito 403 alla scrittura;
+nessun file del repository è stato aggiornato automaticamente.
