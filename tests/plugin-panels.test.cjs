@@ -14,7 +14,7 @@ function fixture(){
   w.SculptModel=M;w.SculptCatalog=Cat;w.SculptPanelLayout=Panels;
   const C=w.SculptController={getState:()=>state,getStrip:id=>M.find(state,id),listStrips:()=>M.list(state),transact:fn=>{fn(state);for(const listener of [...listeners])listener();},subscribe:fn=>{listeners.add(fn);return()=>listeners.delete(fn);},toast:text=>toasts.push(text)};
   w.SculptUI={toast:C.toast,register(){},modal(){throw new Error('No modal expected');}};
-  const referenceOrder=['layouts','dynamics','eq','fx','channel','native'].map(name=>`plugin-original-${name}.js`);
+  const referenceOrder=['layouts','dynamics','eq','fx','channel','native','dynamics-extra','filters'].map(name=>`plugin-original-${name}.js`);
   const referenceFiles=referenceOrder.filter(file=>fs.existsSync(path.join(__dirname,'../dist',file)));
   for(const file of [...referenceFiles,'desk.js','plugins.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../dist',file),'utf8'),dom.getInternalVMContext(),{filename:file});
   return {dom,w,C,D:w.SculptDesk,panel:w.document.getElementById('panel'),listeners,toasts,emit(){for(const l of [...listeners])l();}};

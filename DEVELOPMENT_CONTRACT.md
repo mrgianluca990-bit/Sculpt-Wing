@@ -32,3 +32,13 @@ La copertura implementata e i limiti ancora presenti sono descritti in `docs/STA
 ## Aggiornamento 0.6 — richiesta del 13 novembre 2026
 
 L’utente richiede mandate verticali nell’editor, una rinomina facilmente raggiungibile e versioni macOS e Windows. Il supporto Windows è ora esplicitamente incluso. Le app desktop riusano interfaccia e protocollo WING; il loro trasporto TCP/UDP locale non richiede relay, servizi cloud o un secondo computer. Per iPhone/iPad resta valido il funzionamento senza un computer durante l’uso. La pagina web rimane la demo. Non dichiarare installatori firmati, compatibilità hardware o verifiche su un sistema operativo che non sono state effettivamente eseguite.
+
+## Aggiornamento 0.6.2 — Mac M1 e importazione channel list
+
+La priorità attuale dell’utente è la sola app **Mac M1 / Apple Silicon arm64**. Il workflow di questa consegna compila quel target. Le richieste precedenti per Windows e per un controller web iPad non autorizzano ad aggiungere una seconda app ponte o ad ampliare ora quei progetti.
+
+L’utente richiede di completare le superfici dei processori ancora mancanti e di importare una channel list PDF. In questo primo passo l’importazione prepara **destinazioni degli ingressi, nomi e colori**, con anteprima correggibile e applicazione al progetto locale. La numerazione del PDF propone CH 1–40; AUX 1–8 richiede una dicitura AUX esplicita o una scelta manuale. I numeri oltre 40 non diventano AUX automaticamente. L’importazione non equivale a un file snapshot nativo della WING.
+
+La palette automatica richiesta è: batteria rosso, basso verde, chitarre blu, tastiere bianco, voci rosa, fiati giallo, archi arancio. Ogni colore resta modificabile nell’anteprima.
+
+**Monitor e IEM sono rimandati alle istruzioni dell’utente.** L’importazione non imposta mandate, bus, patch, link stereo, gain, phantom o processing. Non genera livelli monitor predefiniti. Le macro restano fuori da questa modifica. Conservare scorrimento orizzontale del mouse, fader dalla sola testa e Custom Layer a due righe della versione 0.6.1.

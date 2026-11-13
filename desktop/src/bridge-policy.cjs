@@ -2,7 +2,7 @@
 
 const path = require('node:path');
 const APP_URL = 'sculpt://app/index.html';
-const CSP = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'none'; base-uri 'none'; form-action 'none'";
+const CSP = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'self'; base-uri 'none'; form-action 'none'";
 const METHODS = Object.freeze(['connect', 'disconnect', 'sendTCP', 'sendUDP']);
 const EVENTS = Object.freeze(['packet', 'linkState']);
 

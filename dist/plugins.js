@@ -117,6 +117,7 @@
 
   function parameterControl(model,ctx,p,bindings,compact=false,presentation={}){
     p=effectiveParameter(ctx,p);
+    if(presentation.optionLabels&&!p.optionLabels)p={...p,optionLabels:presentation.optionLabels};
     const wrap=el('div',`fx-control fx-control-${p.type}${compact?' fx-control-fader':''}`);wrap.dataset.parameter=p.key;
     const gestureAllowed=()=>editable(ctx,p)&&!wrap.closest('[hidden],details:not([open])');
     if(p.readOnly)wrap.classList.add('fx-control-readonly');
@@ -125,13 +126,18 @@
       const input=el('input','fx-select fx-text');input.type='text';input.maxLength=p.maxLength||256;input.setAttribute('aria-label',p.label);input.addEventListener('change',()=>{if(editable(ctx,p))desk().setParam(ctx,p.key,input.value);});wrap.append(input);const sync=()=>{input.disabled=!editable(ctx,p);if(document.activeElement!==input)input.value=String(rawValue(ctx,p)??'');};bindings.push(sync);sync();return wrap;
     }
     if(p.type==='boolean'){
+      if(presentation.kind==='buttons'){
+        const choices=el('div','fx-enum-buttons');choices.setAttribute('role','group');choices.setAttribute('aria-label',p.label);
+        const buttons=[0,1].map(value=>{const label=p.optionLabels?.[value]||(value?'ON':'OFF'),button=btn(label,()=>setParam(ctx,p,value),'fx-enum-button');button.setAttribute('aria-label',label);button.dataset.choice=label;choices.append(button);return button;});wrap.append(choices);
+        const sync=()=>{const current=Number(rawValue(ctx,p))?1:0;buttons.forEach((button,value)=>{button.disabled=!editable(ctx,p);button.setAttribute('aria-pressed',String(current===value));});};bindings.push(sync);sync();return wrap;
+      }
       const isTrigger=p.key==='load';
       const toggle=btn(isTrigger?'LOAD':'',()=>{
         if(isTrigger){if(live()){if(editable(ctx,p))Promise.resolve(window.SculptLive?.triggerProcessor?.(ctx,p.key)).catch(error=>ui().toast(error.message||String(error)));}else loadFactoryDemo(ctx,model);return;}
         setParam(ctx,p,!Number(rawValue(ctx,p)));
       },'fx-toggle');toggle.setAttribute('aria-label',p.label);toggle.setAttribute('role',isTrigger?'button':'switch');
       const lamp=el('i');const text=el('span','',isTrigger?'LOAD':'OFF');toggle.replaceChildren(lamp,text);wrap.append(toggle);
-      const sync=()=>{toggle.disabled=!editable(ctx,p);const on=!!Number(rawValue(ctx,p));toggle.classList.toggle('on',on);if(!isTrigger){toggle.setAttribute('aria-checked',String(on));text.textContent=on?'ON':'OFF';}};
+      const sync=()=>{toggle.disabled=!editable(ctx,p);const on=!!Number(rawValue(ctx,p));toggle.classList.toggle('on',on);if(!isTrigger){toggle.setAttribute('aria-checked',String(on));text.textContent=p.optionLabels?.[on?1:0]||(on?'ON':'OFF');}};
       bindings.push(sync);sync();return wrap;
     }
     if(p.type==='enum'){
@@ -197,7 +203,7 @@
       select(reference.defaultPage||reference.pages[0].id);return {element:shell,used};
     }
     const viewport=el('div','fx-original-viewport'),sizer=el('div','fx-original-sizer'),stage=el('div',`fx-original-stage fx-original-${reference.skin||'metal'}`);
-    stage.dataset.referencePage=String(reference.sourcePage);stage.setAttribute('aria-label',`${model.name} · pannello del processore`);stage.style.width=`${reference.width}px`;stage.style.height=`${reference.height}px`;
+    stage.dataset.referencePage=String(reference.sourcePage);stage.dataset.referenceDocument=reference.sourceDocument||'WING Effects Guide 3.0';stage.setAttribute('aria-label',`${model.name} · pannello del processore`);stage.style.width=`${reference.width}px`;stage.style.height=`${reference.height}px`;
     if(reference.background)stage.style.background=reference.background;if(reference.foreground)stage.style.color=reference.foreground;
     for(const corner of ['tl','tr','bl','br'])stage.append(el('i',`fx-original-screw fx-original-screw-${corner}`));
     for(const region of reference.regions||[]){const box=el('div','fx-original-region');Object.assign(box.style,{left:`${region.x}px`,top:`${region.y}px`,width:`${region.width}px`,height:`${region.height}px`,background:region.fill||'transparent',border:region.stroke?`1px solid ${region.stroke}`:'none',borderRadius:`${region.radius||0}px`});stage.append(box);}
@@ -218,6 +224,21 @@
     for(const spec of reference.displays||[]){
       const display=el('div','fx-original-plot');Object.assign(display.style,{left:`${spec.x}px`,top:`${spec.y}px`,width:`${spec.width}px`,height:`${spec.height}px`});
       if(spec.kind==='parametric-eq'){display.classList.add('fx-original-parametric-eq');const plot=makePlot(model,ctx,bindings);if(plot)display.append(plot);}
+      else if(spec.kind==='tool-filter'){
+        display.classList.add('fx-original-tool-filter');
+        const svg=svgElement('svg',{viewBox:'0 0 800 360',role:'img','aria-label':spec.frequencyKey?'Frequenza impostata del filtro all pass':'Griglia delle frequenze del filtro'}),X=f=>26+Math.log(clamp(f,20,20000)/20)/Math.log(1000)*748;
+        for(const frequency of [20,30,40,50,60,80,100,150,200,300,400,500,600,800,1000,1500,2000,3000,4000,5000,6000,8000,10000,15000,20000]){
+          const x=X(frequency);svg.append(svgElement('line',{x1:x,y1:18,x2:x,y2:320,stroke:'#3e4545','stroke-width':1}));
+          if([20,40,60,100,200,300,400,600,1000,2000,3000,4000,6000,10000,20000].includes(frequency)){const label=svgElement('text',{x,y:343,'text-anchor':'middle',fill:'#b5bdb9',stroke:'none','font-size':11});label.textContent=frequency>=1000?`${frequency/1000}k`:frequency;svg.append(label);}
+        }
+        for(let y=18;y<=320;y+=50.3)svg.append(svgElement('line',{x1:26,y1:y,x2:774,y2:y,stroke:'#3e4545','stroke-width':1}));
+        const parameter=model.parameters.find(p=>p.key===spec.frequencyKey);
+        if(parameter){
+          const marker=svgElement('g',{class:'fx-tool-filter-marker'}),label=svgElement('text',{x:0,y:12,'text-anchor':'middle',fill:'#dfdfab',stroke:'none','font-size':12});label.textContent='AP';marker.append(svgElement('line',{x1:0,y1:18,x2:0,y2:320,stroke:'#cecf72','stroke-width':2}),svgElement('circle',{cx:0,cy:285,r:9,fill:'none',stroke:'#e4e7d5','stroke-width':2}),label);svg.append(marker);
+          bindings.push(()=>{const frequency=Number(rawValue(ctx,parameter));marker.setAttribute('transform',`translate(${X(frequency)},0)`);svg.setAttribute('aria-label',`Filtro all pass: ${pretty(frequency,parameter)} Hz. Nessuna analisi audio.`);});
+        }
+        display.append(svg,el('small','',spec.label||'NESSUNA ANALISI AUDIO'));display.title='La griglia mostra le frequenze e l’eventuale frequenza AP impostata; la risposta proprietaria e lo spettro audio non sono simulati.';
+      }
       else if(spec.kind==='transfer'){
         const svg=svgElement('svg',{viewBox:'0 0 400 220','aria-label':'Curva di riferimento della soglia e del rapporto impostati'}),curve=svgElement('path',{fill:'none',stroke:'#b4ca72','stroke-width':2.5}),threshold=svgElement('line',{y1:16,y2:190,stroke:'#a7bca080','stroke-dasharray':'4 4'}),min=spec.min??-80,max=spec.max??0,X=value=>35+(value-min)/(max-min)*340,Y=value=>190-(clamp(value,min,max)-min)/(max-min)*174;
         for(let value=min;value<=max;value+=20){svg.append(svgElement('line',{x1:X(value),y1:16,x2:X(value),y2:190}),svgElement('line',{x1:35,y1:Y(value),x2:375,y2:Y(value)}));const label=svgElement('text',{x:X(value),y:210,'text-anchor':'middle',fill:'#b8c4ac','font-size':10,stroke:'none'});label.textContent=value;svg.append(label);}svg.append(svgElement('line',{x1:35,y1:190,x2:375,y2:16,stroke:'#76947f80','stroke-dasharray':'3 5'}),threshold,curve);display.append(svg,el('small','',spec.label||'CURVA SOGLIA / RAPPORTO'));
@@ -249,7 +270,7 @@
           knob.append(ring);
         }
       }
-      if(spec.hideLabel)label.style.visibility='hidden';if(spec.hideValue)control.classList.add('fx-original-hide-value');if(spec.valueOffsetY){const value=control.querySelector('.fx-value-row,.fx-select');if(value)value.style.transform=`translateY(${spec.valueOffsetY}px)`;}
+      if(spec.hideLabel){label.style.visibility='hidden';control.classList.add('fx-original-no-label');}if(spec.hideValue)control.classList.add('fx-original-hide-value');if(spec.valueOffsetY){const value=control.querySelector('.fx-value-row,.fx-select');if(value)value.style.transform=`translateY(${spec.valueOffsetY}px)`;}
       if(spec.visibleWhen){const condition=spec.visibleWhen;bindings.push(()=>{const p=model.parameters.find(p=>p.key===condition.key);control.hidden=!p||String(rawValue(ctx,p))!==String(condition.value);});}
       if(spec.group)grouped.push({id:spec.group,control});
       stage.append(control);

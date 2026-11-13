@@ -1,54 +1,71 @@
-SCULPT WING 0.6.1 — AGGIORNAMENTO MAC M1
+SCULPT WING 0.6.2 — CHANNEL LIST PDF · MAC M1
 
-Questo ZIP contiene i sorgenti modificati da caricare nel repository esistente
-mrgianluca990-bit/Sculpt-Wing. La nuova Sculpt Wing.app viene creata da GitHub
-Actions dopo il caricamento; questo ZIP non contiene ancora l'app compilata.
+Questo ZIP contiene i sorgenti aggiornati da caricare nel repository esistente
+mrgianluca990-bit/Sculpt-Wing. GitHub Actions crea la nuova Sculpt Wing.app
+per Mac Apple Silicon arm64/M1. Questo archivio non è l’app compilata.
 
-COSA CAMBIA
-- Scorrimento orizzontale dei due banchi con click e trascinamento del mouse.
-  Puoi afferrare il corpo della strip: il trascinamento non attiva Mute o SOF.
-- I fader si muovono soltanto prendendo la testa. La pista non cambia il livello,
-  anche con doppio click. Vale per mixer, mandate verticali e fader dei plugin.
-  L'inserimento numerico e i comandi da tastiera restano disponibili.
-- Custom Layer ha due righe indipendenti: superiore e inferiore. Ogni riga
-  accetta canali, AUX, bus, matrici e master, nell'ordine che scegli.
-  Menu del banco -> Custom Layer. La disposizione resta salvata al riavvio.
-- Pannelli dei plugin ricostruiti sulle figure della guida originale WING:
-  geometria, disposizione, selettori, controlli coassiali e schede dei moduli.
-  Copertura e limiti sono documentati in docs/PLUGIN_ORIGINAL_SURFACES.md.
-- Workflow dedicato a Mac Apple Silicon (arm64/M1), versione app 0.6.1.
+IMPORTARE LA CHANNEL LIST
+1. Apri Menu del banco -> Importa channel list.
+2. Scegli il PDF con testo selezionabile, oppure incolla una lista di testo.
+3. Controlla destinazioni CH/AUX, nomi, colori e righe selezionate.
+4. Premi Applica nomi e colori per aggiornare il progetto offline.
+5. Nello stesso dialogo puoi annullare l’importazione appena applicata.
 
-Le macro non sono state modificate. Questa consegna riguarda Sculpt Wing.
+La palette automatica richiesta è:
+- Batteria: rosso
+- Basso: verde
+- Chitarre: blu
+- Tastiere: bianco
+- Voci: rosa
+- Fiati: giallo
+- Archi: arancio
+Ogni colore è modificabile prima dell’applicazione.
+
+La lettura avviene sul dispositivo e non richiede Internet, chiavi API o un’app
+ponte. Questa versione legge PDF con testo; le scansioni richiedono OCR, che
+non è ancora incluso. Segnala duplicati, nomi accorciati e canali non assegnati.
+Il numero 41 non viene convertito automaticamente in AUX 1.
+
+In questo primo passo vengono applicati soltanto nomi e colori. Monitor e IEM
+saranno configurati in seguito secondo le indicazioni dell’utente. Non vengono
+cambiati livelli, mandate, patch, link stereo, gain, phantom o processing.
+La modifica prepara il progetto Sculpt offline; non genera uno snapshot WING.
+
+PANNELLI COMPLETATI
+Aggiunti Tilt EQ, Maxer, AP90, AP180, Dual Dynamic EQ, PSE/LA Combo,
+Even 88 Compressor, LMT e One Knob Compressor. Tutte le 108 definizioni non vuote del
+catalogo hanno ora un pannello basato sui riferimenti disponibili. NONE resta
+lo slot vuoto dedicato. Sono ricostruzioni interattive: non è dichiarata identità
+pixel per pixel con ogni versione di WING EDIT. Copertura e limiti in
+ docs/PLUGIN_ORIGINAL_SURFACES.md.
+
+Restano le correzioni 0.6.1: scorrimento orizzontale con click e trascinamento,
+fader dalla sola testa e Custom Layer con due righe indipendenti.
 
 CARICAMENTO SU GITHUB
-1. Estrai lo ZIP sul Mac.
-2. Nel Finder premi Cmd + Shift + . per rendere visibile la cartella .github.
-3. Apri https://github.com/mrgianluca990-bit/Sculpt-Wing, scheda Code,
-   ramo main, quindi Add file -> Upload files.
-4. Trascina il CONTENUTO della cartella estratta: .github, desktop, dist,
-   docs, tests e LEGGIMI.txt. Mantieni i percorsi. Non caricare lo ZIP o la
-   cartella esterna che lo contiene.
-5. Controlla in particolare che compaiano .github/workflows/build-desktop.yml
-   e tutti i sei file dist/plugin-original-*.js. Premi Commit changes su main.
-6. Apri Actions: partirà "Build Sculpt Wing - Mac M1". Attendi il verde sia
-   della verifica sia del job "Sculpt Wing - Mac M1 (arm64)".
-7. Scarica l'artifact "Sculpt-Wing-Mac-M1". Estrai l'archivio dell'artifact,
-   poi Sculpt-Wing-0.6.1-mac-arm64.zip: al suo interno trovi Sculpt Wing.app.
+1. Estrai questo ZIP sul Mac.
+2. Nel Finder premi Cmd + Shift + . per vedere anche .github e .gitignore.
+3. Apri https://github.com/mrgianluca990-bit/Sculpt-Wing, ramo main,
+   quindi Add file -> Upload files.
+4. Trascina il CONTENUTO della cartella estratta mantenendo i percorsi:
+   .github, desktop, dist, docs, native, tests e i file nella cartella principale.
+   Non caricare lo ZIP o la cartella esterna che lo contiene. Non eliminare
+   gli altri file già nel repository.
+5. Controlla in particolare dist/pdf-reader.js, dist/pdf.worker.js,
+   dist/channel-list.js, native/package-lock.json e il workflow in .github.
+   Premi Commit changes su main.
+6. In Actions attendi il verde di “Build Sculpt Wing - Mac M1”.
+7. Scarica l’artifact “Sculpt-Wing-Mac-M1” e apri lo ZIP contenuto:
+   Sculpt-Wing-0.6.2-mac-arm64.zip. Dentro trovi Sculpt Wing.app.
 8. Chiudi la vecchia app e sostituiscila con la nuova in Applicazioni.
 
-La patch è stata preparata sul commit d64a2261095ab49acde2bc39bb72ba7e874c4a6f
-del repository. Non eliminare le altre cartelle e i file già presenti.
+Il contenuto conserva tutte le modifiche della 0.6.1 già caricate nel commit
+7fc4cf2f56c7c84d5def08a2937634b0c1afdc43. Il pacchetto è cumulativo.
 
-VERIFICHE
-Le prove del codice, del trasporto e dell'interfaccia sono riportate in
-docs/RELEASE_0.6.1_MAC_M1.md. La compilazione del nuovo pacchetto macOS e la
-prova sul tuo M1 con una WING fisica devono ancora essere eseguite.
-
-I nuovi pannelli sono una ricostruzione delle immagini della guida WING 3.0:
-non viene dichiarata identità pixel per pixel con ogni versione del firmware.
-I meter senza dati reali restano inattivi; le curve delle impostazioni non
-sono presentate come misure audio.
-
-L'integrazione GitHub disponibile ha restituito 403 alla scrittura:
-il repository non è stato aggiornato automaticamente. Il caricamento dei
-file sopra è quindi il passaggio necessario per ottenere la nuova app.
+VERIFICHE E LIMITI
+Vedi docs/RELEASE_0.6.2_MAC_M1.md e docs/CHANNEL_LIST_IMPORT.md.
+Il codice e il flusso di importazione sono stati verificati nell’ambiente di
+sviluppo. La compilazione macOS 0.6.2 deve essere eseguita da GitHub Actions;
+non viene dichiarato un collaudo su un Mac M1 o su una WING fisica.
+L’accesso GitHub disponibile ha restituito 403 alla scrittura nella sessione;
+il repository non è stato aggiornato automaticamente da questa consegna.

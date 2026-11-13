@@ -42,6 +42,9 @@
   const unitNames={0:'',1:'dB',2:'%',3:'ms',4:'Hz',5:'m',6:'s',7:'oct'};
   function parameterDefinition(ctx,key){
     const spec=MapAPI.processorSpec(ctx,D.processor(ctx)?.model),path=spec?.parameterPath(key),meta=path&&session.metadata.get(path);
+    // A duplicated source key cannot address two different controls safely.
+    // Keep both visible, but disable them until their wire keys are distinct.
+    if(spec?.ambiguousKeys?.includes(key))return {readOnly:true};
     if(!meta)return null;
     const out={readOnly:meta.readOnly,revision:meta.revision,path};if(meta.unit&&unitNames[meta.unit])out.unit=unitNames[meta.unit];
     if(meta.type===5||meta.type===6){out.type='enum';out.options=meta.items.map(item=>item.value);out.optionLabels=meta.items.map(item=>item.label);}

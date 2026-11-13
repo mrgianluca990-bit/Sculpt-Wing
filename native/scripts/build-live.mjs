@@ -9,6 +9,19 @@ const out = resolve(root, 'dist');
 await build({entryPoints:[resolve(root,'src/live-entry.ts')],bundle:true,format:'iife',
   platform:'browser',target:'safari15',outfile:resolve(web,'native-bridge.js'),minify:true,
   legalComments:'eof',logLevel:'warning'});
+// Both PDF.js entry points are shipped with the app. An explicit module Worker
+// port lets the renderer run under sculpt://app with worker-src 'self' and no
+// network permission, blob wrapper, CDN or Node API in the browser bundle.
+const pdfEntry=resolve(root,'node_modules/pdfjs-dist/legacy/build/pdf.mjs');
+const pdfNotice=(await readFile(pdfEntry,'utf8')).match(/^\/\*\*[\s\S]*?\*\//)?.[0];
+if(!pdfNotice?.includes('Mozilla Foundation'))throw new Error('PDF.js copyright notice not found');
+const pdfBuild={bundle:true,platform:'browser',target:'safari15',minify:true,
+  define:{process:'undefined'},banner:{js:pdfNotice},legalComments:'eof',logLevel:'warning'};
+await build({...pdfBuild,entryPoints:[resolve(root,'src/pdf-reader.mjs')],format:'iife',
+  outfile:resolve(web,'pdf-reader.js')});
+await build({...pdfBuild,entryPoints:[resolve(root,'node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs')],format:'esm',
+  outfile:resolve(web,'pdf.worker.js')});
+await cp(resolve(root,'node_modules/pdfjs-dist/LICENSE'),resolve(web,'LICENSE-PDFJS.txt'));
 await rm(out,{recursive:true,force:true});
 await mkdir(out,{recursive:true});
 await cp(web,out,{recursive:true,filter:source=>!source.endsWith('.zip')&&!source.split('/').at(-1).startsWith('qa-')});
@@ -24,4 +37,4 @@ await writeFile(resolve(root,'ios/App/App/capacitor.config.json'),JSON.stringify
   ios:{contentInset:'never',preferredContentMode:'mobile'},
   packageClassList:[]
 },null,2));
-console.log('Sculpt Wing 0.6: web e bundle iPhone/iPad aggiornati.');
+console.log('Sculpt Wing: bundle app e lettore PDF locale aggiornati.');

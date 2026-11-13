@@ -21,7 +21,7 @@
 @media(max-width:380px){.fx-panel-section .fx-knob-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.fx-panel-vss3 .fx-panel-section[data-section=Library] .fx-knob-grid{grid-template-columns:minmax(90px,1fr) 54px 54px}.fx-panel-section .fx-control-label{font-size:8px}.fx-panel-parametric .fx-panel-section .fx-knob-grid,.fx-panel-soul-eq .fx-panel-section .fx-knob-grid,.fx-panel-console-eq .fx-panel-section .fx-knob-grid,.fx-panel-focus-eq .fx-panel-section .fx-knob-grid{grid-template-columns:1fr}.fx-display-values{gap:10px}.fx-display-values output{font-size:16px}.fx-display-values .fx-display-primary output{font-size:30px}.fx-display-values small{font-size:8px}.fx-panel-vss3 .fx-face-model{display:block;font-size:19px}.fx-display-heading{font-size:7px;letter-spacing:.5px}}
 /* Keep the VSS3's named algorithms readable in narrow cards. */
 .fx-panel-vss3 .fx-panel-sections{grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr))}.fx-panel-vss3 .fx-panel-section:not([data-section=Library]) .fx-knob-grid{grid-template-columns:repeat(auto-fit,minmax(105px,1fr));gap:18px 12px}.fx-panel-vss3 .fx-panel-section:not([data-section=Library]) .fx-control-enum{grid-column:span 2;min-width:0}.fx-control-enum{min-width:0}.fx-enum-button{min-width:56px;flex:1 0 auto;white-space:nowrap;overflow-wrap:normal}.fx-panel-vss3 .fx-panel-section[data-section='Decay spectrum'] .fx-knob-grid{grid-template-columns:repeat(auto-fit,minmax(92px,1fr))}@media(max-width:380px){.fx-panel-vss3 .fx-panel-section:not([data-section=Library]) .fx-knob-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.fx-panel-vss3 .fx-panel-section[data-section='Decay spectrum'] .fx-knob-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
-/* Rack faces follow the control positions in the WING Effects Guide.
+/* Rack faces follow the control positions in the cited WING guides and protocols.
    Each face scales as a whole; narrow viewports scroll rather than reflow knobs. */
 .fx-original-enabled .fx-face{background:#1c1d21;color:#e4e4df;padding:14px 12px;box-shadow:none;border-color:#42474c}
 .fx-original-enabled .fx-face-heading{min-height:36px;margin:0 5px 5px;border:0;color:#e2e3df}.fx-original-enabled .fx-face-heading h3{font:600 17px -apple-system,BlinkMacSystemFont,Arial,sans-serif;letter-spacing:.3px;color:#e2e3df}.fx-original-enabled .fx-face-kicker{font-size:8px;color:#a0a4a7}.fx-original-enabled .fx-face-model{font:12px ui-monospace,monospace;border:0;color:#91999c}.fx-original-enabled .fx-panel-subtitle{font-size:8px;margin:0 5px 12px;color:#939ca0;letter-spacing:1.1px}.fx-original-enabled .fx-face>.fx-screw{display:none}
@@ -44,3 +44,16 @@
 .fx-original-parametric-eq{overflow:visible;background:#0c1112;border:0}.fx-original-parametric-eq .fx-visual{margin:0;width:100%;height:100%}.fx-original-parametric-eq .fx-visual svg{width:100%;height:calc(100% - 20px);min-height:0;display:block;background:#0b1011;border:1px solid #46504d;border-radius:0;stroke:none}.fx-original-parametric-eq .fx-plot-caption{white-space:normal;font-size:9px;line-height:13px;word-spacing:0;color:#adb7ab}.fx-original-parametric-eq .fx-plot-line{stroke:#dfc34f}.fx-original-parametric-eq .fx-plot-fill{fill:#dfc34f;opacity:.07}.fx-original-group-selector{position:absolute;display:flex;flex-direction:column;gap:4px}.fx-original-group-button{flex:1;min-height:26px;border:1px solid #606b70;border-radius:2px;background:linear-gradient(#4d565a,#29353b);color:#cad2cb;font:600 12px Arial,sans-serif;text-align:left;padding:5px 10px}.fx-original-group-button[aria-selected=true]{background:linear-gradient(#608dcd,#2f69b7);color:#101c31;border-color:#8db2de}.fx-original-group-button:focus-visible{outline:2px solid #f0d582;outline-offset:1px}
 /* Keep the outer frequency ring behind its independently operable gain knob. */
 .fx-original-control-ring,.fx-original-control-ring:hover,.fx-original-control-ring:focus-within{z-index:0}
+
+/* Additional controls from WING Remote Protocols 3.1.2-a. */
+.fx-original-light-dial .fx-knob-pointer:after{background:#202b25;box-shadow:none}
+.fx-original-round-push .fx-toggle{width:27px;height:27px;min-height:27px;padding:0;margin:0 auto;border-radius:50%;background:radial-gradient(circle at 35% 25%,#747b70,#252d25 70%);box-shadow:inset 0 1px 2px #b5be9b,0 2px 3px #0009}
+.fx-original-round-push .fx-toggle.on{background:radial-gradient(circle at 35% 25%,#e2e4c1,#a1a67d 70%);box-shadow:inset 0 1px 2px #f1f4d2,0 1px 2px #0009}
+.fx-original-round-push .fx-toggle i{width:6px;height:6px}
+.fx-original-round-push .fx-toggle span{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.fx-original-control-buttons.fx-original-no-label>.fx-control-label{display:none}
+.fx-original-control-buttons.fx-original-no-label .fx-enum-buttons{height:100%}
+.fx-original-tool-filter{background:#000;border:0}
+.fx-original-tool-filter>svg{background:#000;stroke:none;width:100%;height:calc(100% - 24px)}
+.fx-original-tool-filter>small{font-size:9px;color:#a8b1ad;letter-spacing:.4px}
+.fx-original-wing-tool-filter .fx-original-screw{display:none}

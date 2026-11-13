@@ -1,5 +1,14 @@
 # Sculpt Wing desktop — third-party notices
 
+## Mozilla PDF.js
+
+The local PDF channel-list reader embeds `pdfjs-dist` version 6.5.438, published
+by the Mozilla PDF.js project at https://github.com/mozilla/pdf.js. PDF parsing
+uses a worker packaged with the application. The Apache License 2.0 and PDF.js
+copyright notice are included in `LICENSE-PDFJS.txt` beside the app assets.
+Third-party notices retained by the upstream distribution are also preserved in
+the generated `pdf-reader.js` and `pdf.worker.js` bundles.
+
 ## Electron, Chromium and Node.js
 
 The packaged Electron runtime includes its own license and third-party notices (`LICENSE.electron.txt` and `LICENSES.chromium.html` on Windows, and the corresponding runtime resources inside the macOS application bundle). Those files are retained by the packaging process.

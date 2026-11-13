@@ -7,7 +7,9 @@ La fonte ispezionata è **Behringer, WING Effects Guide, WING Firmware Version 3
 - [Guida sul sito Music Tribe](https://mediadl.musictribe.com/media/PLM/data/docs/P0BV2/EFFECTS%20GUIDE_M_BE_0603-AEN_WING.pdf).
 - [Copia della stessa guida scaricata da Thomann](https://fast-images.static-thomann.de/pics/atg/atgdata/document/info/599928_m_be_0603-aen_wing_effects_guide_dark1_ww.pdf).
 
-Ogni definizione grafica contiene `sourcePage`, con il numero stampato nella guida. Sono state esaminate le immagini dei pannelli, non soltanto la descrizione testuale dei processori. Le schermate della guida possono differire da firmware successivi.
+Per completare i nove modelli rimanenti è stato ispezionato anche **Patrick-Gilles Maillot, WING Remote Protocols V3.1.2-a, 26 ottobre 2026**, scaricato dal link pubblico sul [sito dell’autore](https://sites.google.com/site/patrickmaillot/wing). Le figure originali dei filtri sono a pagina 171; Dual Dynamic EQ e PSE/LA Combo a pagina 173; Even 88 Compressor, LMT e One Knob Compressor a pagina 177. I nuovi metadati identificano il documento distinto tramite `sourceDocument`.
+
+Ogni definizione grafica contiene `sourcePage`, con il numero stampato nella rispettiva fonte. Sono state esaminate le immagini dei pannelli, non soltanto la descrizione testuale dei processori. Le schermate della guida possono differire da firmware successivi.
 
 ## Che cosa cambia
 
@@ -44,11 +46,13 @@ Questa è una ricostruzione verificata contro le figure della guida, non una cop
 - I grafici della dinamica mostrano una **curva statica di riferimento** calcolata da soglia, rapporto e range. Non riproducono il knee o l'inviluppo proprietario, il segnale presente, il mix parallelo o il guadagno di uscita.
 - I grafici Attack/Hold/Release rappresentano i tempi impostati e non una misura dell'audio. Gli altri display senza dati non mostrano tracce inventate.
 - I controlli dei preset VSS3 mantengono la separazione fra profilo illustrativo offline e comando LOAD reale. Il disegno della libreria non introduce dati di preset factory non disponibili.
-- I modelli non rappresentati nella fonte conservano il pannello precedente e tutti i loro parametri. Un modello sconosciuto letto dal firmware non viene sostituito da un modello locale.
+- I quattro tool filter riprendono la griglia e la barra TOOL FILTER delle schermate originali. La riga inferiore dei parametri è un adattamento accessibile esplicito: il riferimento disponibile è ritagliato prima di quella zona. LC/HC appartengono al pannello di ingresso e non sono controlli fittizi dei quattro modelli. Il marker AP usa la frequenza impostata; non viene disegnata una curva audio inventata.
+- In PSE/LA Combo, il documento chiama `peak` due parametri diversi. Il mapping conserva il blocco di entrambi in live finché lo schema non consente di identificarli senza ambiguità; la UI li mostra in sola lettura. Gli altri cinque parametri restano disponibili.
+- Un modello sconosciuto letto dal firmware non viene sostituito da un modello locale.
 
 ## Copertura della ricostruzione
 
-Il renderer basato sui riferimenti è applicato a **99 delle 109 definizioni del catalogo**, corrispondenti a **91 ID distinti**. Una stessa famiglia può essere disponibile in più contesti, per esempio nel rack e nell'EQ del canale; questi numeri non indicano processori utilizzabili contemporaneamente. Le 94 voci dei metadati comprendono alias e definizioni condivise.
+Il renderer basato sui riferimenti è applicato a **108 delle 109 definizioni del catalogo**, corrispondenti a **100 ID distinti**. Una stessa famiglia può essere disponibile in più contesti, per esempio nel rack e nell'EQ del canale; questi numeri non indicano processori utilizzabili contemporaneamente. Le 103 voci dei metadati comprendono alias e definizioni condivise.
 
 | Categoria del catalogo | Definizioni con nuova superficie | Totale |
 | --- | ---: | ---: |
@@ -57,17 +61,17 @@ Il renderer basato sui riferimenti è applicato a **99 delle 109 definizioni del
 | EQ del rack | 6 | 6 |
 | FX premium | 26 | 26 |
 | Channel FX | 5 | 5 |
-| Filtri di ingresso | 0 | 4 |
-| Gate e dynamics | 27 | 32 |
+| Filtri di ingresso | 4 | 4 |
+| Gate e dynamics | 32 | 32 |
 | EQ del canale | 8 | 8 |
-| **Totale** | **99** | **109** |
+| **Totale** | **108** | **109** |
 
 La copertura indica l'uso di una geometria ricostruita dalla fonte, non l'identità di ogni dettaglio o di ogni pagina interna. Per Speaker Manager viene ricostruita la pagina Dynamic EQ illustrata; Filter, Alignment e Limiter restano raggiungibili nei controlli aggiuntivi. WING EQ riprende la figura dell'EQ di ingresso a sei bande; sulle uscite il grafico esistente mantiene gli otto punti e i sette parametri aggiuntivi (bande 5/6 e Tilt) rimangono nella sezione aggiuntiva.
 
-Le dieci definizioni senza questa ricostruzione sono lo slot vuoto `NONE`, i filtri **Tilt, Maxer, AP90, AP180**, e **Dual Dynamic EQ, PSE/LA Combo, Even 88 Compressor, LMT Compressor, One Knob Compressor**. Conservano i pannelli e i controlli precedenti; non è stato inventato un disegno attribuito alla guida.
+Tutte le 108 definizioni non vuote hanno ora una superficie basata sui riferimenti. La definizione rimanente, `NONE`, è lo slot vuoto: mantiene il suo stato dedicato “Slot disponibile”, con il selettore del processore. Non viene contata come un plugin originale aggiuntivo.
 
 ## File e verifiche
 
 `dist/plugin-original-*.js` contiene esclusivamente geometrie e descrizioni dei controlli. `dist/plugins.js` mantiene il rendering, gli eventi e i collegamenti allo stato. `dist/plugins.css` contiene le superfici ridimensionabili. I file di metadati vanno caricati nell'ordine indicato in `dist/index.html`, prima di `plugins.js`; le Channel FX riusano le definizioni di EQ e dinamiche già caricate.
 
-La suite `tests/plugin-panels.test.cjs` supera **14 test**: rendering di tutte le 109 definizioni e dell'EQ di uscita a 27 parametri, unicità e raggiungibilità dei parametri, fader verticali/orizzontali dalla sola testa, selettori enumerati del firmware, controlli coassiali indipendenti, bypass condiviso, schede delle Channel FX, campi digitali e curve di riferimento, selezione della banda e cancellazione della gesture quando la banda viene nascosta, blocco durante il caricamento e rimozione dei listener. Il confronto visivo e le prove reali sul Mac e sulla WING restano distinti dalle verifiche automatiche del codice.
+La suite `tests/plugin-panels.test.cjs` supera **14 test**: rendering di tutte le 109 definizioni e dell'EQ di uscita a 27 parametri, unicità e raggiungibilità dei parametri, fader verticali/orizzontali dalla sola testa, selettori enumerati del firmware, controlli coassiali indipendenti, bypass condiviso, schede delle Channel FX, campi digitali e curve di riferimento, selezione della banda e cancellazione della gesture quando la banda viene nascosta, blocco durante il caricamento e rimozione dei listener. La suite aggiuntiva `tests/plugin-additions.test.cjs` verifica selezione e isolamento delle due bande DEQ2, pulsanti con valori booleani reali, unicità dei 47 parametri dei cinque modelli aggiunti e protezione live dei due parametri CMB ambigui. Il confronto visivo e le prove reali sul Mac e sulla WING restano distinti dalle verifiche automatiche del codice.

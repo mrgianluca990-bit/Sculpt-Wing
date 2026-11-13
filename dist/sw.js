@@ -1,5 +1,5 @@
 /* Bump this version whenever the app shell or its assets change. */
-const CACHE_NAME = 'sculpt-control-v12';
+const CACHE_NAME = 'sculpt-control-v13';
 const CACHE_PREFIX = 'sculpt-control-';
 const LEGACY_CACHES = new Set(['sculpt-control-v1', 'sculpt-control-v2', 'sculpt-control-v3', 'sculpt-control-v4']);
 const BASE_URL = new URL('./', self.location.href);
@@ -22,6 +22,12 @@ const ASSETS = [
   ['plugin-original-fx.js', 'js'],
   ['plugin-original-channel.js', 'js'],
   ['plugin-original-native.js', 'js'],
+  ['plugin-original-dynamics-extra.js', 'js'],
+  ['plugin-original-filters.js', 'js'],
+  ['pdf-reader.js', 'js'],
+  ['pdf.worker.js', 'js'],
+  ['channel-list.js', 'js'],
+  ['channel-list.css', 'css'],
   ['native-bridge.js', 'js'],
   ['wing-map.js', 'js'],
   ['live-session.js', 'js'],

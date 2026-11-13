@@ -5,11 +5,15 @@
     ['channel', 'Canale'], ['processing', 'Processo'], ['eq', 'EQ'],
     ['dynamics', 'Dinamica'], ['sends', 'Mandate'], ['groups', 'Gruppi']
   ];
-  const PALETTE = [
-    ['Rosso', '#ef414b'], ['Corallo', '#ef7277'], ['Ambra', '#d7ad62'],
-    ['Verde', '#a2bc8b'], ['Blu', '#8c9dca'], ['Viola', '#b28ac8'],
-    ['Grigio', '#99959b'], ['Bianco', '#e4e2dc']
-  ];
+  // Use the channel-list/WING palette without rewriting existing project RGBs.
+  // The fallback keeps the editor usable when loaded without the importer.
+  const PALETTE = (window.SculptChannelList?.palette || [
+    ['#89949c', 'Grigio'], ['#4969b7', 'Blu scuro'], ['#0089ff', 'Blu'], ['#5b33fa', 'Indaco'],
+    ['#2bdfa6', 'Menta'], ['#00b43d', 'Verde'], ['#9acc00', 'Lime'], ['#f6e100', 'Giallo'],
+    ['#bd6a1b', 'Marrone'], ['#e31b44', 'Rosso'], ['#ff7679', 'Rosa'], ['#f129e7', 'Magenta'],
+    ['#a52ff6', 'Viola'], ['#ffb71b', 'Ambra'], ['#21bff0', 'Azzurro'], ['#ff5a2d', 'Arancio'],
+    ['#00c6ca', 'Turchese'], ['#707070', 'Grigio scuro'], ['#e0e0e0', 'Bianco']
+  ]).map(([color, name]) => [name, color]);
   const GROUP_NAMES = { OFF: 'Non assegnata', LCL: 'Local', AUX: 'Aux analogico', A: 'AES50 A', B: 'AES50 B', C: 'AES50 C', SC: 'StageCONNECT', USB: 'USB', CRD: 'Card', MOD: 'Modulo / Dante', PLAY: 'USB Player', AES: 'AES/EBU', USR: 'User', OSC: 'Oscillatore', BUS: 'Bus', MAIN: 'Main', MTX: 'Matrice' };
   const TAP_INPUT = ['IN', 'FILT', '3', '4', '5', 'PFL', 'AFL', 'POST'];
   const TAP_OUTPUT = ['BUS', 'DYN', 'PFL', 'AFL', 'EQ', 'INS2'];
@@ -292,6 +296,17 @@
       const choice = button('', () => patch({ color }), 'editor-color', `Colore ${name}`);
       choice.style.setProperty('--swatch', color); bind(() => choice.setAttribute('aria-pressed', String(sourceStrip().color.toLowerCase() === color.toLowerCase()))); colors.append(choice);
     });
+    const currentColor = button('', null, 'editor-color', 'Colore attuale del progetto');
+    bind(() => {
+      const color = sourceStrip().color;
+      const represented = PALETTE.some(([, value]) => value.toLowerCase() === color.toLowerCase());
+      currentColor.hidden = represented;
+      currentColor.style.setProperty('--swatch', color);
+      currentColor.setAttribute('aria-pressed', String(!represented));
+      currentColor.setAttribute('aria-label', `Colore attuale del progetto ${color}`);
+      currentColor.title = `Colore attuale del progetto ${color}`;
+    });
+    colors.append(currentColor);
     identity.append(colors, grid(
       selectField('Icona', () => channel().icon || 'none', [
         ['none', '● Nessuna'], ['voice', 'Voce'], ['guitar', 'Chitarra'], ['bass', 'Basso'], ['drums', 'Batteria'],
