@@ -1,0 +1,23 @@
+import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { dirname, resolve, basename } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const { CSP } = require('../src/bridge-policy.cjs');
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const source = resolve(root, '../dist');
+const target = resolve(root, 'app');
+const htmlSource = await readFile(resolve(source, 'index.html'), 'utf8');
+if (!htmlSource.includes('<title>Sculpt Wing</title>')) throw new Error('Interfaccia Sculpt Wing non trovata.');
+await rm(target, { recursive: true, force: true });
+await mkdir(target, { recursive: true });
+await cp(source, target, { recursive: true, filter: file => !basename(file).startsWith('qa-') && !/\.(zip|tar|gz|dmg|exe)$/i.test(file) });
+let html = htmlSource.replace('<html lang="it">', '<html lang="it" data-native-bundle="true" data-desktop-bundle="true">');
+html = html.replace(/\s*<link rel="manifest" href="\.\/manifest\.webmanifest">/, '');
+html = html.replace('<meta charset="utf-8">', `<meta charset="utf-8">\n  <meta http-equiv="Content-Security-Policy" content="${CSP}">`);
+await writeFile(resolve(target, 'index.html'), html);
+await cp(resolve(root, 'THIRD_PARTY_NOTICES.md'), resolve(target, 'THIRD_PARTY_NOTICES.md'));
+await mkdir(resolve(root, 'build'), { recursive: true });
+await cp(resolve(source, 'icon-red-512.png'), resolve(root, 'build/icon.png'));
+console.log('Sculpt Wing: interfaccia e icona desktop preparate.');

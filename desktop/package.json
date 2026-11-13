@@ -1,0 +1,96 @@
+{
+  "name": "sculpt-wing-desktop",
+  "productName": "Sculpt Wing",
+  "version": "0.6.0",
+  "description": "Sculpt Wing — controller WING per macOS e Windows",
+  "private": true,
+  "license": "UNLICENSED",
+  "author": "Gianluca Vergalito",
+  "main": "src/main.cjs",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "prepare:app": "node scripts/prepare.mjs",
+    "prestart": "npm run prepare:app",
+    "start": "electron .",
+    "test": "node --test tests/*.test.cjs",
+    "pack": "npm run prepare:app && electron-builder --dir --publish never",
+    "dist:mac": "npm run prepare:app && electron-builder --mac --publish never",
+    "dist:win": "npm run prepare:app && electron-builder --win --x64 --publish never"
+  },
+  "devDependencies": {
+    "electron": "45.3.1",
+    "electron-builder": "26.18.1"
+  },
+  "build": {
+    "appId": "it.sculpt.wing",
+    "productName": "Sculpt Wing",
+    "artifactName": "Sculpt-Wing-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**",
+      "app/**",
+      "package.json"
+    ],
+    "asar": true,
+    "npmRebuild": false,
+    "publish": null,
+    "mac": {
+      "category": "public.app-category.music",
+      "icon": "build/icon.png",
+      "darkModeSupport": true,
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "extendInfo": {
+        "NSLocalNetworkUsageDescription": "Sculpt Wing si collega direttamente alla tua WING sulla rete locale per leggere i meter e controllare canali, mandate, processori e routing.",
+        "LSMultipleInstancesProhibited": true
+      }
+    },
+    "win": {
+      "icon": "build/icon.png",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Sculpt Wing"
+    },
+    "linux": {
+      "icon": "build/icon.png",
+      "category": "AudioVideo"
+    }
+  }
+}
