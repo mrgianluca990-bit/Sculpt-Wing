@@ -1,0 +1,128 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> sculpt-control@0.5.0 test:all
+> npm test && npm run test:web
+
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> sculpt-control@0.5.0 test
+> vitest run
+
+
+ RUN  v3.2.7 /workspace/sites/sculpt-control-offline/.sites-checkout/native
+
+ ✓ tests/protocol-codec.test.ts (16 tests) 18ms
+ ✓ tests/protocol-client.test.ts (10 tests) 43ms
+ ✓ tests/native-transport.test.ts (11 tests) 93ms
+ ✓ tests/schema-client.test.ts (14 tests) 61ms
+ ✓ tests/controller.test.ts (27 tests) 80ms
+ ✓ tests/live-pages.test.ts (10 tests) 195ms
+ ✓ tests/ui.test.tsx (8 tests) 2581ms
+   ✓ controller UI with the real store and isolated demo driver > starts disconnected with unknown values and blocks browser connections to hardware  410ms
+   ✓ controller UI with the real store and isolated demo driver > makes the simulation explicit and clears its values when exiting  392ms
+   ✓ controller UI with the real store and isolated demo driver > locks both channel sends and the master in read-only mode without changing the mix  374ms
+   ✓ controller UI with the real store and isolated demo driver > changes real demo sends and preserves their channel and bus scope across navigation  694ms
+
+ Test Files  7 passed (7)
+      Tests  96 passed (96)
+   Start at  11:33:27
+   Duration  3.68s (transform 769ms, setup 0ms, collect 1.28s, tests 3.07s, environment 854ms, prepare 766ms)
+
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> sculpt-control@0.5.0 test:web
+> node scripts/test-web.mjs
+
+✔ WING strip families and legal send directions (3.074997ms)
+✔ legacy output AUX migrate into BUS without becoming new AUX inputs (1.062192ms)
+✔ SOF preserves master levels/mutes and independent destination sends (1.044075ms)
+✔ round trip stores editor and sends but never reopens in SOF mode (4.265983ms)
+✔ invalid values and unsupported AUX gate/filter do not corrupt state (0.425612ms)
+✔ every strip and all FX have valid context-specific processor defaults (24.216178ms)
+✔ model changes invalidate old parameters and reject illegal slots (7.940965ms)
+✔ FX assignment is exclusive and AUX has no post insert (6.840266ms)
+✔ source changes are shared and hardware profile filters I/O capacity (19.316034ms)
+✔ DCA and mute groups affect effective levels without changing channel fader (10.760256ms)
+✔ scene scope and safes protect levels and keep libraries independent (153.847246ms)
+✔ processing, routing and source settings survive full serialization (73.818921ms)
+✔ FX-only recall rebuilds channel ownership without recalling strip processing (71.63003ms)
+✔ processing recall preserves safe slots and clears conflicting recalled assignments (68.385753ms)
+✔ groups-only recall releases post FX while preserving safe post-insert modes (53.060557ms)
+✔ FX-only recall selects FX mode and removes a conflicting automix membership (36.177867ms)
+✔ safe automix membership has priority over recalled channels when the 16 slots are full (65.086228ms)
+✔ normalization repairs duplicate, stale and forbidden insert assignments (91.086992ms)
+✔ live I/O hides demo patch values until scoped read completes (549.47168ms)
+✔ source editor loads the source, uses real gain and omits invented source trim (175.974665ms)
+✔ failed hydration leaves a clear error and native parameter route (22.675736ms)
+✔ offline routing remains immediately editable without native reads (54.264092ms)
+✔ connect reads mixer values and never replays the local show; starts read-only (6.636178ms)
+✔ rapid fader edits coalesce and an older meter/control update does not replace an active gesture (3.009759ms)
+✔ disconnection drops pending commands and late replies cannot attach to a reconnect (14.829763ms)
+✔ turning control off cancels a queued gesture and restores the confirmed value (0.979908ms)
+✔ a rejected write rereads the console and rolls back the optimistic fader (2.024172ms)
+✔ a model change discards old queued parameter gestures and blocks new ones until schema loads (5.752556ms)
+✔ coalesced forced processor refreshes do not recursively refresh their own invalidation events (4.813549ms)
+✔ an old schema read cannot hydrate controls after an external model change (6.537969ms)
+✔ direct writes recheck control and session after asynchronous metadata lookup (1.629908ms)
+✔ a failed initial sync closes the transport and drops subsequent unbound values (0.872926ms)
+✔ leaf nodes can be loaded and unsupported edits are rejected while libraries stay local (0.786606ms)
+✔ the real map writes a linked source name without sending the effective read-only name (396.168104ms)
+✔ a mixed mapped/unmapped action is rejected atomically before any wire command (0.511061ms)
+✔ numeric firmware enum candidates preserve their actual wire type (0.420604ms)
+✔ real app connects through the native boundary, guards edits, reads back and hydrates the plugin UI (5938.527309ms)
+✔ catalogue covers every rack algorithm and prevents premium slots 9–16 (2.10209ms)
+✔ strip contexts preserve actual CH/AUX/output model differences (3.788803ms)
+✔ every non-empty model has distinct typed, bounded and defaulted parameters (4.232577ms)
+✔ six/eight band EQ, reverb levels and documented parser corrections are retained (0.606524ms)
+✔ defaults are isolated between processor instances and ambiguous names are not collapsed (0.653155ms)
+✔ display editing does not turn logarithmic step counts into linear physical quantisation (0.53054ms)
+✔ every model has an authored surface with each parameter reachable once (19.450551ms)
+✔ all 109 model surfaces render controls with isolated state and dispose their listeners (1318.373712ms)
+✔ dedicated surfaces expose VSS3 engine sections, FET ratio buttons, GEQ faders and pitch keyboard (80.812948ms)
+✔ live panels remain locked until hydration and LOAD sends a hardware trigger only (66.351244ms)
+✔ live firmware limits and read-only flags control editing, and GR never follows knobs (19.198081ms)
+✔ an unknown live model is never replaced by a local default (8.97207ms)
+✔ a firmware numeric enum remains numeric through the rendered selector (13.789095ms)
+✔ fader offsets and send actions mutate the shared mix without changing destination master (4.135687ms)
+✔ groups, talkback and monitor actions change their independent state (1.57157ms)
+✔ scene macros pass stored scope and current safes into the recall engine (0.334274ms)
+✔ invalid targets, numeric inputs and unavailable transports fail visibly (1.258999ms)
+✔ fades reach their target and cancellation prevents the next action (0.650751ms)
+✔ virtual transport derives elapsed, paused, looping and end positions (0.372362ms)
+✔ project importer accepts both export wrappers, checks strip ranges and removes prototype keys (5.692735ms)
+✔ global modules seed useful macros once and survive full restore and reset (234.82287ms)
+✔ macro preflight reads all required scopes before any action and coalesces duplicate scopes (2.143242ms)
+✔ rejected fader/send mutations stop macro execution rather than reporting success (0.605293ms)
+✔ an action awaits the native write queue and propagates a confirmation failure (4.851356ms)
+✔ recorder actions await asynchronous transport and reject unavailable native results (1.276715ms)
+✔ connected meter bridge uses real stereo values and clears stale data without simulated GR/RTA (185.535683ms)
+✔ group pages await hydration and synchronize external values without replacing a focused field (325.788594ms)
+✔ oscillators wait for native values and show only real source routing controls (195.559964ms)
+✔ runMacro requires the live guard and does not execute denied actions (26.927473ms)
+✔ all 76 strip families resolve exact fader/mute/pan/solo paths (156.56161ms)
+✔ capture is read-only and works with both live state and serialized snapshots (71.721769ms)
+✔ silence, low levels and pan-link mode 2 retain exact received wire values (181.690224ms)
+✔ send routes respect WING family-specific addressing and semantics (41.175564ms)
+✔ model changes invalidate old mapped parameters; ambiguous CMB peak fields are blocked (96.684824ms)
+✔ numeric firmware enums retain their wire type despite textual catalog options (153.71057ms)
+✔ all catalog unambiguous source keys produce validated context paths (5.340944ms)
+✔ FX overall mix and model mix are distinct, bypass belongs to assigned insert (71.532147ms)
+✔ filter uses flt/tf and sidechain/crossover controls use their documented nodes (68.08253ms)
+✔ physical preamps are shared and gain/phantom are never synthesized for digital sources (18.252065ms)
+✔ effective strip identity is read-only, linked rename targets shared source (56.200322ms)
+✔ Main/Alt patch application is independent of group/index update order (4.140834ms)
+✔ physical output stereo indices encode BUS/MAIN/MTX side and reject direct processed CH (85.155051ms)
+✔ USER SIGNAL and USER PATCH use different domains, AUX processing remains distinct (22.865251ms)
+✔ DCA membership preserves custom tags and automix uses post insert mode (26.509608ms)
+✔ monitor dim and talk level are shared parameters, oscillator enable is source mute (44.323251ms)
+✔ scope hydration returns immediate groups and supports bounded I/O pagination (17.321361ms)
+✔ unknown and invalid values cannot corrupt application state; LOAD stays an explicit trigger (19.737415ms)
+ℹ tests 84
+ℹ suites 0
+ℹ pass 84
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 6487.632276
+PASS: 456 page renders across 76 strips; numeric commits, source sharing/ALT, plugin change, sends, automix, AUX capabilities and cleanup.

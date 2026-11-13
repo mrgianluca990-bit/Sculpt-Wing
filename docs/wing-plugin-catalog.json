@@ -1,0 +1,2076 @@
+{
+  "title": "Sculpt Control: inventario documentato WING FX / processing",
+  "reference_version": "WING Remote Protocols V3.1.2-a (FW 3.1.2 and above)",
+  "retrieved_on": "2026-11-13",
+  "status": "planning_inventory_not_a_runtime_parameter_map",
+  "hardware_verified": false,
+  "source_sha256": "375b7ffd429ceeecd5559b7f82320d4ee264e6db6b2d4bfd039b9bd91e867247",
+  "sources": [
+    {
+      "name": "Pagina ufficiale WING RACK",
+      "url": "https://behringer.com/en/products/0604-AAE"
+    },
+    {
+      "name": "Pagina del manutentore autorizzato del protocollo",
+      "url": "https://sites.google.com/site/patrickmaillot/wing"
+    },
+    {
+      "name": "Protocollo corrente linkato dalla pagina ufficiale (PDF non acquisito in questo controllo, copia locale usata come baseline)",
+      "url": "https://cdn-media.empowertribe.com/2106004e217b8eb2639d93672823eef5/WING_Remote-Protocols-3.1-03.pdf"
+    },
+    {
+      "name": "Effects Guide (riferimento interfacce, basato su firmware precedente)",
+      "url": "https://mediadl.musictribe.com/media/PLM/data/docs/P0BV2/EFFECTS%20GUIDE_M_BE_0603-AEN_WING.pdf"
+    }
+  ],
+  "counts": {
+    "eq": 8,
+    "filter": 4,
+    "fx_channel_eq": 6,
+    "fx_channel_strip": 5,
+    "fx_mode": 2,
+    "fx_premium": 26,
+    "fx_standard": 26,
+    "gate_dynamics": 32
+  },
+  "strip_capabilities_from_reference": {
+    "CH": {
+      "filter": [
+        "TILT",
+        "MAX",
+        "AP1",
+        "AP2"
+      ],
+      "eq": [
+        "STD",
+        "SOUL",
+        "E88",
+        "E84",
+        "F110",
+        "PULSAR",
+        "MACH4"
+      ],
+      "gate": [
+        "GATE",
+        "DUCK",
+        "E88",
+        "9000G",
+        "D241G",
+        "DS902",
+        "DEQ",
+        "DEQ2",
+        "WAVE",
+        "PSE",
+        "CMB",
+        "RIDE",
+        "WARM",
+        "COMP",
+        "EXP",
+        "B160",
+        "B560",
+        "D241C",
+        "ECL33",
+        "9000C",
+        "SBUS",
+        "RED3",
+        "76LA",
+        "LA",
+        "F670",
+        "BLISS",
+        "NSTR",
+        "2250",
+        "L100",
+        "E88C",
+        "LMT",
+        "ONEC"
+      ],
+      "dynamics": [
+        "GATE",
+        "DUCK",
+        "E88",
+        "9000G",
+        "D241G",
+        "DS902",
+        "DEQ",
+        "DEQ2",
+        "WAVE",
+        "PSE",
+        "CMB",
+        "RIDE",
+        "WARM",
+        "COMP",
+        "EXP",
+        "B160",
+        "B560",
+        "D241C",
+        "ECL33",
+        "9000C",
+        "SBUS",
+        "RED3",
+        "76LA",
+        "LA",
+        "F670",
+        "BLISS",
+        "NSTR",
+        "2250",
+        "L100",
+        "E88C",
+        "LMT",
+        "ONEC"
+      ],
+      "eq_standard_bands": 6,
+      "insert_stages": [
+        "preins",
+        "postins"
+      ]
+    },
+    "AUX": {
+      "filter": [],
+      "eq": [
+        "STD",
+        "SOUL",
+        "E88",
+        "E84",
+        "F110",
+        "PULSAR"
+      ],
+      "gate": [],
+      "dynamics": [
+        "GATE",
+        "DUCK",
+        "E88",
+        "9000G",
+        "D241G",
+        "WAVE",
+        "PSE",
+        "CMB",
+        "RIDE",
+        "COMP",
+        "EXP",
+        "B160",
+        "B560",
+        "D241C",
+        "ECL33",
+        "9000C",
+        "SBUS",
+        "RED3",
+        "76LA",
+        "LA",
+        "F670",
+        "BLISS",
+        "NSTR",
+        "2250",
+        "L100",
+        "E88C",
+        "LMT",
+        "ONEC"
+      ],
+      "eq_standard_bands": 6,
+      "insert_stages": [
+        "preins"
+      ]
+    },
+    "BUS": {
+      "filter": [],
+      "eq": [
+        "STD",
+        "SOUL",
+        "E88",
+        "E84",
+        "F110",
+        "PULSAR",
+        "PIA"
+      ],
+      "gate": [],
+      "dynamics": [
+        "GATE",
+        "DUCK",
+        "E88",
+        "9000G",
+        "D241G",
+        "DS902",
+        "DEQ",
+        "DEQ2",
+        "WAVE",
+        "PSE",
+        "CMB",
+        "RIDE",
+        "WARM",
+        "COMP",
+        "EXP",
+        "B160",
+        "B560",
+        "D241C",
+        "ECL33",
+        "9000C",
+        "SBUS",
+        "RED3",
+        "76LA",
+        "LA",
+        "F670",
+        "BLISS",
+        "NSTR",
+        "2250",
+        "L100",
+        "E88C",
+        "LMT",
+        "ONEC"
+      ],
+      "eq_standard_bands": 8,
+      "insert_stages": [
+        "preins",
+        "postins"
+      ]
+    },
+    "MAIN": {
+      "filter": [],
+      "eq": [
+        "STD",
+        "SOUL",
+        "E88",
+        "E84",
+        "F110",
+        "PULSAR",
+        "PIA"
+      ],
+      "gate": [],
+      "dynamics": [
+        "GATE",
+        "DUCK",
+        "E88",
+        "9000G",
+        "D241G",
+        "DS902",
+        "DEQ",
+        "DEQ2",
+        "WAVE",
+        "PSE",
+        "CMB",
+        "RIDE",
+        "WARM",
+        "COMP",
+        "EXP",
+        "B160",
+        "B560",
+        "D241C",
+        "ECL33",
+        "9000C",
+        "SBUS",
+        "RED3",
+        "76LA",
+        "LA",
+        "F670",
+        "BLISS",
+        "NSTR",
+        "2250",
+        "L100",
+        "E88C",
+        "LMT",
+        "ONEC"
+      ],
+      "eq_standard_bands": 8,
+      "insert_stages": [
+        "preins",
+        "postins"
+      ]
+    },
+    "MTX": {
+      "filter": [],
+      "eq": [
+        "STD",
+        "SOUL",
+        "E88",
+        "E84",
+        "F110",
+        "PULSAR",
+        "PIA"
+      ],
+      "gate": [],
+      "dynamics": [
+        "GATE",
+        "DUCK",
+        "E88",
+        "9000G",
+        "D241G",
+        "DS902",
+        "DEQ",
+        "DEQ2",
+        "WAVE",
+        "PSE",
+        "CMB",
+        "RIDE",
+        "WARM",
+        "COMP",
+        "EXP",
+        "B160",
+        "B560",
+        "D241C",
+        "ECL33",
+        "9000C",
+        "SBUS",
+        "RED3",
+        "76LA",
+        "LA",
+        "F670",
+        "BLISS",
+        "NSTR",
+        "2250",
+        "L100",
+        "E88C",
+        "LMT",
+        "ONEC"
+      ],
+      "eq_standard_bands": 8,
+      "insert_stages": [
+        "preins",
+        "postins"
+      ]
+    }
+  },
+  "models": [
+    {
+      "category": "fx_mode",
+      "id": "NONE",
+      "name": "None / slot vuoto",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "category": "fx_mode",
+      "id": "EXT",
+      "name": "External Insert",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "category": "fx_standard",
+      "id": "GEQ",
+      "name": "Graphic EQ",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "category": "fx_standard",
+      "id": "PIA",
+      "name": "PIA 560 GEQ",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "category": "fx_standard",
+      "id": "DEQ3",
+      "name": "Triple Dynamic EQ",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "category": "fx_standard",
+      "id": "C5-CMB",
+      "name": "Combinator",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "category": "fx_standard",
+      "id": "LIMITER",
+      "name": "Precision Limiter",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "category": "fx_standard",
+      "id": "SPKMAN",
+      "name": "Speaker Manager",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "category": "fx_standard",
+      "id": "DE-S2",
+      "name": "2-Band DeEsser",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "category": "fx_standard",
+      "id": "ENHANCE",
+      "name": "Ultra Enhancer",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "category": "fx_standard",
+      "id": "EXCITER",
+      "name": "Exciter",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "category": "fx_standard",
+      "id": "P-BASS",
+      "name": "Psycho Bass",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "category": "fx_standard",
+      "id": "SUB",
+      "name": "Sub Octaver",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "category": "fx_standard",
+      "id": "SUB-M",
+      "name": "Sub Monster",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "category": "fx_standard",
+      "id": "V-IMG",
+      "name": "Velvet Imager",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ],
+      "reference_notes": [
+        "Appendix V_IMG conflicts with command model list V-IMG. Prefer listed V-IMG; confirm on live schema."
+      ]
+    },
+    {
+      "category": "fx_standard",
+      "id": "DOUBLE",
+      "name": "Double Vocal",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "category": "fx_standard",
+      "id": "PCORR",
+      "name": "Pitch Fix",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "category": "fx_standard",
+      "id": "ROTARY",
+      "name": "Rotary Speaker",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "category": "fx_standard",
+      "id": "PHASER",
+      "name": "Phaser",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "category": "fx_standard",
+      "id": "PANNER",
+      "name": "Tremolo Panner",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "category": "fx_standard",
+      "id": "TAPE",
+      "name": "Tape Machine",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "category": "fx_standard",
+      "id": "MOOD",
+      "name": "Mood Filter",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "category": "fx_standard",
+      "id": "BODY",
+      "name": "Bodyrez",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "category": "fx_standard",
+      "id": "RACKAMP",
+      "name": "Rack Amp",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "category": "fx_standard",
+      "id": "UKROCK",
+      "name": "UK Rock Amp",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "category": "fx_standard",
+      "id": "ANGEL",
+      "name": "Angel Amp",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "category": "fx_standard",
+      "id": "JAZZC",
+      "name": "Jazz Clean Amp",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "category": "fx_standard",
+      "id": "DELUXE",
+      "name": "Deluxe Amp",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "category": "fx_channel_eq",
+      "id": "SOUL",
+      "name": "Soul Analogue",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "category": "fx_channel_eq",
+      "id": "E88",
+      "name": "Even 88 Formant",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "category": "fx_channel_eq",
+      "id": "E84",
+      "name": "Even 84",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "category": "fx_channel_eq",
+      "id": "F110",
+      "name": "Fortissimo 110",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "category": "fx_channel_eq",
+      "id": "PULSAR",
+      "name": "Pulsar",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "category": "fx_channel_eq",
+      "id": "MACH4",
+      "name": "Mach EQ4",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "category": "fx_premium",
+      "id": "HALL",
+      "name": "Hall Reverb",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "category": "fx_premium",
+      "id": "ROOM",
+      "name": "Room Reverb",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ],
+      "reference_notes": [
+        "Appendix model text R-OOM conflicts with command model list ROOM. Prefer listed ROOM; confirm on live schema."
+      ]
+    },
+    {
+      "category": "fx_premium",
+      "id": "CHAMBER",
+      "name": "Chamber Reverb",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "category": "fx_premium",
+      "id": "PLATE",
+      "name": "Plate Reverb",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "category": "fx_premium",
+      "id": "CONCERT",
+      "name": "Concert Reverb",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "category": "fx_premium",
+      "id": "AMBI",
+      "name": "Ambiance",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "category": "fx_premium",
+      "id": "VSS3",
+      "name": "VSS3 Reverb",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "category": "fx_premium",
+      "id": "V-ROOM",
+      "name": "Vintage Room",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "category": "fx_premium",
+      "id": "V-REV",
+      "name": "Vintage Reverb",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "category": "fx_premium",
+      "id": "V-PLATE",
+      "name": "Vintage Plate",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "category": "fx_premium",
+      "id": "BPLATE",
+      "name": "Blue Plate",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "category": "fx_premium",
+      "id": "GATED",
+      "name": "Gated Reverb",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "category": "fx_premium",
+      "id": "REVERSE",
+      "name": "Reverse Reverb",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "category": "fx_premium",
+      "id": "DEL/REV",
+      "name": "Delay/Reverb",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "category": "fx_premium",
+      "id": "SHIMMER",
+      "name": "Shimmer Reverb",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "category": "fx_premium",
+      "id": "SPRING",
+      "name": "Spring Reverb",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "category": "fx_premium",
+      "id": "DIMCRS",
+      "name": "Dimension CRS",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "category": "fx_premium",
+      "id": "CHORUS",
+      "name": "Stereo Chorus",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "category": "fx_premium",
+      "id": "FLANGER",
+      "name": "Stereo Flanger",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ],
+      "reference_notes": [
+        "Appendix model text CHORUS conflicts with command model list FLANGER. Prefer listed FLANGER; confirm on live schema."
+      ]
+    },
+    {
+      "category": "fx_premium",
+      "id": "ST-DL",
+      "name": "Stereo Delay",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "category": "fx_premium",
+      "id": "TAP-DL",
+      "name": "UltraTap Delay",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "category": "fx_premium",
+      "id": "TAPE-DL",
+      "name": "Tape Delay",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "category": "fx_premium",
+      "id": "OILCAN",
+      "name": "OilCan Delay",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "category": "fx_premium",
+      "id": "BBD-DL",
+      "name": "BBD Delay",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "category": "fx_premium",
+      "id": "PITCH",
+      "name": "Stereo Pitch",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "category": "fx_premium",
+      "id": "D-PITCH",
+      "name": "Dual Pitch",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "category": "fx_channel_strip",
+      "id": "*EVEN*",
+      "name": "Even Channel",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "category": "fx_channel_strip",
+      "id": "*SOUL*",
+      "name": "Soul Channel",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "category": "fx_channel_strip",
+      "id": "*VINTAGE*",
+      "name": "Vintage Channel",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "category": "fx_channel_strip",
+      "id": "*BUS*",
+      "name": "Bus Channel",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "category": "fx_channel_strip",
+      "id": "*MASTER*",
+      "name": "Mastering",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "slots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "category": "filter",
+      "id": "TILT",
+      "name": "Tilt Filter",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "filter",
+      "id": "MAX",
+      "name": "Maxer Filter",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "filter",
+      "id": "AP1",
+      "name": "AP90 Filter (all pass)",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "filter",
+      "id": "AP2",
+      "name": "AP180 Filter (all pass)",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "gate_dynamics",
+      "id": "GATE",
+      "name": "WING Gate / Expander",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "gate_dynamics",
+      "id": "DUCK",
+      "name": "WING Ducker",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "gate_dynamics",
+      "id": "E88",
+      "name": "Even 88 Gate",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "gate_dynamics",
+      "id": "9000G",
+      "name": "Soul 9000 Gate",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "gate_dynamics",
+      "id": "D241G",
+      "name": "Draw More 241 Gate",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "gate_dynamics",
+      "id": "DS902",
+      "name": "BDX 902 De-Esser",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "gate_dynamics",
+      "id": "DEQ",
+      "name": "Dynamic EQ",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "gate_dynamics",
+      "id": "DEQ2",
+      "name": "Dual Dynamic EQ",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "gate_dynamics",
+      "id": "WAVE",
+      "name": "Wave Designer",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "gate_dynamics",
+      "id": "PSE",
+      "name": "Source Extractor",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "gate_dynamics",
+      "id": "CMB",
+      "name": "PSE / LA Combo",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "gate_dynamics",
+      "id": "RIDE",
+      "name": "Auto Rider",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "gate_dynamics",
+      "id": "WARM",
+      "name": "Soul Warmth Pre",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "gate_dynamics",
+      "id": "COMP",
+      "name": "WING Compressor",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "gate_dynamics",
+      "id": "EXP",
+      "name": "WING Expander",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "gate_dynamics",
+      "id": "B160",
+      "name": "BDX 160",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "gate_dynamics",
+      "id": "B560",
+      "name": "BDX 560 Easy",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "gate_dynamics",
+      "id": "D241C",
+      "name": "Draw More Compressor",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "gate_dynamics",
+      "id": "ECL33",
+      "name": "Even Compressor / Limiter",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "gate_dynamics",
+      "id": "9000C",
+      "name": "Soul 9000 Compressor",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "gate_dynamics",
+      "id": "SBUS",
+      "name": "Soul G Bus Compressor",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "gate_dynamics",
+      "id": "RED3",
+      "name": "Red3 Compressor",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "gate_dynamics",
+      "id": "76LA",
+      "name": "76 Limiter Amp",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "gate_dynamics",
+      "id": "LA",
+      "name": "LA Leveler",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "gate_dynamics",
+      "id": "F670",
+      "name": "Fairkid 670",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "gate_dynamics",
+      "id": "BLISS",
+      "name": "Eternal Bliss",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "gate_dynamics",
+      "id": "NSTR",
+      "name": "No Stressor",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "gate_dynamics",
+      "id": "2250",
+      "name": "PIA 2250 Rack",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "gate_dynamics",
+      "id": "L100",
+      "name": "LTA100 Leveler",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "gate_dynamics",
+      "id": "E88C",
+      "name": "Even 88 Compressor",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "gate_dynamics",
+      "id": "LMT",
+      "name": "LMT Compressor",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "gate_dynamics",
+      "id": "ONEC",
+      "name": "One Knob Compressor",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "eq",
+      "id": "STD",
+      "name": "WING EQ",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "eq",
+      "id": "SOUL",
+      "name": "Soul Analogue",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "eq",
+      "id": "E88",
+      "name": "Even 88 Formant",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "eq",
+      "id": "E84",
+      "name": "Even 84",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "eq",
+      "id": "F110",
+      "name": "Fortissimo 110",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "eq",
+      "id": "PULSAR",
+      "name": "Pulsar",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "eq",
+      "id": "MACH4",
+      "name": "Mach EQ4",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required"
+    },
+    {
+      "category": "eq",
+      "id": "PIA",
+      "name": "PIA 560 GEQ",
+      "status": "documented_not_hardware_verified",
+      "parameter_schema_source": "live_node_metadata_required",
+      "reference_notes": [
+        "Listed for BUS/MAIN/MTX EQ selectors; not listed for CH/AUX selectors."
+      ]
+    }
+  ],
+  "notes": [
+    "Identifier keys must include processor context and model; E88 and SOUL are not globally unique.",
+    "FX model IDs *EVEN*, *SOUL*, *VINTAGE*, *BUS*, *MASTER* include literal asterisks in the model list. Do not strip them as Markdown.",
+    "AUX model lists are narrower than CH/BUS/MAIN/MTX in this reference. Reconcile against live capabilities; do not infer unavailable controls.",
+    "Parameter keys, types, ranges and enumerations are intentionally not imported blindly from appendix tables because the source contains detected inconsistencies.",
+    "No native plugin GUI or DSP is delivered by the control protocol; local editor views must be implemented and mapped to mixer data."
+  ]
+}

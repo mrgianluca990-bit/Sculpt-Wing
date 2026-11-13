@@ -1,0 +1,43 @@
+{
+  "name": "sculpt-control",
+  "version": "0.6.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npm run build:live && vite ../dist --host 0.0.0.0",
+    "build": "tsc -b && node scripts/build-live.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "preview": "vite preview --host 0.0.0.0",
+    "ios:sync": "npm run build && cap sync ios",
+    "ios:open": "cap open ios",
+    "build:live": "node scripts/build-live.mjs",
+    "build:prototype": "tsc -b && vite build",
+    "test:web": "node scripts/test-web.mjs",
+    "test:all": "npm test && npm run test:web",
+    "dev:prototype": "vite --host 0.0.0.0",
+    "demo:prototype": "npm run build:prototype && node scripts/create-demo.mjs"
+  },
+  "dependencies": {
+    "@capacitor/core": "^8.0.0",
+    "@capacitor/ios": "^8.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.0.0",
+    "@testing-library/react": "^16.3.3",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.4.1",
+    "jsdom": "^26.1.0",
+    "typescript": "~5.8.3",
+    "vite": "^6.3.5",
+    "vitest": "^3.2.4",
+    "esbuild": "0.25.12"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}
