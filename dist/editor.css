@@ -22,3 +22,24 @@
 @media(max-height:440px) and (orientation:landscape){.editor-parameter-vertical{--send-fader-travel:158px}.editor-rename{height:32px}.editor-parameter-vertical .editor-parameter-heading{min-height:32px}.editor-send-row>.editor-field{margin-top:3px;margin-bottom:3px}}
 
 .editor-fader-cap{position:absolute;left:50%;top:calc(11px + (100% - 22px) * (1 - var(--editor-position,0)));width:38px;height:22px;transform:translate(-50%,-50%);border:1px solid #171319;border-radius:3px;background:linear-gradient(#aeabb1,#77717f 25%,#4b4653 46%,#e5dee5 49%,#e5dee5 54%,#494350 57%,#6b6273 90%,#453c4a);box-shadow:0 2px 3px #0008,inset 0 1px 0 #ddd1df80;cursor:ns-resize;touch-action:none}.editor-fader-cap.dragging{box-shadow:0 3px 5px #000a,0 0 7px #ef414b55}.editor-disabled .editor-fader-cap{opacity:.4;cursor:default}
+
+/* The editor fills the opposite mixer row. Its containing row follows the
+   console's flex layout, including window resize, safe areas and the SOF bar. */
+.mixer-row.editor-host{position:relative;isolation:isolate}
+.editor-dialog.editor-docked{position:absolute;inset:0;margin:0;width:100%;height:100%;max-width:none;max-height:none;min-width:0;min-height:0;border:1px solid #70404c;border-radius:0;box-shadow:inset 0 0 0 1px #0007;z-index:4}
+.editor-docked .editor-header{min-height:44px;padding:5px 10px;gap:9px}
+.editor-docked .editor-channel-dot{height:28px}
+.editor-docked .editor-kicker{font-size:8px;letter-spacing:1px}
+.editor-docked .editor-header h2{font-size:16px;margin-top:1px}
+.editor-docked .editor-close{width:32px;height:32px;font-size:25px!important}
+.editor-docked .editor-rename,.editor-docked .editor-sof,.editor-docked .editor-header-solo{height:30px}
+.editor-docked .editor-channel-navigation{height:19px;min-height:19px;padding:0 10px}
+.editor-docked .editor-channel-navigation button{height:18px;font-size:18px}
+.editor-docked .editor-tabs{height:32px;min-height:32px;padding:0 8px}
+.editor-docked .editor-tab{font-size:11px!important}
+.editor-docked .editor-panel{padding:10px;min-height:0;overflow:auto;scroll-padding:10px}
+.editor-docked .editor-footer{height:19px;min-height:19px;font-size:8px}
+.editor-docked .editor-module{padding:10px 12px;margin-bottom:10px}
+.editor-docked .editor-module-heading{margin-bottom:7px}
+@media(min-width:900px){.editor-docked #editor-panel-channel{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;align-content:start;align-items:start}.editor-docked #editor-panel-channel>.editor-module{margin-bottom:0}}
+@media(max-height:540px){.editor-docked .editor-header{min-height:36px;padding:3px 8px}.editor-docked .editor-channel-dot{height:24px}.editor-docked .editor-header h2{font-size:14px}.editor-docked .editor-close,.editor-docked .editor-rename,.editor-docked .editor-sof,.editor-docked .editor-header-solo{height:27px}.editor-docked .editor-channel-navigation{height:17px;min-height:17px}.editor-docked .editor-channel-navigation button{height:16px}.editor-docked .editor-tabs{height:27px;min-height:27px}.editor-docked .editor-footer{height:16px;min-height:16px}.editor-docked .editor-panel{padding:8px}}

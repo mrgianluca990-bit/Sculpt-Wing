@@ -29,8 +29,8 @@
 .cl-scene-import .cl-table td{padding:8px 7px}
 .cl-scene-import .cl-table .desk-input{font-size:11px;padding:8px 7px;min-height:34px}
 .cl-scene-import .cl-table input[type=checkbox]{margin:8px 0}
-.cl-channels-table{min-width:1090px}
-.cl-channels-table th:nth-child(1){width:40px}.cl-channels-table th:nth-child(2){width:50px}.cl-channels-table th:nth-child(3){width:98px}.cl-channels-table th:nth-child(4){width:210px}.cl-channels-table th:nth-child(5){width:143px}.cl-channels-table th:nth-child(6){width:200px}.cl-channels-table th:nth-child(7){width:50px}.cl-channels-table th:nth-child(8){width:95px}
+.cl-channels-table{min-width:1010px}
+.cl-channels-table th:nth-child(1){width:40px}.cl-channels-table th:nth-child(2){width:50px}.cl-channels-table th:nth-child(3){width:108px}.cl-channels-table th:nth-child(4){width:245px}.cl-channels-table th:nth-child(5){width:222px}.cl-channels-table th:nth-child(6){width:48px}.cl-channels-table th:nth-child(7){width:100px}.cl-channels-table th:nth-child(8){width:42px}
 .cl-identity{display:flex;flex-direction:column;gap:5px}
 .cl-identity .cl-original,.cl-identity .cl-row-note{margin:0;font-size:10px}
 .cl-identity .cl-row-note:empty{display:none}
@@ -62,3 +62,14 @@
 @media(max-height:500px){.cl-scene-import .cl-panel{flex:none;min-height:160px}.cl-scene-import .cl-panel>.cl-table-wrap{flex:none;max-height:45vh}.cl-send-layout{min-height:250px}.cl-monitor-list{max-height:220px}.cl-scene-import .cl-footer{bottom:-18px}.cl-scene-import .cl-preview{flex:none}}
 .cl-scene-import .cl-sends-table{min-width:580px}.cl-scene-import .cl-sends-table th:nth-child(5){width:76px}
 .cl-monitor-source{display:flex;flex-direction:column;gap:3px;overflow-wrap:anywhere}.cl-monitor-source:empty{display:none}.cl-monitor-source small{color:#ab91a2;font-size:10px;line-height:1.5}
+
+/* Linked instruments keep assignments in one place while channel values stay editable. */
+.cl-instrument-row>td{background:#35232e;border-top:1px solid #795061!important;padding:9px 10px!important}
+.cl-instrument-controls{display:grid;grid-template-columns:minmax(170px,1fr) minmax(190px,1fr) minmax(190px,1fr) auto;align-items:end;gap:10px}
+.cl-instrument-controls .cl-field{gap:4px}.cl-instrument-controls .cl-field-label{font-size:10px;color:#d3acbf}.cl-instrument-controls .desk-input{min-height:31px!important;padding:6px 7px!important}
+.cl-instrument-controls .cl-group-sends{min-height:31px;padding:5px 10px;font-size:11px;background:#643044;border-color:#996074;color:#f8dfeb}
+.cl-group-members{margin:6px 0 0;color:#b99aac;font-size:10px;line-height:1.45}.cl-group-members:empty{display:none}
+.cl-remove-row{padding:3px!important;min-width:26px;min-height:28px!important;margin-top:3px;font-size:18px!important;background:transparent!important;border-color:#61404e!important;color:#cc9caf!important}
+.cl-blank-row .cl-source small{color:#cab793}.cl-scope-note{margin:0;font-size:11px;line-height:1.5;color:#d6b7c8;border-left:2px solid #a45c76;padding-left:8px;flex:none}
+.cl-send-mixed{color:#e0b782!important;line-height:1.4}.cl-send-mixed:empty{display:none}.cl-mixed-value{border-color:#b6905b!important}
+@media(max-height:700px){.cl-instrument-controls{gap:8px}.cl-instrument-row>td{padding:7px 9px!important}.cl-group-members{margin-top:4px}.cl-send-controls{gap:7px}.cl-send-controls .cl-field{gap:4px}.cl-send-controls .desk-input{padding:7px;min-height:32px}.cl-scope-note{font-size:10px}}

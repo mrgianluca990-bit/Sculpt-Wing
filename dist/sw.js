@@ -1,5 +1,5 @@
 /* Bump this version whenever the app shell or its assets change. */
-const CACHE_NAME = 'sculpt-control-v14';
+const CACHE_NAME = 'sculpt-control-v15';
 const CACHE_PREFIX = 'sculpt-control-';
 const LEGACY_CACHES = new Set(['sculpt-control-v1', 'sculpt-control-v2', 'sculpt-control-v3', 'sculpt-control-v4']);
 const BASE_URL = new URL('./', self.location.href);

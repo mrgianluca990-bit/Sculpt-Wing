@@ -2,16 +2,18 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 const {JSDOM}=require('jsdom');
 const base=path.join(__dirname,'../dist'),storageKey='sculpt-wing-layers-v1';
-function fixture(preferences){
+function fixture(preferences,withEditor=false){
   const dom=new JSDOM(fs.readFileSync(path.join(base,'index.html'),'utf8'),{url:'https://sculpt.test',runScripts:'outside-only'}),w=dom.window,observers=[];
   w.matchMedia=()=>({matches:false,addEventListener(){},removeEventListener(){}});w.ResizeObserver=class{observe(){}disconnect(){}};
   w.IntersectionObserver=class{constructor(callback,options){this.callback=callback;this.root=options.root;this.targets=new Set();observers.push(this);}observe(node){this.targets.add(node);}disconnect(){this.targets.clear();}};
   w.requestAnimationFrame=()=>0;w.cancelAnimationFrame=()=>{};
   w.HTMLElement.prototype.scrollTo=function(options){this.scrollLeft=options?.left||0;};w.HTMLElement.prototype.scrollIntoView=function(){};w.HTMLElement.prototype.setPointerCapture=function(){};
-  w.HTMLDialogElement.prototype.showModal=function(){this.open=true;};w.HTMLDialogElement.prototype.close=function(){this.open=false;this.dispatchEvent(new w.Event('close'));};
+  const openedDialogs=[];
+  w.HTMLDialogElement.prototype.showModal=function(){openedDialogs.push({node:this,modal:true});this.open=true;};w.HTMLDialogElement.prototype.show=function(){openedDialogs.push({node:this,modal:false});this.open=true;};w.HTMLDialogElement.prototype.close=function(){this.open=false;this.dispatchEvent(new w.Event('close'));};
   if(preferences)w.localStorage.setItem(storageKey,JSON.stringify(preferences));
   for(const file of ['plugin-data.js','model.js','app.js','desk.js','shell.js','systems.js'])vm.runInContext(fs.readFileSync(path.join(base,file),'utf8'),dom.getInternalVMContext(),{filename:file});
-  return {dom,w,C:w.SculptController,D:w.SculptDesk,observers};
+  if(withEditor)vm.runInContext(fs.readFileSync(path.join(base,'editor.js'),'utf8'),dom.getInternalVMContext(),{filename:'editor.js'});
+  return {dom,w,C:w.SculptController,D:w.SculptDesk,observers,openedDialogs};
 }
 const plain=value=>JSON.parse(JSON.stringify(value));
 const visible=(w,row)=>[...w.document.querySelectorAll(`#${row}-bank>.strip:not([hidden])`)].map(n=>n.dataset.id);
@@ -66,4 +68,53 @@ test('local layout survives blocked mixer persistence and relaunch; legacy membe
   second.D.setLayerRows('legacy',{top:['ch-1'],bottom:[]});
   assert.equal(second.w.document.querySelectorAll('.mixer-row').length,2);assert.equal(second.w.document.querySelector('.inputs .layer-empty').hidden,false);
   second.D.change(d=>{d.layers=[];d.activeLayer=null;});assert.equal(visible(second.w,'outputs').length,28);assert.equal(visible(second.w,'inputs').length,48);
+});
+
+test('channel editor occupies the opposite bank without blocking source faders; Escape restores focus and tab order',t=>{
+  const {dom,w,C,openedDialogs}=fixture(undefined,true);t.after(()=>dom.window.close());
+  const strip=id=>w.document.querySelector(`.strip[data-id="${id}"]`),label=id=>strip(id).querySelector('.strip-label');
+  const top=w.document.querySelector('.mixer-row.outputs'),bottom=w.document.querySelector('.mixer-row.inputs');
+  label('ch-1').click();
+  const editor=w.document.querySelector('.editor-dialog');
+  assert.equal(editor.open,true);assert.equal(editor.parentElement,top);assert.equal(editor.getAttribute('aria-modal'),'false');
+  assert.equal(editor.dataset.sourceRow,'inputs');assert.equal(editor.dataset.dockRow,'outputs');assert.equal(editor.dataset.channelId,'ch-1');
+  assert.equal(openedDialogs.at(-1).modal,false,'opening must use show, never showModal');
+  assert.equal(w.document.getElementById('outputs-scroll').inert,true,'covered controls leave the tab order');
+  assert.equal(!!w.document.getElementById('inputs-scroll').inert,false);assert.equal(!!editor.inert,false);
+  assert.equal(!!w.document.querySelector('.macro-rail').inert,false);assert.equal(!!w.document.getElementById('sof-bar').inert,false);
+  label('ch-2').click();assert.equal(editor.dataset.channelId,'ch-2');assert.equal(editor.parentElement,top);assert.equal(openedDialogs.length,1,'switching source channels reuses the nonmodal editor');
+  const fader=strip('ch-2').querySelector('.fader'),before=C.getStrip('ch-2').level;
+  fader.focus();fader.dispatchEvent(new w.KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true,cancelable:true}));
+  assert.equal(C.getStrip('ch-2').level,before-.5);assert.equal(editor.open,true);
+  const escape=new w.KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true});fader.dispatchEvent(escape);
+  assert.equal(escape.defaultPrevented,true);assert.equal(editor.open,false);assert.equal(w.document.activeElement,label('ch-2'));
+  assert.equal(!!w.document.getElementById('outputs-scroll').inert,false);assert.equal(top.classList.contains('editor-host'),false);assert.equal(bottom.classList.contains('editor-host'),false);
+});
+
+test('editor follows actual Custom Layer rows and their visible order, including a layer change while open',t=>{
+  const {dom,w,C}=fixture(undefined,true);t.after(()=>dom.window.close());
+  const label=id=>w.document.querySelector(`.strip[data-id="${id}"] .strip-label`);
+  C.showLayer({top:['ch-9','ch-1'],bottom:['bus-2','aux-1']},'Band');label('ch-9').click();
+  const editor=w.document.querySelector('.editor-dialog');
+  assert.equal(editor.dataset.sourceRow,'outputs');assert.equal(editor.dataset.dockRow,'inputs');assert.equal(editor.parentElement,w.document.querySelector('.mixer-row.inputs'),'an input placed in the upper row opens below');
+  editor.querySelector('[aria-label="Canale successivo"]').click();assert.equal(editor.dataset.channelId,'ch-1');assert.equal(editor.dataset.dockRow,'inputs');
+  editor.querySelector('[aria-label="Canale successivo"]').click();assert.equal(editor.dataset.channelId,'ch-9','navigation wraps within the visible source bank');
+  w.SculptEditor.close();label('bus-2').click();assert.equal(editor.dataset.dockRow,'outputs','a BUS in the bottom row opens above');
+  C.showLayer({top:['bus-2'],bottom:['ch-1','aux-1']},'Moved');
+  assert.equal(editor.dataset.sourceRow,'outputs');assert.equal(editor.dataset.dockRow,'inputs');
+  assert.equal(editor.parentElement,w.document.querySelector('.mixer-row.inputs'));assert.equal(!!w.document.getElementById('outputs-scroll').inert,false);assert.equal(w.document.getElementById('inputs-scroll').inert,true);
+  assert.deepEqual(visible(w,'outputs'),['bus-2']);assert.deepEqual(visible(w,'inputs'),['ch-1','aux-1']);
+  C.showLayer(null);assert.equal(editor.dataset.dockRow,'inputs');w.SculptEditor.close();
+});
+
+test('empty opposite row hosts the editor and another modal owns Escape until it closes',t=>{
+  const {dom,w,C}=fixture(undefined,true);t.after(()=>dom.window.close());
+  C.showLayer({top:['ch-1'],bottom:[]},'Solo');
+  const source=w.document.querySelector('.strip[data-id="ch-1"] .strip-label');source.click();
+  const editor=w.document.querySelector('.editor-dialog'),empty=w.document.querySelector('.inputs .layer-empty');
+  assert.equal(editor.parentElement,w.document.querySelector('.mixer-row.inputs'));assert.equal(empty.hidden,false,'empty-row placeholder remains available when the editor closes');
+  const level=w.document.getElementById('level-dialog');level.showModal();
+  const firstEscape=new w.KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true});level.dispatchEvent(firstEscape);
+  assert.equal(firstEscape.defaultPrevented,false);assert.equal(editor.open,true,'a nested level modal must not also close the channel editor');
+  level.close();editor.dispatchEvent(new w.KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}));assert.equal(editor.open,false);assert.equal(w.document.activeElement,source);
 });

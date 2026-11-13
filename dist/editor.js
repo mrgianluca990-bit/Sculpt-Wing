@@ -37,6 +37,7 @@
   let panel, tabList, headerName, headerKind, headerDot, headerSof, headerSolo, headerRename;
   let renameFocusId = null;
   let footerStatus, previousFocus, unsubscribe, unsubscribeLive, rendering = false;
+  let sourceControl, dockHost, coveredChildren = [];
   let liveGate = { key: '', phase: 'idle', error: '', token: 0 }, observedLiveMode = '';
   let bindings = [], cleanups = [], structure = '';
 
@@ -749,6 +750,7 @@
 
   function sync() {
     if (!dialog?.open || !sourceStrip()) return;
+    dockEditor();
     const strip = sourceStrip();
     const live = window.SculptLive, liveState = live?.isLive() ? live.snapshot() : null;
     dialog.querySelector('.editor-demo').textContent = !liveState ? 'DEMO' : liveState.mode === 'live' ? (liveState.writable ? 'LIVE' : 'LETTURA') : 'WING';
@@ -792,11 +794,56 @@
     tabList.querySelector(`[data-tab="${id}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
   function adjacent(delta) {
-    const all = C().listStrips(); const at = all.findIndex(strip => strip.id === currentId);
-    if (at >= 0) open(all[(at + delta + all.length) % all.length].id, true);
+    // Follow the visible bank order, including a Custom Layer containing both
+    // inputs and outputs. Changing channels must not move the source faders away.
+    const row = sourceRow();
+    const visible = row ? [...row.querySelectorAll('.strip:not([hidden])')].map(node => node.dataset.id).filter(id => C().getStrip(id)) : [];
+    const ids = visible.includes(currentId) ? visible : C().listStrips().map(strip => strip.id);
+    const at = ids.indexOf(currentId);
+    if (at >= 0) open(ids[(at + delta + ids.length) % ids.length], true);
+  }
+  function stripElement(id, origin) {
+    const candidate = origin?.closest?.('.strip');
+    if (candidate?.dataset.id === id && candidate.isConnected && !candidate.hidden) return candidate;
+    return document.querySelector(`.strip[data-id="${id}"]:not([hidden])`) || document.querySelector(`.strip[data-id="${id}"]`);
+  }
+  function sourceRow() {
+    return stripElement(currentId, sourceControl)?.closest?.('.mixer-row') || null;
+  }
+  function releaseDock() {
+    for (const [node, wasInert] of coveredChildren) node.inert = wasInert;
+    coveredChildren = [];
+    dockHost?.classList.remove('editor-host');
+    dockHost = null;
+  }
+  function dockEditor() {
+    if (!dialog || !currentId) return;
+    const source = sourceRow();
+    const rowName = source?.classList.contains('outputs') ? 'outputs' : source?.classList.contains('inputs') ? 'inputs' : isInput() ? 'inputs' : 'outputs';
+    const targetName = rowName === 'inputs' ? 'outputs' : 'inputs';
+    const target = document.querySelector(`.mixer-row.${targetName}`);
+    dialog.dataset.sourceRow = rowName;
+    dialog.dataset.dockRow = targetName;
+    dialog.dataset.channelId = currentId;
+    if (target === dockHost) return;
+    releaseDock();
+    dialog.classList.toggle('editor-docked', !!target);
+    if (!target) { if (dialog.parentElement !== document.body) document.body.append(dialog); return; }
+    dockHost = target;
+    dockHost.classList.add('editor-host');
+    // Only the covered bank leaves the tab order; the source bank, SOF bar and
+    // macro rail stay usable. Original inert values are restored on close/move.
+    for (const child of dockHost.children) if (child !== dialog) { coveredChildren.push([child, !!child.inert]); child.inert = true; }
+    dockHost.append(dialog);
+  }
+  function escapeEditor(event) {
+    if (event.key !== 'Escape' || event.defaultPrevented || !dialog?.open) return;
+    // A level, menu or plugin modal above this editor owns its own Escape key.
+    if ([...document.querySelectorAll('dialog[open]')].some(node => node !== dialog)) return;
+    event.preventDefault(); close();
   }
   function createDialog() {
-    dialog = el('dialog', 'editor-dialog'); dialog.setAttribute('aria-labelledby', 'editor-title'); dialog.setAttribute('aria-modal', 'true');
+    dialog = el('dialog', 'editor-dialog'); dialog.setAttribute('aria-labelledby', 'editor-title'); dialog.setAttribute('aria-modal', 'false');
     const header = el('header', 'editor-header');
     headerDot = el('span', 'editor-channel-dot'); headerDot.setAttribute('aria-hidden', 'true');
     const identity = el('div', 'editor-header-identity'), kicker = el('div', 'editor-kicker');
@@ -827,23 +874,23 @@
     const footer = el('footer', 'editor-footer'); footerStatus = el('span'); footer.append(el('i', 'editor-save-dot'), footerStatus);
     dialog.append(header, navigation, tabList, panel, footer);
     dialog.addEventListener('cancel', event => { event.preventDefault(); close(); });
-    dialog.addEventListener('click', event => {
-      if (event.target !== dialog) return;
-      const rect = dialog.getBoundingClientRect();
-      if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) close();
-    });
     document.body.append(dialog);
   }
 
-  function open(id, keepTab = false) {
+  function open(id, keepTab = false, origin = null) {
     if (!C()?.getStrip(id) || !D()) return false;
     if (!dialog) createDialog();
     if (currentId !== id && panel?.contains(document.activeElement) && document.activeElement.matches('input,select')) document.activeElement.blur();
-    if (!dialog.open) previousFocus = document.activeElement;
+    const clicked = stripElement(id, origin || document.activeElement);
+    sourceControl = clicked?.querySelector('.strip-label') || null;
+    if (sourceControl) previousFocus = sourceControl;
+    else if (!dialog.open) previousFocus = document.activeElement;
     if (currentId !== id && !keepTab) { activeTab = 'channel'; dynamicsBlock = 'dyn'; sendDirection = 'out'; sendGroup = 'BUS'; }
     if (currentId !== id) renameFocusId = null;
     currentId = id; ensureExtras(); C().selectStrip(id);
-    if (!dialog.open) dialog.showModal();
+    dockEditor();
+    if (!dialog.open) { if (typeof dialog.show === 'function') dialog.show(); else dialog.open = true; }
+    document.addEventListener?.('keydown', escapeEditor);
     observedLiveMode = window.SculptLive?.isLive?.() ? window.SculptLive.snapshot?.().mode || 'live' : 'demo';
     renderPanel(); if (!unsubscribe) unsubscribe = C().subscribe(sync);
     if (!unsubscribeLive && window.SculptLive?.subscribe) unsubscribeLive = window.SculptLive.subscribe(liveStateChanged);
@@ -854,7 +901,10 @@
     if (dialog.contains(document.activeElement) && document.activeElement.matches('input,select')) document.activeElement.blur();
     renameFocusId = null;
     unsubscribe?.(); unsubscribe = null; unsubscribeLive?.(); unsubscribeLive = null; resetLiveGate(); disposePanel(); dialog.close();
-    if (previousFocus?.isConnected) previousFocus.focus();
+    document.removeEventListener?.('keydown', escapeEditor);
+    releaseDock();
+    if (dialog.parentElement !== document.body) document.body.append(dialog);
+    if (previousFocus?.isConnected && !previousFocus.closest?.('[hidden]')) previousFocus.focus({ preventScroll: true });
   }
   window.SculptEditor = Object.freeze({ open, close, isOpen: () => !!dialog?.open });
 })();

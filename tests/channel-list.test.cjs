@@ -106,6 +106,16 @@ test('instrument proposals share explicit descriptors and stereo parts while kee
   assert.equal(rows[2].color,'#e31b44');assert.equal(rows[3].color,'#e31b44');
 });
 
+test('multi-input piano, numbered drum pads and guitar DI/Mic share one instrument without merging repeated stereo performers',()=>{
+  const rows=Importer.parseText('1 Piano 1 L\n2 Piano 1 R\n3 Piano 1 Buca\n4 Piano 2 L\n5 Piano 2 R\n6 Drum pad 1 L\n7 Drum pad 1 R\n8 Drum pad 2 L\n9 Drum pad 2 R\n10 Guitar DI\n11 Guitar Mic\n12 Keys L\n13 Keys R\n14 Keys L\n15 Keys R').rows;
+  assert.equal(new Set(rows.slice(0,3).map(row=>row.instrumentKey)).size,1);
+  assert.equal(rows[3].instrumentKey,rows[4].instrumentKey);assert.notEqual(rows[0].instrumentKey,rows[3].instrumentKey);
+  assert.equal(rows[5].instrumentKey,rows[6].instrumentKey);assert.equal(rows[7].instrumentKey,rows[8].instrumentKey);assert.notEqual(rows[5].instrumentKey,rows[7].instrumentKey);
+  assert.equal(rows[9].instrumentKey,rows[10].instrumentKey);
+  assert.equal(rows[11].instrumentKey,rows[12].instrumentKey);assert.equal(rows[13].instrumentKey,rows[14].instrumentKey);assert.notEqual(rows[11].instrumentKey,rows[13].instrumentKey);
+  assert.equal(rows[11].instrumentName,'Keys 1');assert.equal(rows[13].instrumentName,'Keys 2');
+});
+
 test('public import API prepares the scene in one transaction and preserves patch, processing and unassigned sends',()=>{
   const f=stateFixture(),before=plain(Model.serialize(f.state)),rows=Importer.parseText('1 New Vocal\n2 New Bass\nAUX 1 Player').rows;
   const result=Importer.applyRows(rows,f.env);assert.equal(result.ok,true);assert.equal(f.transactions,1);

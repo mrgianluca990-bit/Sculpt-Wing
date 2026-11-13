@@ -19,16 +19,19 @@
   const stripMap=state=>new Map(strips(state).map(strip=>[strip.id,strip]));
   function view(state){return state?.values?{inputs:strips(state).filter(s=>['CH','AUX'].includes(s.kind)),outputs:strips(state).filter(s=>!['CH','AUX'].includes(s.kind)),sends:state.sends||{}}:state;}
   function effectiveSend(state,sourceId,targetId){return Model.getSend(view(state),sourceId,targetId);}
-  const defaultSend=primary=>({on:true,level:primary?-5:-8,mode:primary?'PRE':'POST',followMute:true});
+  const defaultSend=(primary,empty=false)=>({on:primary||!empty,level:primary?-5:empty?-90:-8,mode:primary?'PRE':'POST',followMute:true});
+  const primaryFields=['primaryBusId','secondaryPrimaryBusId'];
+  const primaryIds=row=>primaryFields.map(field=>row[field]).filter(Boolean);
+  const groupRows=(draft,row)=>draft.rows.filter(member=>member===row||!!row.instrumentKey&&member.instrumentKey===row.instrumentKey);
   const defaultRemaining=strip=>({targetId:strip.id,initialize:false,name:label(strip.id),color:GRAY,mute:true,level:-90});
   const nameFor=(row,index)=>clean(row.instrumentName||row.originalName||row.name)||'Monitor '+(index+1);
   const instrumentFor=(row,index)=>clean(row.instrumentKey)||'row:'+(row.id||index);
   const unique=values=>[...new Set(values)];
 
   function prepareDraft(parsed,state){
-    const rows=(parsed?.rows||[]).map((row,index)=>({...clone(row),id:clean(row.id)||'channel-list-'+index,instrumentKey:instrumentFor(row,index),instrumentName:nameFor(row,index),mute:true,level:-90,primaryBusId:'',sends:{}}));
+    const rows=(parsed?.rows||[]).map((row,index)=>({...clone(row),id:clean(row.id)||'channel-list-'+index,instrumentKey:instrumentFor(row,index),instrumentName:nameFor(row,index),mute:true,level:-90,primaryBusId:'',secondaryPrimaryBusId:'',sends:{}}));
     const groups=new Map();
-    rows.filter(row=>row.selected).forEach((row,index)=>{if(!groups.has(row.instrumentKey))groups.set(row.instrumentKey,{key:row.instrumentKey,name:nameFor(row,index),color:row.color,rows:[]});groups.get(row.instrumentKey).rows.push(row);});
+    rows.filter(row=>row.selected&&!row.empty).forEach((row,index)=>{if(!groups.has(row.instrumentKey))groups.set(row.instrumentKey,{key:row.instrumentKey,name:nameFor(row,index),color:row.color,rows:rows.filter(member=>member.instrumentKey===row.instrumentKey)});});
     const proposed=Array.isArray(parsed?.monitors)?parsed.monitors:[],monitors=[],used=new Set(),warnings=[...(parsed?.warnings||[])];
     if(proposed.length){
       for(const [index,monitor]of proposed.entries()){
@@ -43,7 +46,7 @@
         const matches=monitors.filter(m=>(m.instrumentKey&&m.instrumentKey===group.key)||(row.monitorNumber!==undefined&&(String(m.number??m.sourceNumber)===String(row.monitorNumber)||m.sourceNumbers?.map(String).includes(String(row.monitorNumber))))||(row.monitorName&&instrumentLabel(m.originalName||m.name)===instrumentLabel(row.monitorName))||(Array.isArray(m.channelNumbers)&&group.rows.some(r=>m.channelNumbers.map(String).includes(String(r.sourceNumber))))||[m.instrumentName,m.originalName,m.name].some(name=>name&&instrumentLabel(name)===instrumentLabel(group.name)));
         const monitor=matches.length===1?matches[0]:null;
         if(monitor){for(const member of group.rows)member.primaryBusId=monitor.busId;if(monitor.color===GRAY&&/^#[0-9a-f]{6}$/i.test(group.color||''))monitor.color=group.color;}
-        else warnings.push('Il PDF non indica un monitor univoco per '+group.name+': l’abbinamento richiede una scelta manuale.');
+        else warnings.push('Il PDF non indica un monitor univoco per '+group.name+': puoi scegliere fino a due principali oppure lasciare Nessuno.');
       });
     }else{
       for(const [index,group]of [...groups.values()].entries()){
@@ -52,7 +55,7 @@
         monitors.push({id:'monitor-'+(index+1),busId:target,name:group.name.slice(0,MAX_NAME),color:/^#[0-9a-f]{6}$/i.test(group.color||'')?group.color:GRAY,applyIdentity:true});
         for(const row of group.rows)row.primaryBusId=target;
       }
-      if(groups.size>16)warnings.push('Sono stati riconosciuti più di 16 strumenti: assegna manualmente i bus principali condivisi.');
+      if(groups.size>16)warnings.push('Sono stati riconosciuti più di 16 strumenti: puoi condividere i BUS disponibili o lasciare Nessuno come principale.');
     }
     const draft={rows,monitors,remainingMode:'keep',remaining:[],warnings:unique(warnings)};
     syncDraft(draft,state);return draft;
@@ -68,11 +71,13 @@
       if(row.instrumentName===undefined)row.instrumentName=nameFor(row,index);
       if(row.mute===undefined)row.mute=true;
       if(row.level===undefined)row.level=-90;
-      if(row.primaryBusId===undefined)row.primaryBusId='';
-      if(row.primaryBusId&&!buses.has(row.primaryBusId))row.primaryBusId='';
+      for(const field of primaryFields){
+        if(row[field]===undefined)row[field]='';
+        if(row[field]&&!buses.has(row[field]))row[field]='';
+      }
       if(!row.sends||typeof row.sends!=='object'||Array.isArray(row.sends))row.sends={};
       for(const target of Object.keys(row.sends))if(!buses.has(target))delete row.sends[target];
-      for(const target of buses){if(!own(row.sends,target))row.sends[target]=defaultSend(target===row.primaryBusId);else if(row.sends[target]&&row.sends[target].followMute===undefined)row.sends[target].followMute=true;}
+      for(const target of buses){if(!own(row.sends,target))row.sends[target]=defaultSend(primaryIds(row).includes(target),row.empty);else if(row.sends[target]&&row.sends[target].followMute===undefined)row.sends[target].followMute=true;}
     }
     const old=new Map((draft.remaining||[]).map(row=>[row.targetId,row])),imported=new Set(draft.rows.filter(row=>row.selected&&inputId(row.targetId)).map(row=>row.targetId));
     draft.remaining=strips(state).filter(strip=>inputId(strip.id)&&['CH','AUX'].includes(strip.kind)&&!imported.has(strip.id)).map(strip=>old.get(strip.id)||{...defaultRemaining(strip),initialize:draft.remainingMode==='initialize'});
@@ -81,16 +86,91 @@
     return draft;
   }
 
-  function setPrimary(draft,rowId,target){
+  function instrumentGroups(draft){
+    const groups=new Map();
+    for(const [index,row]of (draft.rows||[]).entries()){
+      const key=instrumentFor(row,index);
+      if(!groups.has(key))groups.set(key,{key,name:nameFor(row,index),rows:[],selectedRows:[]});
+      const group=groups.get(key);group.rows.push(row);if(row.selected)group.selectedRows.push(row);
+    }
+    return [...groups.values()];
+  }
+
+  // Linking belongs to the proposal only. It never creates a physical/stereo link.
+  // Reassigning a role updates its level/timing while preserving other sends.
+  function assignPrimaries(row,first,second){
+    const before=new Set(primaryIds(row)),after=new Set([first,second].filter(Boolean));
+    const changed=row.primaryBusId!==first||row.secondaryPrimaryBusId!==second;
+    row.sends=row.sends||{};
+    for(const previous of before)if(!after.has(previous)&&row.sends[previous])Object.assign(row.sends[previous],{level:row.empty?-90:-8,mode:'POST',...(row.empty?{on:false}:{})});
+    row.primaryBusId=first;row.secondaryPrimaryBusId=second;
+    for(const target of after)if(!before.has(target))row.sends[target]={...defaultSend(true),...(row.sends[target]||{}),on:true,level:-5,mode:'PRE'};
+    return changed;
+  }
+
+  function setPrimary(draft,rowId,target,slot=1){
+    const row=draft.rows?.find(item=>item.id===rowId),field=slot===1?'primaryBusId':slot===2?'secondaryPrimaryBusId':'';
+    if(!row)return {ok:false,message:'Riga non disponibile.'};
+    if(!field)return {ok:false,message:'Scegli il primo o il secondo monitor principale.'};
+    if(typeof target!=='string'||target&&(!busId(target)||!draft.monitors?.some(m=>m.busId===target)))return {ok:false,message:'Scegli uno dei monitor assegnati oppure Nessuno.'};
+    const members=groupRows(draft,row),otherField=slot===1?'secondaryPrimaryBusId':'primaryBusId';
+    if(target&&members.some(member=>member[otherField]===target))return {ok:false,message:'I due monitor principali devono usare BUS diversi.'};
+    let changed=false;
+    for(const member of members)changed=assignPrimaries(member,slot===1?target:member.primaryBusId||'',slot===2?target:member.secondaryPrimaryBusId||'')||changed;
+    return {ok:true,changed,count:members.length};
+  }
+
+  function setInstrumentName(draft,rowId,name){
     const row=draft.rows?.find(item=>item.id===rowId);
     if(!row)return {ok:false,message:'Riga non disponibile.'};
-    if(target&&!draft.monitors?.some(m=>m.busId===target))return {ok:false,message:'Scegli uno dei monitor assegnati.'};
-    const previous=row.primaryBusId;if(previous===target)return {ok:true,changed:false};
-    row.sends=row.sends||{};
-    if(previous&&row.sends[previous])Object.assign(row.sends[previous],{level:-8,mode:'POST'});
-    row.primaryBusId=target;
-    if(target)row.sends[target]={...defaultSend(true),...(row.sends[target]||{}),level:-5,mode:'PRE'};
+    const value=clean(name).slice(0,60),members=groupRows(draft,row);
+    for(const member of members)member.instrumentName=value;
+    return {ok:true,count:members.length};
+  }
+
+  function setInstrument(draft,rowId,key){
+    const row=draft.rows?.find(item=>item.id===rowId);
+    if(!row)return {ok:false,message:'Riga non disponibile.'};
+    if(typeof key!=='string')return {ok:false,message:'Scegli uno strumento disponibile oppure Indipendente.'};
+    if(key===row.instrumentKey)return {ok:true,changed:false};
+    if(!key){
+      const base='row:'+row.id,keys=new Set(draft.rows.filter(member=>member!==row).map(member=>member.instrumentKey));
+      let independent=base,index=2;while(keys.has(independent))independent=base+':'+index++;
+      row.instrumentKey=independent;
+      row.instrumentName=clean(row.originalName||row.name)||'Canale vuoto';
+      return {ok:true,changed:true};
+    }
+    const leader=draft.rows.find(member=>member!==row&&member.instrumentKey===key);
+    if(!leader)return {ok:false,message:'Lo strumento scelto non è più disponibile.'};
+    const first=leader.primaryBusId||'',second=leader.secondaryPrimaryBusId||'';
+    if(first&&first===second)return {ok:false,message:'I due monitor principali devono usare BUS diversi.'};
+    row.instrumentKey=key;row.instrumentName=leader.instrumentName;
+    assignPrimaries(row,first,second);
     return {ok:true,changed:true};
+  }
+
+  function patchInstrumentSend(draft,rowId,target,patch){
+    const row=draft.rows?.find(item=>item.id===rowId);
+    if(!row)return {ok:false,message:'Riga non disponibile.'};
+    if(!busId(target)||!draft.monitors?.some(m=>m.busId===target))return {ok:false,message:'Scegli uno dei monitor assegnati.'};
+    if(!patch||typeof patch!=='object'||Array.isArray(patch)||Object.keys(patch).some(field=>!['on','level','mode','followMute'].includes(field)))return {ok:false,message:'La proposta di mandata contiene un campo non modificabile.'};
+    // Invalid values may exist while a field is being edited. Validation blocks
+    // Apply until corrected; retain NaN rather than silently keeping old values.
+    const members=groupRows(draft,row);
+    for(const member of members){member.sends=member.sends||{};member.sends[target]={...defaultSend(primaryIds(member).includes(target),member.empty),...(member.sends[target]||{}),...patch};}
+    return {ok:true,count:members.length};
+  }
+
+  function addEmptyRow(draft,state){
+    if(!draft||!Array.isArray(draft.rows))return {ok:false,message:'L’anteprima non è disponibile.'};
+    if(draft.rows.length>=500)return {ok:false,message:'La lista ha già 500 righe.'};
+    const occupied=new Set(draft.rows.map(row=>row.targetId)),available=stripMap(state);
+    const target=[...Array.from({length:40},(_,i)=>'ch-'+(i+1)),...Array.from({length:8},(_,i)=>'aux-'+(i+1))].find(id=>!occupied.has(id)&&['CH','AUX'].includes(available.get(id)?.kind));
+    if(!target)return {ok:false,message:'Non ci sono ingressi liberi nell’anteprima: sono già assegnati CH 1–40 e AUX 1–8.'};
+    let index=1,id;do{id='empty-channel-'+index++;}while(draft.rows.some(row=>row.id===id));
+    const row={id,sourceNumber:'—',pageNumber:0,originalName:'',name:label(target),targetId:target,color:GRAY,family:'Canale vuoto',notes:[],selected:true,empty:true,instrumentKey:'row:'+id,instrumentName:'Canale vuoto',mute:true,level:-90,primaryBusId:'',secondaryPrimaryBusId:'',sends:{}};
+    draft.rows.push(row);syncDraft(draft,state);
+    return {ok:true,row};
   }
 
   function setMonitorBus(draft,monitorId,target){
@@ -101,10 +181,10 @@
     const previous=monitor.busId;if(previous===target)return {ok:true,changed:false};
     monitor.busId=target;
     for(const row of draft.rows||[]){
-      if(row.primaryBusId===previous)row.primaryBusId=target;
+      for(const field of primaryFields)if(row[field]===previous)row[field]=target;
       row.sends=row.sends||{};
       if(own(row.sends,previous)){row.sends[target]=row.sends[previous];delete row.sends[previous];}
-      else row.sends[target]=defaultSend(row.primaryBusId===target);
+      else row.sends[target]=defaultSend(primaryIds(row).includes(target),row.empty);
     }
     return {ok:true,changed:true};
   }
@@ -138,7 +218,8 @@
       if(used.has(row.targetId)){const message=label(row.targetId)+' è assegnato a più righe.';add(rowErrors,row.id,message);add(rowErrors,used.get(row.targetId),message);}else used.set(row.targetId,row.id);
       identity(row,rowErrors,row.id);level(row.level,rowErrors,row.id,'Fader');
       if(typeof row.mute!=='boolean')add(rowErrors,row.id,'Scegli lo stato mute del canale.');
-      if(!busId(row.primaryBusId)||!buses.has(row.primaryBusId))add(rowErrors,row.id,'Assegna il monitor principale di '+clean(row.instrumentName||row.name||label(row.targetId))+' tra i BUS selezionati oppure aggiungi un monitor.');
+      for(const field of primaryFields){const target=row[field]??'';if(typeof target!=='string'||target&&(!busId(target)||!buses.has(target)))add(rowErrors,row.id,'Scegli il '+(field==='primaryBusId'?'primo':'secondo')+' monitor principale tra i BUS selezionati oppure Nessuno.');}
+      if(row.primaryBusId&&row.primaryBusId===row.secondaryPrimaryBusId)add(rowErrors,row.id,'I due monitor principali devono usare BUS diversi.');
       for(const monitor of monitors){
         const send=row.sends?.[monitor.busId];
         if(!send||typeof send!=='object'){add(rowErrors,row.id,'Manca la proposta di mandata verso '+label(monitor.busId)+'.');continue;}
@@ -267,6 +348,6 @@
     },'channel-list-undo');
     return accepted!==false&&restored?{ok:true,message:'Importazione annullata. Ripristinati solo i valori modificati; routing conservato.'}:{ok:false,message:conflict?'Alcuni valori sono cambiati dopo l’importazione: annullamento non applicato.':'Il progetto non è più disponibile offline.'};
   }
-  const API={prepareDraft,syncDraft,setPrimary,setMonitorBus,changeRemainingMode,validateDraft,planDraft,applyDraft,undoDraft};
+  const API={prepareDraft,syncDraft,instrumentGroups,setPrimary,setInstrument,setInstrumentName,patchInstrumentSend,addEmptyRow,setMonitorBus,changeRemainingMode,validateDraft,planDraft,applyDraft,undoDraft};
   if(typeof module!=='undefined'&&module.exports)module.exports=API;else root.SculptChannelScene=API;
 })(typeof window!=='undefined'?window:globalThis);

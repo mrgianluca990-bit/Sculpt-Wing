@@ -56,3 +56,15 @@ Per gli ingressi rimanenti, la scelta iniziale è conservarli. L’opzione di in
 Il PDF Producer attuale non stampa gli identificativi degli strumenti né un’associazione esplicita tra ingressi e monitor. Il riconoscimento dai nomi deve restare una proposta; gli abbinamenti non univoci richiedono una scelta nell’anteprima. I numeri AUX del PDF e le coppie L/R non autorizzano modifiche al patch o alla modalità stereo dei BUS. Conservarne la provenienza visibile per il controllo dell’utente.
 
 L’applicazione deve essere atomica e limitata al progetto offline, con annullamento selettivo e controllo dei conflitti. Nessun dato della preview deve modificare il mixer prima di Applica scena. La funzione non genera uno snapshot nativo WING e non autorizza una nuova procedura di scrittura massiva live. Conservare le funzionalità della 0.6.2 e le correzioni a gesti, fader e Custom Layer della 0.6.1; le macro restano fuori da questa modifica.
+
+## Aggiornamento 0.6.4 — strumenti collegati ed editor nella riga opposta
+
+Le nuove istruzioni rendono il monitor principale **facoltativo**: ogni strumento può avere zero, una o due mandate principali. La seconda serve, per esempio, a un musicista con monitor da palco e IEM. Entrambe le principali partono da **−5 dB PRE**; le altre mandate ai monitor assegnati partono da **−8 dB POST**. I valori restano modificabili. Un BUS non può occupare contemporaneamente entrambi gli slot principali dello stesso strumento.
+
+I canali dello stesso strumento sono collegati nell’anteprima: la scelta delle mandate principali va applicata una volta al gruppo. Il riconoscimento dai nomi resta correggibile; l’utente può associare un canale a un altro strumento o renderlo indipendente. Deve restare possibile correggere le singole mandate senza perdere i valori delle altre. Questo collegamento riguarda la preparazione della scena e non modifica link stereo, routing o patch del banco.
+
+**Aggiungi canale vuoto** deve essere disponibile anche senza PDF e preparare un ingresso libero con nome standard modificabile, colore grigio, mute attivo, fader a −∞, nessun principale e mandate monitor inizialmente disattivate a −∞. La destinazione resta modificabile; non spostare automaticamente il patch degli altri canali. Se non ci sono ingressi liberi, mostrare una spiegazione senza duplicare una destinazione.
+
+L’editor di una strip si apre nella **riga opposta a quella da cui è stato richiamato**, lasciando accessibili i fader della riga sorgente. Usare l’effettiva posizione nel mixer anche nel Custom Layer: un ingresso nella riga superiore apre l’editor in basso, un’uscita nella riga inferiore lo apre in alto. Conservare gesti del mixer, mandate verticali, sei sezioni dell’editor, rinomina, chiusura da tastiera e verifiche della sessione live.
+
+La versione conserva il workflow M1 corretto, già riuscito nel run GitHub `43496123183` sul commit `bd89e3dbe9a331d29aecfb6746f299ff82fee9df`: runner Mac Intel e target esplicito ARM64 con verifica dell’eseguibile e della firma. Questo successo riguarda la 0.6.3; la nuova 0.6.4 richiede la propria compilazione e prova sul Mac M1.

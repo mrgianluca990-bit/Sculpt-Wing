@@ -117,17 +117,17 @@ test('monitor bus reassignment migrates edited sends and shared primaries; add/r
   assert.equal(Scene.setMonitorBus(draft,first.id,'bus-8').ok,true);assert.equal(row.primaryBusId,'bus-8');assert.equal(draft.rows[1].primaryBusId,'bus-8');assert.equal(row.sends['bus-8'].level,-3.3);assert(!row.sends['bus-1']);
   assert.equal(Scene.setMonitorBus(draft,first.id,'bus-2').ok,false);assert.equal(first.busId,'bus-8');
   draft.monitors.push({id:'extra',busId:'bus-10',name:'Guest',color:'#ff7679',applyIdentity:true});Scene.syncDraft(draft,f.state);assert.equal(row.sends['bus-2'].level,-11);assert.deepEqual(row.sends['bus-10'],{on:true,level:-8,mode:'POST',followMute:true});
-  draft.monitors=draft.monitors.filter(m=>m!==first);Scene.syncDraft(draft,f.state);assert.equal(row.primaryBusId,'');assert(!row.sends['bus-8']);assert.equal(row.sends['bus-2'].level,-11);assert.equal(Scene.validateDraft(draft,f.state).ok,false);
+  draft.monitors=draft.monitors.filter(m=>m!==first);Scene.syncDraft(draft,f.state);assert.equal(row.primaryBusId,'');assert(!row.sends['bus-8']);assert.equal(row.sends['bus-2'].level,-11);assert.equal(Scene.validateDraft(draft,f.state).ok,true);
 });
 
 test('validation blocks duplicate targets, bus collisions, bad levels and malformed preview fields before a single write',()=>{
-  const mutations=[d=>{d.rows[1].targetId=d.rows[0].targetId;},d=>{d.monitors[1].busId=d.monitors[0].busId;},d=>{d.rows[0].targetId='main-1';},d=>{d.rows[0].name='';},d=>{d.rows[0].color='red';},d=>{d.rows[0].level=Infinity;},d=>{d.rows[0].mute='true';},d=>{d.rows[0].sends['bus-1'].level=11;},d=>{d.rows[0].sends['bus-1'].mode='GRP';},d=>{d.rows[0].sends['bus-1'].followMute='yes';},d=>{d.rows[0].primaryBusId='bus-16';},d=>{d.monitors[0].name='This name is much too long';},d=>{d.remainingMode='erase';}];
+  const mutations=[d=>{d.rows[1].targetId=d.rows[0].targetId;},d=>{d.monitors[1].busId=d.monitors[0].busId;},d=>{d.rows[0].targetId='main-1';},d=>{d.rows[0].name='';},d=>{d.rows[0].color='red';},d=>{d.rows[0].level=Infinity;},d=>{d.rows[0].mute='true';},d=>{d.rows[0].sends['bus-1'].level=11;},d=>{d.rows[0].sends['bus-1'].mode='GRP';},d=>{d.rows[0].sends['bus-1'].followMute='yes';},d=>{d.rows[0].primaryBusId='bus-16';},d=>{d.rows[0].secondaryPrimaryBusId='bus-16';},d=>{d.rows[0].secondaryPrimaryBusId=d.rows[0].primaryBusId;},d=>{d.rows[0].secondaryPrimaryBusId=false;},d=>{d.monitors[0].name='This name is much too long';},d=>{d.remainingMode='erase';}];
   for(const mutate of mutations){const f=fixture(),before=clone(f.state),draft=Scene.prepareDraft(parsed(),f.state);mutate(draft);assert.equal(Scene.applyDraft(draft,f.env).ok,false);assert.equal(f.transactions,0);assert.deepEqual(f.state,before);}
 });
 
-test('more than sixteen independent instruments requires explicit shared monitor assignment',()=>{
+test('more than sixteen independent instruments can leave a principal unassigned or share one explicitly',()=>{
   const f=fixture(),list={rows:Array.from({length:17},(_,i)=>({id:'row-'+i,targetId:'ch-'+(i+1),name:'Inst '+(i+1),originalName:'Inst '+(i+1),color:'#89949c',selected:true,instrumentKey:'inst-'+i,instrumentName:'Inst '+(i+1)}))},draft=Scene.prepareDraft(list,f.state);
-  assert.equal(draft.monitors.length,16);assert.equal(draft.rows[16].primaryBusId,'');assert.equal(Scene.validateDraft(draft,f.state).ok,false);
+  assert.equal(draft.monitors.length,16);assert.equal(draft.rows[16].primaryBusId,'');assert.equal(Scene.validateDraft(draft,f.state).ok,true);
   Scene.setPrimary(draft,draft.rows[16].id,'bus-1');assert.equal(Scene.validateDraft(draft,f.state).ok,true);
 });
 
@@ -139,9 +139,9 @@ test('PDF monitor metadata proposes identities without interpreting AUX output n
 
 test('PDF monitor ownership must match unambiguously; unmatched rows never inherit output-list order',()=>{
   const f=fixture(),list=parsed();list.monitors=[{name:'IEM Keys',originalName:'IEM Keys',sourceNumbers:['AUX 9','AUX 10'],format:'L/R'},{name:'Monitor Drums',instrumentName:'Drums',sourceNumbers:['AUX 1'],format:'Mono'}];
-  const draft=Scene.prepareDraft(list,f.state);assert.equal(draft.rows[0].primaryBusId,'bus-2');assert.equal(draft.rows[1].primaryBusId,'bus-2');assert.equal(draft.rows[2].primaryBusId,'');assert.equal(draft.rows[3].primaryBusId,'');assert.equal(Scene.validateDraft(draft,f.state).ok,false);
+  const draft=Scene.prepareDraft(list,f.state);assert.equal(draft.rows[0].primaryBusId,'bus-2');assert.equal(draft.rows[1].primaryBusId,'bus-2');assert.equal(draft.rows[2].primaryBusId,'');assert.equal(draft.rows[3].primaryBusId,'');assert.equal(Scene.validateDraft(draft,f.state).ok,true);
   assert.equal(draft.rows[2].sends['bus-1'].level,-8);assert.equal(draft.rows[2].sends['bus-2'].mode,'POST');
-  list.monitors.push({name:'Wedge Batteria',instrumentName:'Batteria',sourceNumbers:['AUX 8'],format:'Mono'});const ambiguous=Scene.prepareDraft(list,f.state);assert.equal(ambiguous.rows[0].primaryBusId,'');assert.equal(Scene.validateDraft(ambiguous,f.state).ok,false);
+  list.monitors.push({name:'Wedge Batteria',instrumentName:'Batteria',sourceNumbers:['AUX 8'],format:'Mono'});const ambiguous=Scene.prepareDraft(list,f.state);assert.equal(ambiguous.rows[0].primaryBusId,'');assert.equal(Scene.validateDraft(ambiguous,f.state).ok,true);
 });
 
 test('an existing post-fader shared tap prevents false PRE promises and is never rewritten',()=>{
@@ -197,4 +197,100 @@ test('malformed undo tokens reject atomically before restoring any otherwise val
   for(const corrupt of [tokens=>{delete tokens.at(-1).before;},tokens=>{tokens.push({kind:'send',sourceId:'ch-1',targetId:'bus-1',key:'ch-1>bus-1',fields:['level']});},tokens=>{tokens[0].after.source='A:1';}]){
     const f=fixture(),result=Scene.applyDraft(Scene.prepareDraft(parsed(),f.state),f.env),before=clone(f.state),tokens=clone(result.undo);corrupt(tokens);assert.equal(Scene.undoDraft(tokens,f.env).ok,false);assert.deepEqual(f.state,before);
   }
+});
+
+test('both principal slots are optional, including a complete import with no monitor buses',()=>{
+  const f=fixture(),before=clone(f.state),draft=Scene.prepareDraft(parsed(),f.state);
+  for(const group of Scene.instrumentGroups(draft))assert.equal(Scene.setPrimary(draft,group.rows[0].id,'').ok,true);
+  assert(draft.rows.every(row=>row.primaryBusId===''&&row.secondaryPrimaryBusId===''));
+  assert.equal(Scene.validateDraft(draft,f.state).ok,true);
+  for(const row of draft.rows)for(const send of Object.values(row.sends)){assert.equal(send.mode,'POST');assert.equal(send.level,-8);}
+  draft.monitors=[];Scene.syncDraft(draft,f.state);
+  const result=Scene.applyDraft(draft,f.env);assert.equal(result.ok,true);assert.equal(result.sendCount,0);
+  assert.deepEqual(f.state.sends,before.sends);assert.deepEqual(f.state.desk,before.desk);
+  assert.equal(Scene.undoDraft(result.undo,f.env).ok,true);assert.deepEqual(f.state,before);
+});
+
+test('a musician can have two linked principal monitors and either slot can remain empty',()=>{
+  const f=fixture(),before=clone(f.state),draft=Scene.prepareDraft(parsed(),f.state),drums=draft.rows.slice(0,2);
+  drums[1].sends['bus-3'].level=-12.3;
+  assert.equal(Scene.setPrimary(draft,'kick','bus-2',2).ok,true);
+  for(const row of drums){assert.equal(row.primaryBusId,'bus-1');assert.equal(row.secondaryPrimaryBusId,'bus-2');for(const bus of ['bus-1','bus-2'])assert.deepEqual(row.sends[bus],{on:true,level:-5,mode:'PRE',followMute:true});}
+  assert.equal(drums[1].sends['bus-3'].level,-12.3,'an individual unrelated send is retained');
+  assert.equal(draft.rows[2].secondaryPrimaryBusId,'','another musician is not changed');
+  const result=Scene.applyDraft(draft,f.env);assert.equal(result.ok,true);assertOnlyAllowedChanges(before,f.state,draft);
+  for(const source of ['ch-1','ch-2'])for(const bus of ['bus-1','bus-2']){const send=Model.getSend(f.state,source,bus);assert.equal(send.level,-5);assert.equal(send.mode,'PRE');}
+  assert.equal(Scene.undoDraft(result.undo,f.env).ok,true);assert.deepEqual(f.state,before);
+  assert.equal(Scene.setPrimary(draft,'snare','',1).ok,true);
+  for(const row of drums){assert.equal(row.primaryBusId,'');assert.equal(row.secondaryPrimaryBusId,'bus-2');assert.equal(row.sends['bus-1'].level,-8);assert.equal(row.sends['bus-1'].mode,'POST');assert.equal(row.sends['bus-2'].level,-5);}
+  assert.equal(Scene.validateDraft(draft,f.state).ok,true);
+});
+
+test('principal edits propagate to an excluded linked channel and reject duplicate slots without partial edits',()=>{
+  const f=fixture(),draft=Scene.prepareDraft(parsed(),f.state);draft.rows[1].selected=false;
+  assert.equal(Scene.setPrimary(draft,'kick','bus-2',2).ok,true);assert.equal(draft.rows[1].secondaryPrimaryBusId,'bus-2');
+  for(const [target,slot]of [['bus-2',1],['bus-1',2],['bus-2',3],['bus-16',2],[false,2]]){
+    const before=clone(draft);assert.equal(Scene.setPrimary(draft,'kick',target,slot).ok,false);assert.deepEqual(draft,before);
+  }
+  draft.rows[1].selected=true;Scene.syncDraft(draft,f.state);assert.equal(Scene.validateDraft(draft,f.state).ok,true);
+});
+
+test('monitor remapping and removal preserve both principal slots and edited send values',()=>{
+  const f=fixture(),draft=Scene.prepareDraft(parsed(),f.state),row=draft.rows[0],monitor=draft.monitors[1];
+  Scene.setPrimary(draft,row.id,'bus-2',2);row.sends['bus-2'].level=-2.7;row.sends['bus-2'].followMute=false;
+  assert.equal(Scene.setMonitorBus(draft,monitor.id,'bus-11').ok,true);
+  assert.equal(row.secondaryPrimaryBusId,'bus-11');assert.equal(draft.rows[1].secondaryPrimaryBusId,'bus-11');
+  assert.equal(row.sends['bus-11'].level,-2.7);assert.equal(row.sends['bus-11'].followMute,false);assert(!row.sends['bus-2']);
+  draft.monitors=draft.monitors.filter(item=>item!==monitor);Scene.syncDraft(draft,f.state);
+  assert.equal(row.secondaryPrimaryBusId,'');assert.equal(row.primaryBusId,'bus-1');assert(!row.sends['bus-11']);assert.equal(Scene.validateDraft(draft,f.state).ok,true);
+});
+
+test('instrument membership and names can be corrected without any physical link or project mutation',()=>{
+  const f=fixture(),before=clone(f.state),draft=Scene.prepareDraft(parsed(),f.state),bass=draft.rows[2],kick=draft.rows[0];
+  assert.equal(Scene.instrumentGroups(draft).length,4);assert.equal(Scene.instrumentGroups(draft)[0].selectedRows.length,2);
+  Scene.setPrimary(draft,bass.id,'bus-3',2);kick.sends['bus-4'].level=-14;
+  assert.equal(Scene.setInstrument(draft,kick.id,bass.instrumentKey).ok,true);
+  assert.equal(kick.instrumentKey,bass.instrumentKey);assert.equal(kick.instrumentName,bass.instrumentName);
+  assert.equal(kick.primaryBusId,'bus-2');assert.equal(kick.secondaryPrimaryBusId,'bus-3');assert.equal(kick.sends['bus-4'].level,-14);
+  Scene.setInstrumentName(draft,bass.id,'Musicista ospite');assert.equal(kick.instrumentName,'Musicista ospite');assert.equal(bass.instrumentName,'Musicista ospite');
+  const sends=clone(kick.sends),previousKey=kick.instrumentKey;
+  assert.equal(Scene.setInstrument(draft,kick.id,'').ok,true);assert.notEqual(kick.instrumentKey,previousKey);assert.deepEqual(kick.sends,sends);
+  Scene.setPrimary(draft,bass.id,'bus-4',2);assert.equal(kick.secondaryPrimaryBusId,'bus-3');
+  const unchanged=clone(draft);assert.equal(Scene.setInstrument(draft,kick.id,'missing-group').ok,false);assert.deepEqual(draft,unchanged);
+  assert.deepEqual(f.state,before,'group corrections exist only in the preview');
+});
+
+test('group send edits affect only the selected fields, permit individual overrides and block invalid drafts',()=>{
+  const f=fixture(),before=clone(f.state),draft=Scene.prepareDraft(parsed(),f.state);draft.rows[1].sends['bus-3'].on=false;
+  assert.equal(Scene.patchInstrumentSend(draft,'kick','bus-3',{level:-11.6,mode:'PRE'}).ok,true);
+  for(const row of draft.rows.slice(0,2)){assert.equal(row.sends['bus-3'].level,-11.6);assert.equal(row.sends['bus-3'].mode,'PRE');}
+  assert.equal(draft.rows[1].sends['bus-3'].on,false);assert.equal(draft.rows[2].sends['bus-3'].level,-8);
+  draft.rows[1].sends['bus-3'].level=-17;assert.equal(draft.rows[0].sends['bus-3'].level,-11.6);
+  assert.equal(Scene.patchInstrumentSend(draft,'kick','bus-3',{level:NaN}).ok,true);
+  assert(draft.rows.slice(0,2).every(row=>Number.isNaN(row.sends['bus-3'].level)));
+  assert.equal(Scene.applyDraft(draft,f.env).ok,false);assert.equal(f.transactions,0);assert.deepEqual(f.state,before);
+  Scene.patchInstrumentSend(draft,'kick','bus-3',{level:-8});const unchanged=clone(draft);
+  assert.equal(Scene.patchInstrumentSend(draft,'kick','bus-3',{source:'A:1'}).ok,false);assert.deepEqual(draft,unchanged);
+  assert.equal(Scene.patchInstrumentSend(draft,'kick','bus-16',{on:true}).ok,false);assert.deepEqual(draft,unchanged);
+});
+
+test('blank channels reserve a free input silently, require no monitor and can be applied and undone',()=>{
+  const f=fixture(),before=clone(f.state),draft=Scene.prepareDraft({rows:[]},f.state),result=Scene.addEmptyRow(draft,f.state);
+  assert.equal(result.ok,true);const row=result.row;assert.equal(row.targetId,'ch-1');assert.equal(row.name,'CH 1');assert.equal(row.selected,true);assert.equal(row.color,'#89949c');assert.equal(row.mute,true);assert.equal(row.level,-90);
+  assert.equal(row.primaryBusId,'');assert.equal(row.secondaryPrimaryBusId,'');assert.equal(draft.monitors.length,0);assert.deepEqual(row.sends,{});
+  assert(!draft.remaining.some(item=>item.targetId==='ch-1'));assert.deepEqual(f.state,before);
+  const applied=Scene.applyDraft(draft,f.env);assert.equal(applied.ok,true);assert.equal(applied.sendCount,0);assertOnlyAllowedChanges(before,f.state,draft);
+  assert.equal(Scene.undoDraft(applied.undo,f.env).ok,true);assert.deepEqual(f.state,before);
+});
+
+test('blank rows keep assigned monitor sends off, remain editable and stop cleanly when input capacity is exhausted',()=>{
+  const f=fixture(),draft=Scene.prepareDraft(parsed(),f.state),row=Scene.addEmptyRow(draft,f.state).row;
+  assert.equal(row.targetId,'ch-5');for(const send of Object.values(row.sends))assert.deepEqual(send,{on:false,level:-90,mode:'POST',followMute:true});
+  draft.monitors.push({id:'new',busId:'bus-12',name:'Extra',color:'#89949c'});Scene.syncDraft(draft,f.state);assert.equal(row.sends['bus-12'].on,false);
+  row.name='Ospite';row.color='#0089ff';Scene.setPrimary(draft,row.id,'bus-12',2);
+  assert.equal(row.sends['bus-12'].on,true);assert.equal(row.sends['bus-12'].level,-5);assert.equal(row.sends['bus-12'].mode,'PRE');
+  assert.equal(Scene.validateDraft(draft,f.state).ok,true);
+  while(Scene.addEmptyRow(draft,f.state).ok){}
+  assert.equal(draft.rows.length,48);assert.equal(new Set(draft.rows.map(item=>item.targetId)).size,48);assert.equal(draft.rows.at(-1).targetId,'aux-8');
+  const unchanged=clone(draft);assert.equal(Scene.addEmptyRow(draft,f.state).ok,false);assert.deepEqual(draft,unchanged);
 });

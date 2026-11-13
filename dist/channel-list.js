@@ -104,14 +104,28 @@
       if(row.instrumentKey){continue;}
       if(suffix){key='named:'+folded(suffix[2]);label=clean(suffix[2]);}
       else if(row.pairKey){key='pair:'+row.pairKey;label=row.instrumentName||name.replace(/\s+[LR]$/,'');}
-      else if(/^drum\s*pad\b/i.test(name)){key='instrument:drum pad';label='Drum pad';}
+      else if(/^drum\s*pad\b/i.test(name)){label=clean(stereo?stereo[1]:name);key='parts:'+folded(label);}
       else if(drumPart.test(name)||/^(?:batteria|drums?)$/i.test(row.group)&&row.family==='Batteria'){key='instrument:batteria';label='Batteria';}
-      else if(/^(?:piano|pianoforte)\s+(?:l|r|buca|left|right|sx|dx)$/i.test(name)){key='instrument:piano';label='Piano';}
+      else if(/^(?:piano|pianoforte)(?:\s+\d+)?\s+(?:l|r|buca|left|right|sx|dx)$/i.test(name)){label=name.replace(/\s+(?:l|r|buca|left|right|sx|dx)$/i,'');key='parts:'+folded(label);}
       else if(/^(?:seq\w*|backing tracks?)(?:\s+[lr])?$/i.test(name)||hasSequences&&/^click$/i.test(name)){key='instrument:sequenze';label='Sequenze';}
-      else if(stereo){label=clean(stereo[1]);key='stereo:'+folded(label);}
-      else if(/^(?:bass|basso)\b.*\s+(?:di|mic)$/i.test(name)){label=name.replace(/\s+(?:di|mic)$/i,'');key='bass:'+folded(label);}
+      else if(stereo){label=clean(stereo[1]);key='parts:'+folded(label);}
+      else if(/\s+(?:di|mic)$/i.test(name)&&['Basso','Chitarre'].includes(row.family)){label=name.replace(/\s+(?:di|mic)$/i,'');key='parts:'+folded(label);}
       else{label=name||'Strumento';key='row:'+row.id;}
       row.instrumentKey=key;row.instrumentName=label;
+    }
+    // Repeated anonymous L/R (or DI/Mic) pairs can belong to different players.
+    // Match the first L with the first R, the second L with the second R, etc.
+    // Explicit named descriptors and numbered PDF pairs remain authoritative.
+    const parts=new Map();
+    for(const row of rows)if(row.instrumentKey.startsWith('parts:')){if(!parts.has(row.instrumentKey))parts.set(row.instrumentKey,[]);parts.get(row.instrumentKey).push(row);}
+    for(const [key,members]of parts){
+      const counts=new Map(),occurrences=[];
+      for(const row of members){
+        const raw=/\s+(l|r|left|right|sx|dx|buca|di|mic)$/i.exec(row.originalName)?.[1]?.toLowerCase()||'single';
+        const part=['l','left','sx'].includes(raw)?'L':['r','right','dx'].includes(raw)?'R':raw;
+        const index=(counts.get(part)||0)+1;counts.set(part,index);occurrences.push([row,index]);
+      }
+      if([...counts.values()].some(count=>count>1))for(const [row,index]of occurrences){row.instrumentKey=key+':'+index;row.instrumentName+=' '+index;}
     }
     // Repeated anonymous one-channel names are distinct performers; a colour
     // family is never sufficient evidence that they share one monitor.

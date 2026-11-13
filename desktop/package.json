@@ -1,7 +1,7 @@
 {
   "name": "sculpt-wing-desktop",
   "productName": "Sculpt Wing",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "description": "Sculpt Wing — controller WING per macOS e Windows",
   "private": true,
   "license": "UNLICENSED",

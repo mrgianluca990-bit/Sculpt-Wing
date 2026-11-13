@@ -67,7 +67,7 @@ test('actual Producer channel-list and complete PDFs retain every source, ignore
   }
 });
 
-test('Producer PDF preview requires unmatched monitor review, then applies mute/fader/send defaults and preserves all saved routing',async()=>{
+test('Producer PDF permits optional principals and applies linked monitor choices while preserving all saved routing',async()=>{
   const f=fixture(),before=structuredClone(f.state),beforeSaved=Model.serialize(before),parsed=await parseFixture('producer-complete.pdf'),draft=Scene.prepareDraft(parsed,f.state);
   assert.deepEqual(f.state,before,'reading and preview preparation are side-effect free');
   assert.deepEqual(draft.rows.slice(0,8).map(row=>row.primaryBusId),Array(8).fill('bus-1'));
@@ -75,10 +75,12 @@ test('Producer PDF preview requires unmatched monitor review, then applies mute/
   assert.deepEqual(draft.rows.slice(11,13).map(row=>row.primaryBusId),['bus-3','bus-3']);
   const unmatched=[9,10,13,14,15,16,17,18,19,20];
   assert(unmatched.every(index=>draft.rows[index].primaryBusId===''),'ambiguous or absent associations stay available for explicit review');
-  assert.equal(Scene.applyDraft(draft,f.env).ok,false);assert.equal(f.transactions,0);assert.deepEqual(f.state,before);
+  assert.equal(Scene.validateDraft(draft,f.state).ok,true,'unmatched principal is optional');assert.equal(f.transactions,0);assert.deepEqual(f.state,before);
   // Simulate the user's explicit choices in the editable preview.
   assert.equal(Scene.setMonitorBus(draft,draft.monitors[3].id,'bus-10').ok,true);
-  for(const index of unmatched)assert.equal(Scene.setPrimary(draft,draft.rows[index].id,'bus-10').ok,true);
+  const selectedGroups=new Set();
+  for(const index of unmatched){const row=draft.rows[index];if(selectedGroups.has(row.instrumentKey))continue;selectedGroups.add(row.instrumentKey);assert.equal(Scene.setPrimary(draft,row.id,'bus-10').ok,true);}
+  assert.equal(selectedGroups.size,6,'six instrument choices assign ten related channels');
   assert.equal(Scene.changeRemainingMode(draft,'initialize',f.state).ok,true);
   draft.remaining.find(row=>row.targetId==='ch-22').initialize=false;
   assert.equal(Scene.validateDraft(draft,f.state).ok,true);

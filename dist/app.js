@@ -38,7 +38,7 @@
     const old=stripById(state.selected);state.selected=id;
     if(old)updateStrip(old);updateStrip(strip);updateSelection();if(persist)save();return true;
   }
-  function openEditor(id){select(id);if(window.SculptEditor?.open)window.SculptEditor.open(id);}
+  function openEditor(id,origin){select(id);if(window.SculptEditor?.open)window.SculptEditor.open(id,false,origin);}
   function updateStrip(strip){
     const el=elements.get(strip.id);if(!el)return;
     const view=M.display(state,strip.id),target=view.send?stripById(view.targetId):null;
@@ -101,8 +101,8 @@
       <div class="strip-buttons"><button class="mute-button" type="button" aria-pressed="false">MUTE</button>${strip.kind==='BUS'||strip.kind==='MTX'?'<button class="sof-button" type="button" aria-pressed="false">SOF</button>':''}</div>`;
     const fader=article.querySelector('.fader'),readout=article.querySelector('.level-readout'),mute=article.querySelector('.mute-button'),sof=article.querySelector('.sof-button'),labelButton=article.querySelector('.strip-label');
     elements.set(strip.id,{article,fader,readout,mute,sof,labelButton,number:article.querySelector('.strip-number'),name:article.querySelector('.strip-name'),mode:article.querySelector('.strip-index i'),meters:[...article.querySelectorAll('.meter')],visible:true,index,row});
-    labelButton.addEventListener('click',()=>openEditor(strip.id));
-    article.addEventListener('click',event=>{if(!event.target.closest('button,[role="slider"]'))openEditor(strip.id);});
+    labelButton.addEventListener('click',()=>openEditor(strip.id,labelButton));
+    article.addEventListener('click',event=>{if(!event.target.closest('button,[role="slider"]'))openEditor(strip.id,labelButton);});
     readout.addEventListener('click',()=>openLevel(strip.id));
     mute.addEventListener('click',()=>{const view=M.display(state,strip.id);if(!commit(()=>{if(view.send)M.setSend(state,strip.id,view.targetId,{on:!view.on});else strip.mute=!strip.mute;},view.send?'send':'strip',strip.id))return;select(strip.id);updateStrip(strip);save();emit(view.send?'send':'strip',strip.id);});
     if(sof)sof.addEventListener('click',()=>setSof(state.sof===strip.id?null:strip.id));

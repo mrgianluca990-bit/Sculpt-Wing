@@ -1,73 +1,112 @@
-SCULPT WING 0.6.3 — SCENA DA PDF E MONITOR · MAC M1
+SCULPT WING 0.6.4 — STRUMENTI COLLEGATI E DOPPIO MONITOR · MAC M1
 
-Questo ZIP contiene i sorgenti aggiornati per il repository esistente
-mrgianluca990-bit/Sculpt-Wing. Dopo il caricamento, GitHub Actions crea
-Sculpt Wing.app per Mac Apple Silicon arm64/M1.
+Questo ZIP contiene i file modificati per aggiornare il repository esistente
+mrgianluca990-bit/Sculpt-Wing. Conserva gli altri file già presenti.
+Dopo il caricamento, GitHub Actions prepara Sculpt Wing.app per Mac M1 /
+Apple Silicon arm64. Questa consegna è un aggiornamento dei sorgenti:
+il nuovo binario 0.6.4 deve essere compilato dal workflow del repository.
 
 IMPORTARE IL PDF DI PRODUCER
 1. Apri Menu del banco -> Importa channel list e scegli il PDF.
-2. In CANALI controlla destinazioni, nomi, colori, bus principale, mute e fader.
-3. In MANDATE controlla i monitor assegnati e ogni invio del canale.
+   Puoi anche iniziare senza PDF con Aggiungi canale vuoto.
+2. In CANALI controlla destinazioni, nomi, colori, mute e fader.
+   Le righe sono riunite per strumento: assegna i principali una sola volta
+   nell’intestazione del gruppo. Tutti i suoi canali seguono l’assegnazione.
+3. In MANDATE controlla i monitor assegnati. Scegli Tutto lo strumento per
+   modificare un invio su tutti i canali collegati, oppure Solo questo canale.
 4. In RIMANENTI scegli se conservare gli altri ingressi o inizializzarne
    nome, colore, mute e fader. Puoi escluderli e correggerli singolarmente.
 5. Premi Applica scena. Annulla importazione resta disponibile nello stesso
    dialogo, purché i valori interessati non siano stati modificati dopo.
 
+PRINCIPALI FACOLTATIVI E STRUMENTI COLLEGATI
+Ogni strumento può avere nessuno, uno o due monitor principali: per esempio
+un monitor da palco e un IEM. Principale 1 e Principale 2 accettano Nessuno;
+il secondo può essere assegnato anche lasciando vuoto il primo. I BUS dei
+due principali devono essere diversi.
+
+Strumento collegato permette di unire una riga a un gruppo esistente.
+Rendi indipendente separa quel canale conservandone le proposte attuali.
+I nomi dei singoli ingressi restano modificabili separatamente. Questo
+collegamento nell’anteprima non crea link stereo o modifiche al patch WING.
+
+Il pulsante Mandate del gruppo apre la modifica di tutto lo strumento;
+quello della singola riga apre la modifica individuale. Valori diversi
+segnala le differenze tra i membri. Una modifica di gruppo aggiorna solo
+il parametro scelto: per esempio PRE/POST senza uniformare i livelli.
+Le assegnazioni dei principali restano sempre condivise dal gruppo.
+Vengono applicate soltanto le righe selezionate per l’importazione.
+
 VALORI INIZIALI, TUTTI MODIFICABILI NELL’ANTEPRIMA
 - Canali importati: mute attivo e fader a −∞.
-- Monitor principale: mandata attiva, −5 dB PRE.
-- Tutti gli altri monitor assegnati: mandata attiva, −8 dB POST.
+- Ciascuno dei due principali, se assegnato: mandata attiva, −5 dB PRE.
+- Altri monitor assegnati: mandata attiva, −8 dB POST.
 - Segue mute: attivo.
 - Canali rimanenti: lasciati come sono.
 
-Più canali dello stesso strumento possono condividere un bus principale.
-Sono disponibili 16 BUS; ogni livello e PRE/POST si modifica separatamente.
-Puoi applicare nome e colore anche ai BUS oppure conservarne l’identità.
-I fader, i mute e il routing delle uscite BUS restano conservati.
+CANALI VUOTI
+Aggiungi canale vuoto riserva il primo CH/AUX libero nella proposta.
+La destinazione è modificabile; gli altri canali non vengono spostati.
+La riga è già selezionata: nome CH n/AUX n, grigio, mute attivo, fader −∞,
+nessun principale e mandate ai monitor dell’anteprima disattivate a −∞.
+Puoi modificarla, collegarla a uno strumento, escluderla o rimuoverla.
+Non viene creato un monitor automaticamente per la riga vuota.
+
+Sono disponibili 16 BUS. Puoi applicare nome e colore anche ai BUS oppure
+conservarne l’identità. Fader, mute e routing delle uscite BUS si conservano.
+Rimuovendo tutti i monitor puoi comunque applicare i canali validi: in quel
+caso le mandate esistenti del progetto restano conservate.
 
 La palette richiesta è: batteria rosso, basso verde, chitarre blu,
 tastiere bianco, voci rosa, fiati giallo, archi arancio.
+
+EDITOR NELLA RIGA OPPOSTA
+L’editor aperto dalla strip occupa la riga opposta del mixer: canale nella
+riga inferiore -> editor superiore; strip superiore -> editor inferiore.
+Nel Custom Layer conta la riga in cui la strip è realmente posizionata.
+La riga del canale aperto rimane visibile.
 
 ROUTING CONSERVATO
 L’importazione conserva patch, sorgenti alternative, insert, gain, phantom,
 processing e punti di prelievo del canale. Le mandate verso MAIN/MTX e verso
 BUS esclusi dall’elenco monitor restano conservate.
-“Inizializza” riguarda soltanto nome, colore, mute e fader dei rimanenti;
+Inizializza riguarda soltanto nome, colore, mute e fader dei rimanenti;
 le loro mandate e il processing esistenti restano conservati.
 
 Il PDF di Producer non stampa l’abbinamento esplicito strumento-monitor.
-Wing propone gli abbinamenti dai nomi; quelli ambigui richiedono una scelta.
+Wing propone gli abbinamenti dai nomi. Se manca un abbinamento univoco,
+puoi lasciare Nessuno oppure scegliere i monitor nell’anteprima.
 Le uscite AUX e le coppie L/R del documento non modificano il patch WING.
-Se un tap condiviso AFL/POST impedisce un vero PRE, l’anteprima lo segnala.
+Se un tap condiviso AFL/POST impedisce un vero PRE, l’anteprima lo segnala
+e blocca la proposta incompatibile senza cambiare quel punto di prelievo.
 
 La lettura è locale. Sono supportati PDF con testo selezionabile e liste
 incollate; le scansioni richiedono OCR, ancora non incluso. Applica scena
 prepara il progetto Sculpt offline e non genera uno snapshot nativo WING.
+Applicazione e annullamento sono bloccati durante una sessione live.
+Questa consegna non attesta un collaudo sul mixer fisico.
 
 CARICAMENTO SU GITHUB E APP MAC
-1. Estrai questo ZIP sul Mac.
-2. Nel Finder premi Cmd + Shift + . per vedere anche .github e .gitignore.
-3. Apri https://github.com/mrgianluca990-bit/Sculpt-Wing, ramo main,
+1. Estrai lo ZIP dell’aggiornamento sul Mac.
+2. Apri https://github.com/mrgianluca990-bit/Sculpt-Wing, ramo main,
    quindi Add file -> Upload files.
-4. Trascina il CONTENUTO estratto mantenendo le cartelle e i percorsi:
-   .github, desktop, dist, docs, native, tests e i file principali.
-   Carica i file estratti, senza la cartella esterna che li contiene.
-   Conserva gli altri file già nel repository.
-5. Verifica che siano presenti dist/channel-list.js,
-   dist/channel-list-scene.js e dist/channel-list-preview.js,
-   poi premi Commit changes su main.
-6. In Actions attendi il verde di “Build Sculpt Wing - Mac M1”.
-7. Scarica l’artifact “Sculpt-Wing-Mac-M1” e apri lo ZIP contenuto:
-   Sculpt-Wing-0.6.3-mac-arm64.zip. Dentro trovi Sculpt Wing.app.
-8. Chiudi la vecchia app e sostituiscila con la nuova in Applicazioni.
+3. Carica i file estratti mantenendo i loro percorsi: dist, native, desktop,
+   docs, tests e i file nella cartella principale. Non caricare la cartella
+   esterna che contiene l’aggiornamento. Conserva gli altri file del repo.
+4. Il workflow Mac M1 è già configurato nel repository e non richiede una
+   sostituzione separata. La copia .github/workflows/build-desktop.yml è
+   inclusa anche nell’aggiornamento: ripristinala nello stesso percorso
+   qualora manchi. Cmd + Shift + . nel Finder mostra la cartella .github.
+5. Premi Commit changes su main. In Actions attendi il verde di
+   Build Sculpt Wing - Mac M1.
+6. Scarica l’artifact Sculpt-Wing-Mac-M1 e apri lo ZIP contenuto:
+   Sculpt-Wing-0.6.4-mac-arm64.zip. Dentro trovi Sculpt Wing.app.
+7. Chiudi la vecchia app e sostituiscila con la nuova in Applicazioni.
 
-La base conserva la 0.6.2 caricata nel commit
-70b4c8265a60c90e908a540de0daf49323988ee6 e le correzioni della 0.6.1.
-Restano fader dalla testa, scorrimento con trascinamento e Custom Layer
-a due righe, oltre ai pannelli dei processori già completati.
+Restano fader dalla sola testa, scorrimento con trascinamento, Custom Layer
+a due righe e i pannelli dei processori già completati.
 
 DETTAGLI E VERIFICHE
-Vedi docs/CHANNEL_LIST_IMPORT.md e docs/RELEASE_0.6.3_MAC_M1.md.
-L’accesso GitHub disponibile aveva restituito 403 alla scrittura;
-il repository non è stato aggiornato automaticamente da questa consegna.
-La build del nuovo binario macOS viene eseguita dal workflow GitHub.
+Vedi docs/CHANNEL_LIST_IMPORT.md e docs/RELEASE_0.6.4_MAC_M1.md.
+I risultati della preparazione non sostituiscono la nuova compilazione
+macOS né un test di avvio dell’app 0.6.4 sul Mac M1.
