@@ -98,6 +98,28 @@
       d.channels[id][key]=fx.slot;
     }
   }
+  function layerRows(layer){
+    const rows={top:[],bottom:[]},seen=new Set();
+    const append=(row,id)=>{if(typeof id==='string'&&knownId(id)&&!seen.has(id)){seen.add(id);rows[row].push(id);}};
+    if(plain(layer?.rows)){
+      for(const row of ['top','bottom'])for(const id of Array.isArray(layer.rows[row])?layer.rows[row]:[])append(row,id);
+    }else{
+      // Old layers selected members only. Retain their original row and order.
+      for(const id of Array.isArray(layer?.members)?layer.members:[]){const strip=C.getStrip(id);if(strip)append(['CH','AUX'].includes(strip.kind)?'bottom':'top',id);}
+    }
+    return rows;
+  }
+  function normalizeLayers(d){
+    const ids=new Set();
+    d.layers=(Array.isArray(d.layers)?d.layers:[]).filter(plain).map((layer,index)=>{
+      let id=typeof layer.id==='string'&&layer.id?layer.id:'layer-'+(index+1);
+      while(ids.has(id))id+='-copy';ids.add(id);
+      const rows=layerRows(layer);
+      return {...layer,id,name:String(layer.name||'Layer '+(index+1)).slice(0,80),rows,members:[...rows.top,...rows.bottom]};
+    });
+    if(!d.layers.some(layer=>layer.id===d.activeLayer))d.activeLayer=null;
+    return d;
+  }
   function normalize(input){
     const base=defaults();if(!plain(input))return base;
     const safe=clean(input);const d=merge(clone(base),safe);
@@ -127,7 +149,7 @@
     for(const group of [...d.dca,...d.muteGroups]){group.members=Array.isArray(group.members)?group.members.filter(knownId):[];if('level'in group)group.level=clamp(group.level,-90,10);}
     if(!Array.isArray(d.monitor)||d.monitor.length!==2)d.monitor=clone(base.monitor);
     if(!Array.isArray(d.oscillators)||d.oscillators.length!==2)d.oscillators=clone(base.oscillators);
-    normalizeAutomix(d);reconcileInserts(d);
+    normalizeAutomix(d);reconcileInserts(d);normalizeLayers(d);
     return d;
   }
   if(!C.getState().desk)C.transact(s=>{s.desk=defaults();},'init');else C.transact(s=>{s.desk=normalize(s.desk);},'init');
@@ -236,12 +258,14 @@
       if(recallFx||recallGroups){normalizeAutomix(d,blocked);reconcileInserts(d,{keepSlots,automixWins:recallGroups});}
       if(scopes.includes('monitor'))for(const key of ['monitor','talkback','oscillators','solo','meterSettings'])if(next[key]!==undefined)d[key]=clone(next[key]);
       if(scopes.includes('setup'))for(const key of ['setup','customControls','gpio','layers','mainLink'])if(next[key]!==undefined)d[key]=clone(next[key]);
+      if(scopes.includes('setup'))normalizeLayers(d);
       if(scopes.includes('recorder'))d.recorder=clone(next.recorder);
       state.sof=null;
     },'recall');return true;
   }
   function reset(){const fresh=M.defaults();fresh.desk=defaults();C.restore(M.serialize(fresh));}
-  root.SculptDesk={get,change,subscribe:C.subscribe,defaults,normalize,processor,setModel,setParam,
+  root.SculptDesk={get,change,subscribe:C.subscribe,defaults,normalize,layerRows,normalizeLayers,processor,setModel,setParam,
+    setLayerRows(id,rows){const layer=get().layers.find(item=>item.id===id);if(!layer)return false;return change(()=>{layer.rows=layerRows({rows});layer.members=[...layer.rows.top,...layer.rows.bottom];},'layer-layout');},
     enableProcessor(ctx,on){const p=processor(ctx);if(p)change(()=>{p.enabled=!!on;},'processing');},
     setProcessorMix(ctx,value){const p=processor(ctx);if(p)change(()=>{p.mix=clamp(value,0,100);},'parameter');},
     assignFx,channel:id=>get().channels[id],patchChannel,source:id=>{const s=get().sources[id];return s?.stripId?{...s,name:C.getStrip(s.stripId)?.name||s.name}:s;},sources,signals,patchSource,output:id=>get().outputs[id],outputs,patchOutput,capacity,

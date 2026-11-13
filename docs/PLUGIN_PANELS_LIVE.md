@@ -1,5 +1,9 @@
 # Processor surfaces — live preparation
 
+## Aggiornamento delle superfici Mac
+
+Le nuove superfici ricostruite dalle schermate della guida originale, i relativi riferimenti e i limiti sono descritti in [PLUGIN_ORIGINAL_SURFACES.md](PLUGIN_ORIGINAL_SURFACES.md). I file `dist/plugin-original-*.js` forniscono la geometria; la ricetta descritta sotto rimane disponibile per gli altri modelli e per i controlli aggiuntivi. Non equivale a una dichiarazione di parità pixel per pixel con il firmware.
+
 `dist/plugin-panels.js` contains an explicit control-surface recipe for the 109 catalog definitions. The renderer retains every parameter exactly once. The standard output EQ adds bands 5/6 and Tilt to the input EQ surface. Interfaces use local HTML, CSS and SVG; they are independently drawn control surfaces, not official Behringer UI assets.
 
 The VSS3 has an engine readout and Library, Early reflections, Reverb, Decay spectrum and Modulation sections. FET, optical, variable-Mu and bus compressors have separate control arrangements. PULSAR has program and midrange sections; console EQs have individual band columns. GEQ exposes 31 faders, PIA 10; PCORR has a working chromatic keyboard. Integrated strips are separated by signal stage. Delay, amp, tape, rotary, dynamic EQ and multiband processors retain their own controls and layout.

@@ -1,8 +1,8 @@
 {
   "name": "sculpt-wing-desktop",
   "productName": "Sculpt Wing",
-  "version": "0.6.0",
-  "description": "Sculpt Wing — controller WING per macOS e Windows",
+  "version": "0.6.1",
+  "description": "Sculpt Wing \u2014 controller WING per macOS e Windows",
   "private": true,
   "license": "UNLICENSED",
   "author": "Gianluca Vergalito",

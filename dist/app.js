@@ -5,7 +5,7 @@
   const saved=readStorage(M.KEY),legacy=readStorage(M.LEGACY_KEY);
   const state=M.restore(saved,legacy);
   if(!saved&&!legacy)state.meters=!matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const elements=new Map(),subscribers=new Set();let layerMembers=null,layerName='';
+  const elements=new Map(),subscribers=new Set(),bankUpdates=new Map(),bankObservers=new Map();let layerMembers=null,layerLayout=null,layerName='';
   const all=()=>M.list(state),stripById=id=>M.find(state,id),clamp=M.clamp;
   const format=(level,unit=false)=>level<=-89?'−∞'+(unit?' dB':''):(level>0?'+':'')+level.toFixed(1).replace('-','−')+(unit?' dB':'');
   const label=strip=>`${strip.kind} ${String(strip.number).padStart(2,'0')} · ${strip.name}`;
@@ -77,10 +77,10 @@
     const bar=document.getElementById('sof-bar');bar.classList.toggle('sof-active',!!target);
     document.getElementById('sof-target').textContent=target?`SOF → ${label(target)}`:'LIVELLI';
     document.getElementById('exit-sof').hidden=!target;
-    document.getElementById('output-title').textContent=layerMembers?layerName:target?'USCITE · SOF':'USCITE';
-    document.getElementById('input-title').textContent=layerMembers?layerName:target?'MANDATE':'INGRESSI';
-    document.getElementById('outputs-mode').textContent=target?'MANDATE / MASTER':'BUS · MATRICI · MASTER';
-    document.getElementById('inputs-mode').textContent=target?`48 INGRESSI → ${shortLabel(target)}`:'40 CANALI · 8 AUX';
+    document.getElementById('output-title').textContent=layerMembers?`${layerName} · RIGA 1`:target?'USCITE · SOF':'USCITE';
+    document.getElementById('input-title').textContent=layerMembers?`${layerName} · RIGA 2`:target?'MANDATE':'INGRESSI';
+    document.getElementById('outputs-mode').textContent=layerLayout?`${layerLayout.top.length} STRIP · RIGA SUPERIORE${target?' · SOF':''}`:target?'MANDATE / MASTER':'BUS · MATRICI · MASTER';
+    document.getElementById('inputs-mode').textContent=layerLayout?`${layerLayout.bottom.length} STRIP · RIGA INFERIORE${target?' · SOF':''}`:target?`48 INGRESSI → ${shortLabel(target)}`:'40 CANALI · 8 AUX';
     all().forEach(updateStrip);updateSelection();
   }
   function setSof(targetId){if(!M.setSof(state,targetId))return false;updateMode();emit('sof');return true;}
@@ -108,16 +108,16 @@
     if(sof)sof.addEventListener('click',()=>setSof(state.sof===strip.id?null:strip.id));
     let drag=null;
     fader.addEventListener('pointerdown',event=>{
-      if(event.pointerType==='mouse'&&event.button!==0)return;
+      if(drag||event.button!==0||!event.target.closest('.fader-cap'))return;
       const view=M.display(state,strip.id);select(strip.id,false);
       const inset=parseFloat(getComputedStyle(fader).getPropertyValue('--fader-inset'))||12;
-      drag={pointer:event.pointerId,startY:event.clientY,startPosition:toPosition(view.level),targetId:view.targetId,travel:Math.max(20,fader.getBoundingClientRect().height-inset*2)};
-      fader.setPointerCapture(event.pointerId);article.classList.add('dragging');event.preventDefault();
+      drag={pointer:event.pointerId,startY:event.clientY,startPosition:toPosition(view.level),targetId:view.targetId,travel:Math.max(20,fader.getBoundingClientRect().height-inset*2),moved:false};
+      fader.focus({preventScroll:true});fader.setPointerCapture(event.pointerId);article.classList.add('dragging');event.preventDefault();
     });
-    fader.addEventListener('pointermove',event=>{if(!drag||drag.pointer!==event.pointerId)return;const fine=event.shiftKey?.2:1;changeLevel(strip.id,toDb(drag.startPosition+(drag.startY-event.clientY)/drag.travel*fine),drag.targetId,false);event.preventDefault();});
-    const endDrag=event=>{if(!drag||drag.pointer!==event.pointerId)return;const sending=!!drag.targetId;drag=null;article.classList.remove('dragging');save();emit(sending?'send':'strip',strip.id);};
+    fader.addEventListener('pointermove',event=>{if(!drag||drag.pointer!==event.pointerId)return;const fine=event.shiftKey?.2:1;if(event.clientY!==drag.startY)drag.moved=true;if(drag.moved)changeLevel(strip.id,toDb(drag.startPosition+(drag.startY-event.clientY)/drag.travel*fine),drag.targetId,false);event.preventDefault();});
+    const endDrag=event=>{if(!drag||drag.pointer!==event.pointerId)return;const {targetId,moved,pointer}=drag;drag=null;article.classList.remove('dragging');if(fader.hasPointerCapture?.(pointer))fader.releasePointerCapture(pointer);save();if(moved)emit(targetId?'send':'strip',strip.id);};
     fader.addEventListener('pointerup',endDrag);fader.addEventListener('pointercancel',endDrag);fader.addEventListener('lostpointercapture',endDrag);
-    fader.addEventListener('dblclick',()=>changeLevel(strip.id,0,M.display(state,strip.id).targetId));
+    window.addEventListener('blur',()=>{if(drag)endDrag({pointerId:drag.pointer});});
     fader.addEventListener('keydown',event=>{
       const view=M.display(state,strip.id);let next=view.level;const step=event.shiftKey?.1:.5;
       if(event.key==='ArrowUp'||event.key==='ArrowRight')next+=step;
@@ -129,18 +129,56 @@
     });
     return article;
   }
+  function bindBankPan(scroller){
+    // Touch keeps native momentum scrolling. Mouse/pen can grab the strip,
+    // including a button, without firing its action once a pan has started.
+    let pan=null,suppressClick=false;
+    const finish=event=>{
+      if(!pan||(event&&pan.pointer!==event.pointerId))return;
+      const {pointer,active}=pan;pan=null;
+      scroller.classList.remove('panning');
+      if(scroller.hasPointerCapture?.(pointer))scroller.releasePointerCapture(pointer);
+      if(active)suppressClick=true;
+    };
+    scroller.addEventListener('pointerdown',event=>{
+      suppressClick=false;
+      if(pan||event.defaultPrevented||event.pointerType==='touch'||event.button!==0||event.target.closest('.fader-cap,input,select,textarea,[contenteditable="true"]'))return;
+      if(scroller.scrollWidth<=scroller.clientWidth)return;
+      pan={pointer:event.pointerId,startX:event.clientX,startY:event.clientY,startScroll:scroller.scrollLeft,active:false};
+    });
+    window.addEventListener('pointermove',event=>{
+      if(!pan||pan.pointer!==event.pointerId)return;
+      const dx=event.clientX-pan.startX,dy=event.clientY-pan.startY;
+      if(!pan.active){
+        if(Math.abs(dx)<6||Math.abs(dx)<=Math.abs(dy))return;
+        pan.active=true;scroller.classList.add('panning');scroller.setPointerCapture(event.pointerId);
+      }
+      scroller.scrollLeft=clamp(pan.startScroll-dx,0,Math.max(0,scroller.scrollWidth-scroller.clientWidth));
+      event.preventDefault();
+    },{passive:false});
+    window.addEventListener('pointerup',finish);window.addEventListener('pointercancel',finish);
+    scroller.addEventListener('lostpointercapture',finish);window.addEventListener('blur',()=>finish());
+    scroller.addEventListener('click',event=>{
+      if(!suppressClick||event.detail===0)return;
+      suppressClick=false;event.preventDefault();event.stopImmediatePropagation();
+    },true);
+    scroller.addEventListener('dragstart',event=>event.preventDefault());
+  }
   for(const row of ['outputs','inputs']){
     const bank=document.getElementById(`${row}-bank`);for(const [i,strip]of state[row].entries())bank.append(makeStrip(strip,i,row));
     const scroller=document.getElementById(`${row}-scroll`),buttons=[...document.querySelectorAll(`.bank-button[data-row="${row}"]`)];
+    bindBankPan(scroller);
     const updateBank=()=>{
-      const width=elements.get(state[row][0].id).article.getBoundingClientRect().width;
-      if(width<=0)return;
+      const progress=document.getElementById(`${row}-progress`),total=Math.max(scroller.scrollWidth,scroller.clientWidth,1);
+      progress.style.width=`${Math.min(100,scroller.clientWidth/total*100)}%`;progress.style.left=`${scroller.scrollLeft/total*100}%`;
+      const width=bank.querySelector('.strip:not([hidden])')?.getBoundingClientRect().width||0;
+      if(width<=0||layerMembers)return;
       const first=Math.floor((scroller.scrollLeft+width*.4)/width),maxScroll=scroller.scrollWidth-scroller.clientWidth;
       const atEnd=maxScroll>2&&scroller.scrollLeft>=maxScroll-2;
       const activeIndex=atEnd?Number(buttons.at(-1).dataset.index):Math.floor(first/8)*8;
       buttons.forEach(button=>{const active=Number(button.dataset.index)===activeIndex;button.classList.toggle('active',active);button.setAttribute('aria-pressed',String(active));});
-      const progress=document.getElementById(`${row}-progress`);progress.style.width=`${Math.min(100,scroller.clientWidth/scroller.scrollWidth*100)}%`;progress.style.left=`${scroller.scrollLeft/scroller.scrollWidth*100}%`;
     };
+    bankUpdates.set(row,updateBank);
     scroller.addEventListener('scroll',updateBank,{passive:true});new ResizeObserver(updateBank).observe(scroller);
     scroller.addEventListener('keydown',event=>{if(event.target!==scroller)return;if(event.key==='ArrowRight'||event.key==='ArrowLeft'){scroller.scrollBy({left:(event.key==='ArrowRight'?1:-1)*scroller.clientWidth*.75,behavior:'smooth'});event.preventDefault();}});
   }
@@ -151,7 +189,8 @@
   document.getElementById('exit-sof').addEventListener('click',()=>setSof(null));
   updateMode();save();
   if('IntersectionObserver' in window)for(const row of ['outputs','inputs']){
-    const observer=new IntersectionObserver(entries=>entries.forEach(entry=>elements.get(entry.target.dataset.id).visible=entry.isIntersecting),{root:document.getElementById(`${row}-scroll`)});
+    const observer=new IntersectionObserver(entries=>entries.forEach(entry=>{const item=elements.get(entry.target.dataset.id);if(item&&(item.displayRow||item.row)===row)item.visible=!item.article.hidden&&entry.isIntersecting;}),{root:document.getElementById(`${row}-scroll`)});
+    bankObservers.set(row,observer);
     state[row].forEach(strip=>observer.observe(elements.get(strip.id).article));
   }
   let lastFrame=0;
@@ -201,13 +240,32 @@
   function toast(message){const el=document.getElementById('toast');clearTimeout(toastTimer);el.textContent=message;el.classList.add('show');toastTimer=setTimeout(()=>el.classList.remove('show'),2200);}
   window.SculptController=Object.freeze({
     showLayer(members,name='LAYER'){
-      layerMembers=Array.isArray(members)?new Set(members.filter(id=>stripById(id))):null;layerName=String(name).toUpperCase().slice(0,16);
-      for(const [id,item]of elements)item.article.hidden=!!layerMembers&&!layerMembers.has(id);
-      for(const row of ['outputs','inputs']){
-        const section=document.querySelector(`.mixer-row.${row}`);section.classList.toggle('layer-active',!!layerMembers);
-        let exit=section.querySelector('.layer-exit');if(!exit){exit=document.createElement('button');exit.className='layer-exit';exit.type='button';exit.textContent='Tutti i canali ×';exit.addEventListener('click',()=>window.SculptController.showLayer(null));section.querySelector('.row-header').append(exit);}exit.hidden=!layerMembers;
-        document.getElementById(`${row}-scroll`).scrollLeft=0;
+      const supplied=members&&typeof members==='object',layout={top:[],bottom:[]},seen=new Set();
+      const append=(key,id)=>{if(typeof id==='string'&&stripById(id)&&!seen.has(id)){seen.add(id);layout[key].push(id);}};
+      if(Array.isArray(members))for(const id of members){const item=elements.get(id);if(item)append(item.row==='outputs'?'top':'bottom',id);}
+      else if(supplied)for(const key of ['top','bottom'])for(const id of Array.isArray(members[key])?members[key]:[])append(key,id);
+      layerLayout=supplied?layout:null;layerMembers=supplied?seen:null;layerName=String(name).toUpperCase().slice(0,24);
+      for(const observer of bankObservers.values())observer.disconnect();
+      // Reuse each existing strip, its listeners and the shared mixer state.
+      // Restoring normal banks also restores their original order exactly.
+      for(const row of ['outputs','inputs'])for(const strip of state[row]){
+        const item=elements.get(strip.id);document.getElementById(`${row}-bank`).append(item.article);item.displayRow=row;item.article.hidden=!!layerMembers&&!layerMembers.has(strip.id);
       }
+      if(layerLayout)for(const [key,row]of [['top','outputs'],['bottom','inputs']])for(const id of layerLayout[key]){
+        const item=elements.get(id);document.getElementById(`${row}-bank`).append(item.article);item.displayRow=row;
+      }
+      for(const item of elements.values()){item.visible=!item.article.hidden;if(item.visible)bankObservers.get(item.displayRow)?.observe(item.article);}
+      for(const row of ['outputs','inputs']){
+        const section=document.querySelector(`.mixer-row.${row}`),key=row==='outputs'?'top':'bottom',bank=document.getElementById(`${row}-bank`),scroller=document.getElementById(`${row}-scroll`);section.classList.toggle('layer-active',!!layerMembers);
+        section.querySelector('.row-count').textContent=layerLayout?layerLayout[key].length:state[row].length;
+        section.querySelector('.bank-navigation').hidden=!!layerMembers;
+        scroller.setAttribute('aria-label',layerLayout?`${layerName}, riga ${key==='top'?'1 superiore':'2 inferiore'}, scorri orizzontalmente`:row==='outputs'?'Bus, matrici e master, scorri orizzontalmente':'Canali e ingressi AUX, scorri orizzontalmente');
+        let empty=bank.querySelector('.layer-empty');if(!empty){empty=document.createElement('div');empty.className='layer-empty';empty.textContent='Riga vuota · assegna i canali in Custom Layer';bank.append(empty);}empty.hidden=!layerLayout||layerLayout[key].length>0;
+        let exit=section.querySelector('.layer-exit');if(!exit){exit=document.createElement('button');exit.className='layer-exit';exit.type='button';exit.textContent='Tutti i canali ×';exit.addEventListener('click',()=>window.SculptController.showLayer(null));section.querySelector('.row-header').append(exit);}exit.hidden=!layerMembers;
+        scroller.scrollLeft=0;bankUpdates.get(row)?.();
+      }
+      if(!layerMembers&&state.desk)state.desk.activeLayer=null;
+      save();
       updateMode();emit('layer');
     },
     getState:()=>state,

@@ -187,6 +187,74 @@
     }
     const modal=U().modal(title,content);
   }
+  const LAYER_STORAGE='sculpt-wing-layers-v1';
+  let layerSignature='';
+  function syncLayer(){
+    const d=D().get(),layer=d.layers.find(item=>item.id===d.activeLayer),rows=layer?D().layerRows(layer):null;
+    const signature=JSON.stringify({id:layer?.id||null,name:layer?.name||'',rows});
+    // Only local layout is persisted here. Live WING values are never saved.
+    try{root.localStorage?.setItem(LAYER_STORAGE,JSON.stringify({version:1,layers:d.layers,activeLayer:layer?.id||null}));}catch{}
+    if(signature===layerSignature)return;
+    layerSignature=signature;
+    C().showLayer?.(rows,layer?.name||'LAYER');
+  }
+  function restoreLayerPreference(){
+    try{
+      const saved=JSON.parse(root.localStorage?.getItem(LAYER_STORAGE)||'null');
+      if(saved?.version===1&&Array.isArray(saved.layers))D().change(d=>{d.layers=saved.layers;d.activeLayer=saved.activeLayer;D().normalizeLayers(d);},'layer-layout');
+    }catch{}
+  }
+  function openLayerEditor(id,onChange){
+    const content=h('div','sys-layer-editor');
+    const paint=()=>{
+      const layer=D().get().layers.find(item=>item.id===id);content.replaceChildren();if(!layer)return;
+      const rows=D().layerRows(layer);
+      content.append(note('Scegli i canali e il loro ordine in ciascuna riga. Puoi mettere ingressi, bus, matrici e master in entrambe le righe.'));
+      const apply=next=>{D().setLayerRows(id,next);paint();onChange();};
+      for(const [key,title,other]of [['top','Riga 1 · superiore','bottom'],['bottom','Riga 2 · inferiore','top']]){
+        const bank=h('section','sys-layer-row'),heading=h('div','sys-layer-row-heading');bank.dataset.layerRow=key;
+        const add=btn('Aggiungi canali',()=>openMembership(title,rows[key],members=>{const current=D().layerRows(D().get().layers.find(item=>item.id===id));current[key]=members;current[other]=current[other].filter(stripId=>!members.includes(stripId));apply(current);}),'sys-small');
+        add.setAttribute('aria-label','Assegna canali alla '+title.toLowerCase());
+        heading.append(h('h3','',title),h('span','sys-badge',rows[key].length+' strip'),add);bank.append(heading);
+        const list=h('ol','sys-layer-slots');list.setAttribute('aria-label',title+' — ordine da sinistra a destra');
+        for(const [index,stripId]of rows[key].entries()){
+          const strip=C().getStrip(stripId),slot=h('li','sys-layer-slot'),caption=h('strong','',label(strip));slot.style.setProperty('--layer-color',strip.color);slot.dataset.stripId=stripId;
+          slot.append(h('span','sys-layer-position',String(index+1).padStart(2,'0')),caption);
+          const controls=h('div','sys-layer-slot-actions');
+          const reorder=(direction)=>{const current=D().layerRows(D().get().layers.find(item=>item.id===id));moveItem(current[key],index,direction);apply(current);};
+          const left=btn('←',()=>reorder(-1),'sys-small'),right=btn('→',()=>reorder(1),'sys-small');
+          left.disabled=index===0;right.disabled=index===rows[key].length-1;
+          left.setAttribute('aria-label','Sposta '+label(strip)+' a sinistra');right.setAttribute('aria-label','Sposta '+label(strip)+' a destra');
+          const transfer=btn(key==='top'?'↓ Riga 2':'↑ Riga 1',()=>{const current=D().layerRows(D().get().layers.find(item=>item.id===id));current[key]=current[key].filter(value=>value!==stripId);current[other].push(stripId);apply(current);},'sys-small');
+          transfer.setAttribute('aria-label','Sposta '+label(strip)+' nella riga '+(key==='top'?'2':'1'));
+          const remove=btn('×',()=>{const current=D().layerRows(D().get().layers.find(item=>item.id===id));current[key]=current[key].filter(value=>value!==stripId);apply(current);},'sys-small');remove.setAttribute('aria-label','Rimuovi '+label(strip)+' dal layer');
+          controls.append(left,right,transfer,remove);slot.append(controls);list.append(slot);
+        }
+        if(!rows[key].length)bank.append(h('p','sys-layer-empty','Riga vuota · aggiungi i canali da visualizzare qui.'));else bank.append(list);
+        content.append(bank);
+      }
+    };
+    paint();return U().modal('Custom Layer · due righe',content);
+  }
+  function renderLayers(container){
+    const paint=()=>{
+      container.replaceChildren();const d=D().get(),name=h('input','sys-input');name.placeholder='Nome layer';name.setAttribute('aria-label','Nome nuovo layer');
+      container.append(card('CUSTOM LAYER · DUE RIGHE',note('Ogni layer conserva una riga superiore e una inferiore, con l’ordine dei fader scelto da te.'),row(name,btn('Crea layer',()=>{const id=uid('layer');changed(x=>x.layers.push({id,name:name.value.trim()||'Layer '+(x.layers.length+1),rows:{top:[],bottom:[]},members:[]}));paint();openLayerEditor(id,paint);},'desk-primary')),btn('Torna a tutti i canali',()=>{changed(x=>x.activeLayer=null);C().showLayer?.(null);U().close();})));
+      const list=h('div','sys-layer-list');
+      d.layers.forEach((layer,index)=>{
+        const rows=D().layerRows(layer),preview=h('div','sys-layer-preview');
+        for(const [key,title]of [['top','Riga 1 · superiore'],['bottom','Riga 2 · inferiore']]){
+          const band=h('div','sys-layer-preview-row');band.dataset.layerRow=key;band.append(h('strong','',title));const names=h('div','sys-layer-preview-strips');
+          for(const stripId of rows[key]){const strip=C().getStrip(stripId),chip=h('span','',label(strip));chip.style.setProperty('--layer-color',strip.color);names.append(chip);}if(!rows[key].length)names.append(h('span','sys-layer-preview-empty','Vuota'));band.append(names);preview.append(band);
+        }
+        const item=card(layer.name,textInput('Nome layer '+(index+1),layer.name,value=>{changed(x=>x.layers.find(v=>v.id===layer.id).name=value||'Layer '+(index+1));paint();}),preview);
+        item.dataset.layerId=layer.id;
+        const up=btn('↑',()=>{changed(x=>moveItem(x.layers,index,-1));paint();},'sys-small'),down=btn('↓',()=>{changed(x=>moveItem(x.layers,index,1));paint();},'sys-small');up.disabled=index===0;down.disabled=index===d.layers.length-1;up.setAttribute('aria-label','Sposta il layer '+layer.name+' prima');down.setAttribute('aria-label','Sposta il layer '+layer.name+' dopo');
+        item.append(row(btn('Modifica le due righe',()=>openLayerEditor(layer.id,paint)),btn(d.activeLayer===layer.id?'Layer attivo':'Apri layer',()=>{const current=D().get().layers.find(v=>v.id===layer.id),currentRows=D().layerRows(current);if(!currentRows.top.length&&!currentRows.bottom.length){toast('Assegna almeno una strip');return;}changed(x=>x.activeLayer=layer.id);syncLayer();U().close();},'desk-primary'),up,down,btn('Elimina',()=>{changed(x=>{x.layers=x.layers.filter(v=>v.id!==layer.id);if(x.activeLayer===layer.id)x.activeLayer=null;});paint();},'desk-danger')));list.append(item);
+      });
+      container.append(list);
+    };paint();
+  }
   function renderGroups(container){
     const paint=()=>{container.replaceChildren();container.append(tabs([{id:'dca',label:'DCA 1–16'},{id:'mute',label:'Mute Groups'},{id:'auto',label:'Automix'}],selection.groups,id=>{selection.groups=id;paint();}));
       const data=D().get();
@@ -511,9 +579,7 @@
           bank.append(c);
         });container.append(note('Assegnazioni dei controlli personalizzati nel profilo demo. I pulsanti eseguono le macro e gli encoder muovono il fader assegnato.'),bank);
       }else if(selection.setup==='layers'){
-        const name=h('input','sys-input');name.placeholder='Nome layer';name.setAttribute('aria-label','Nome nuovo layer');
-        container.append(card('LAYER PERSONALIZZATI',row(name,btn('Crea layer',()=>{changed(x=>x.layers.push({id:uid('layer'),name:name.value.trim()||'Layer '+(x.layers.length+1),members:[]}));paint();},'desk-primary')),btn('Torna a tutti i canali',()=>{changed(x=>x.activeLayer=null);C().showLayer?.(null);U().close();})));
-        const list=h('div','sys-group-grid');d.layers.forEach((layer,index)=>list.append(card(layer.name,textInput('Nome layer '+(index+1),layer.name,value=>changed(x=>x.layers.find(v=>v.id===layer.id).name=value)),row(btn(layer.members.length+' strip',()=>openMembership(layer.name,layer.members,ids=>{changed(x=>x.layers.find(v=>v.id===layer.id).members=ids);paint();})),btn('Apri layer',()=>{const current=D().get().layers.find(v=>v.id===layer.id);if(!current.members.length){toast('Assegna almeno una strip');return;}changed(x=>x.activeLayer=layer.id);if(C().showLayer){C().showLayer(current.members,current.name);U().close();}else spill(current.name,current.members);},'desk-primary'),btn('↑',()=>{changed(x=>moveItem(x.layers,index,-1));paint();},'sys-small'),btn('↓',()=>{changed(x=>moveItem(x.layers,index,1));paint();},'sys-small'),btn('Elimina',()=>{changed(x=>x.layers=x.layers.filter(v=>v.id!==layer.id));paint();},'desk-danger')))));container.append(list);
+        const layers=h('div','sys-layers-page');container.append(layers);renderLayers(layers);
       }else{
         const history=h('div','sys-history');d.history.slice(0,20).forEach(event=>history.append(row(h('time','sys-dim',new Date(event.time).toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit',second:'2-digit'})),h('span','',event.message))));if(!d.history.length)history.append(note('Le azioni della demo appariranno qui.'));
         container.append(grid(card('SCULPT WING',h('strong','sys-version','0.4 · Full console demo'),h('p','sys-note','Profilo: '+s.model+' · Firmware di riferimento '+s.firmware),note('Interfacce e controlli agiscono sul banco locale simulato. Nessun audio, firmware o comando viene trasferito a un mixer.'),btn('Esporta progetto',()=>{selection.scenes='project';U().open('scenes');})),card('STATO DEL PROGETTO',h('p','sys-note',strips().length+' strip · '+d.fx.length+' slot FX · '+d.dca.length+' DCA · '+d.muteGroups.length+' mute groups'),h('p','sys-note',d.scenes.length+' scene · '+d.macros.length+' macro'),btn('Guida offline',()=>root.SculptOffline?.openHelp?.()))),card('REGISTRO AZIONI',history,btn('Svuota registro',()=>{changed(x=>x.history=[]);paint();},'sys-small')));
@@ -522,7 +588,7 @@
   }
   function init(){
     if(!C()||!D()||!U())return;
-    ensureState();seedExamples();
+    ensureState();seedExamples();restoreLayerPreference();
     const definitions=[
       ['groups','DCA / Mute Groups','Assegnazioni, gruppi e automix',renderGroups],
       ['monitor','Monitor / Talkback','Ascolti, solo e comunicazione',renderMonitor],
@@ -530,6 +596,7 @@
       ['scenes','Scenes / Library','Show, snapshot, snippet e progetti',renderScenes],
       ['recorder','Recorder / Player','WING-LIVE e USB · simulazione',renderRecorder],
       ['setup','Setup','Profilo hardware e configurazione',renderSetup],
+      ['layers','Custom Layer','Due righe · ordine dei fader',renderLayers],
       ['macros','Macro Sculpt','Azioni e sequenze del banco',renderMacros]
     ];
     for(const [id,title,subtitle,render]of definitions)U().register(id,{title,subtitle,render(container,args){
@@ -545,7 +612,8 @@
       container.addEventListener('focusout',sync);
       return()=>{disposed=true;currentPage=null;cleanup?.();valuesOff?.();statusOff?.();container.removeEventListener('focusout',sync);};
     }});
-    D().subscribe(event=>{if(event.type==='restore'){ensureState();seedExamples();}});
+    D().subscribe(event=>{if(event.type==='restore'){ensureState();seedExamples();}if(['restore','reset','recall','console','layer-layout','layer','systems-init'].includes(event.type))syncLayer();});
+    syncLayer();
     root.SculptSystems={runMacro,stopMacros,transport,recallScene,formatTime,validateProject,executeAction,refresh:()=>U().refresh()};
     root.dispatchEvent(new CustomEvent('sculpt-systems-ready'));
   }

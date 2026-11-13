@@ -98,7 +98,7 @@ test('global modules seed useful macros once and survive full restore and reset'
   vm.runInNewContext(fs.readFileSync(require.resolve('../dist/desk.js'),'utf8'),context);
   vm.runInNewContext(fs.readFileSync(require.resolve('../dist/systems.js'),'utf8'),context);
   const desk=context.window.SculptDesk,systems=context.window.SculptSystems;
-  assert.deepEqual(pages.map(p=>p.id),['groups','monitor','meters','scenes','recorder','setup','macros']);
+  assert.deepEqual(pages.map(p=>p.id),['groups','monitor','meters','scenes','recorder','setup','layers','macros']);
   assert.equal(desk.get().scenes.length,2);
   assert.equal(desk.get().macros.filter(m=>m.actions.length).length,8);
   assert.equal((await systems.runMacro(1)).ok,true);

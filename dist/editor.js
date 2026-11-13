@@ -145,13 +145,16 @@
     const update = () => {
       const value = Number(get()); if (!Number.isFinite(value)) return;
       slider.value = String(toSlider(value));
-      slider.style.setProperty('--editor-fill', `${(Number(slider.value) - Number(slider.min)) / (Number(slider.max) - Number(slider.min)) * 100}%`);
+      const position = (Number(slider.value) - Number(slider.min)) / (Number(slider.max) - Number(slider.min));
+      slider.style.setProperty('--editor-fill', `${position * 100}%`);
+      if (vertical) wrap.style.setProperty('--editor-position', position);
       slider.setAttribute('aria-valuetext', displayValue(value));
       if (document.activeElement !== input) input.value = String(value);
       display.textContent = displayValue(value);
       if (disabled) { slider.disabled = !!disabled(); input.disabled = !!disabled(); wrap.classList.toggle('editor-disabled', !!disabled()); }
     };
-    slider.addEventListener('input', () => { set(normalize(fromSlider(Number(slider.value)))); input.value = String(get()); update(); });
+    const commitSlider = () => { if (slider.disabled) { update(); return; } set(normalize(fromSlider(Number(slider.value)))); input.value = String(get()); update(); };
+    slider.addEventListener('input', commitSlider);
     const commit = () => {
       if (input.value.trim() && Number.isFinite(input.valueAsNumber)) {
         const value = normalize(input.valueAsNumber);
@@ -162,15 +165,41 @@
     input.addEventListener('change', commit); input.addEventListener('blur', commit);
     input.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); commit(); input.blur(); } });
     if (vertical) {
-      const rail = el('div', 'editor-fader-rail'), scale = el('div', 'editor-fader-scale');
+      const rail = el('div', 'editor-fader-rail'), scale = el('div', 'editor-fader-scale'), cap = el('span', 'editor-fader-cap');
       scale.setAttribute('aria-hidden', 'true');
+      cap.setAttribute('aria-hidden', 'true');
+      // Keep the native range for keyboard/accessibility, but make only the
+      // visible head a pointer target. Pressing its rail cannot jump a send.
+      slider.addEventListener('pointerdown', event => event.preventDefault());
+      let drag = null;
+      const finish = () => {
+        if (!drag) return;
+        const pointer = drag.pointer; drag = null; cap.classList.remove('dragging');
+        if (cap.hasPointerCapture?.(pointer)) cap.releasePointerCapture(pointer);
+      };
+      cap.addEventListener('pointerdown', event => {
+        if (drag || slider.disabled || event.button !== 0) return;
+        drag = { pointer: event.pointerId, startY: event.clientY, startValue: Number(slider.value), travel: Math.max(1, rail.getBoundingClientRect().height - (cap.getBoundingClientRect().height || 22)) };
+        slider.focus({ preventScroll: true }); cap.setPointerCapture(event.pointerId); cap.classList.add('dragging'); event.preventDefault();
+      });
+      cap.addEventListener('pointermove', event => {
+        if (!drag || drag.pointer !== event.pointerId) return;
+        if (slider.disabled) { finish(); return; }
+        const range = Number(slider.max) - Number(slider.min), fine = event.shiftKey ? .2 : 1;
+        slider.value = String(clamp(drag.startValue + (drag.startY - event.clientY) / drag.travel * range * fine, Number(slider.min), Number(slider.max)));
+        commitSlider(); event.preventDefault();
+      });
+      const endPointer = event => { if (drag?.pointer === event.pointerId) finish(); };
+      cap.addEventListener('pointerup', endPointer); cap.addEventListener('pointercancel', endPointer); cap.addEventListener('lostpointercapture', endPointer);
+      window.addEventListener('blur', finish);
+      cleanups.push(() => { finish(); window.removeEventListener?.('blur', finish); });
       for (const value of [10, 0, -10, -20, -40, -60, -90]) {
         const tick = el('span', '', value <= -90 ? '−∞' : `${value > 0 ? '+' : ''}${value}`);
         tick.style.top = `${(max - value) / (max - min) * 100}%`;
         if (value === 0) tick.className = 'editor-fader-unity';
         scale.append(tick);
       }
-      rail.append(scale, slider); row.append(rail, input);
+      rail.append(scale, slider, cap); row.append(rail, input);
     } else row.append(slider, input);
     wrap.append(heading, row); bind(update); return wrap;
   }

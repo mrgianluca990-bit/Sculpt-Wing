@@ -1,49 +1,54 @@
-SCULPT WING — CORREZIONE BUILD MAC M1
+SCULPT WING 0.6.1 — AGGIORNAMENTO MAC M1
 
-Questo ZIP contiene soltanto i tre file da aggiornare nel repository esistente
-mrgianluca990-bit/Sculpt-Wing. Non è l’app compilata.
+Questo ZIP contiene i sorgenti modificati da caricare nel repository esistente
+mrgianluca990-bit/Sculpt-Wing. La nuova Sculpt Wing.app viene creata da GitHub
+Actions dopo il caricamento; questo ZIP non contiene ancora l'app compilata.
 
-FILE DA SOSTITUIRE, MANTENENDO QUESTI PERCORSI
-.github/workflows/build-desktop.yml
-desktop/package.json
-desktop/tests/wing-socket.test.cjs
+COSA CAMBIA
+- Scorrimento orizzontale dei due banchi con click e trascinamento del mouse.
+  Puoi afferrare il corpo della strip: il trascinamento non attiva Mute o SOF.
+- I fader si muovono soltanto prendendo la testa. La pista non cambia il livello,
+  anche con doppio click. Vale per mixer, mandate verticali e fader dei plugin.
+  L'inserimento numerico e i comandi da tastiera restano disponibili.
+- Custom Layer ha due righe indipendenti: superiore e inferiore. Ogni riga
+  accetta canali, AUX, bus, matrici e master, nell'ordine che scegli.
+  Menu del banco -> Custom Layer. La disposizione resta salvata al riavvio.
+- Pannelli dei plugin ricostruiti sulle figure della guida originale WING:
+  geometria, disposizione, selettori, controlli coassiali e schede dei moduli.
+  Copertura e limiti sono documentati in docs/PLUGIN_ORIGINAL_SURFACES.md.
+- Workflow dedicato a Mac Apple Silicon (arm64/M1), versione app 0.6.1.
+
+Le macro non sono state modificate. Questa consegna riguarda Sculpt Wing.
 
 CARICAMENTO SU GITHUB
-1. Estrai questo ZIP sul Mac e apri la cartella estratta.
-2. Nel Finder premi Cmd + Shift + . per vedere la cartella .github.
+1. Estrai lo ZIP sul Mac.
+2. Nel Finder premi Cmd + Shift + . per rendere visibile la cartella .github.
 3. Apri https://github.com/mrgianluca990-bit/Sculpt-Wing, scheda Code,
-   ramo main. Premi Add file → Upload files.
-4. Trascina le due cartelle .github e desktop contenute nello ZIP.
-   Non trascinare lo ZIP o la cartella che le contiene.
-5. Verifica che i tre percorsi mostrati corrispondano esattamente all’elenco
-   sopra. Scegli il commit sul ramo main e premi Commit changes.
+   ramo main, quindi Add file -> Upload files.
+4. Trascina il CONTENUTO della cartella estratta: .github, desktop, dist,
+   docs, tests e LEGGIMI.txt. Mantieni i percorsi. Non caricare lo ZIP o la
+   cartella esterna che lo contiene.
+5. Controlla in particolare che compaiano .github/workflows/build-desktop.yml
+   e tutti i sei file dist/plugin-original-*.js. Premi Commit changes su main.
+6. Apri Actions: partirà "Build Sculpt Wing - Mac M1". Attendi il verde sia
+   della verifica sia del job "Sculpt Wing - Mac M1 (arm64)".
+7. Scarica l'artifact "Sculpt-Wing-Mac-M1". Estrai l'archivio dell'artifact,
+   poi Sculpt-Wing-0.6.1-mac-arm64.zip: al suo interno trovi Sculpt Wing.app.
+8. Chiudi la vecchia app e sostituiscila con la nuova in Applicazioni.
 
-La nuova compilazione parte automaticamente. In Actions compare
-“Build Sculpt Wing - Mac M1”. Dopo l’esito verde del job Mac, scarica
-l’artifact “Sculpt-Wing-Mac-M1”. Contiene lo ZIP con Sculpt Wing.app ARM64.
+La patch è stata preparata sul commit d64a2261095ab49acde2bc39bb72ba7e874c4a6f
+del repository. Non eliminare le altre cartelle e i file già presenti.
 
-CORREZIONE
-Il vecchio job Mac rimaneva nei test desktop fino al timeout di 45 minuti.
-Il test di rete usava 127.0.0.2, indirizzo non necessariamente disponibile
-su macOS, e attendeva soltanto il successo del bind, senza gestirne l’errore.
+VERIFICHE
+Le prove del codice, del trasporto e dell'interfaccia sono riportate in
+docs/RELEASE_0.6.1_MAC_M1.md. La compilazione del nuovo pacchetto macOS e la
+prova sul tuo M1 con una WING fisica devono ancora essere eseguite.
 
-La correzione rimuove quella dipendenza dal test reale, preserva la prova
-TCP/UDP su 127.0.0.1 e il test deterministico del filtro dei mittenti, gestisce
-gli errori di apertura e chiude anche le risorse inizializzate parzialmente.
-Il test reale ha un limite di 10 secondi e la suite un limite di 30 secondi.
-È corretta anche un’attesa che presumeva un ordine tra TCP e UDP.
+I nuovi pannelli sono una ricostruzione delle immagini della guida WING 3.0:
+non viene dichiarata identità pixel per pixel con ogni versione del firmware.
+I meter senza dati reali restano inattivi; le curve delle impostazioni non
+sono presentate come misure audio.
 
-Il workflow crea solo il pacchetto Mac ARM64/M1. Lo script dist:mac e il target
-Mac predefinito sono allineati a ZIP ARM64 con firma ad hoc. Il codice del
-trasporto WING e l’interfaccia non sono modificati da questa correzione.
-
-VERIFICA EFFETTUATA
-- 17 test desktop superati su Linux con Node 24.22.1.
-- Riprodotto il blocco della fixture precedente con errore di bind simulato.
-- Verificati rigetto immediato e cleanup dopo errori TCP/UDP.
-- Verificato un echo TCP ritardato rispetto al pacchetto UDP.
-- Workflow validato con actionlint; package e lockfile coerenti.
-
-La nuova compilazione su macOS deve ancora essere eseguita. L’accesso GitHub
-usato per preparare questa correzione ha restituito 403 alla scrittura;
-nessun file del repository è stato aggiornato automaticamente.
+L'integrazione GitHub disponibile ha restituito 403 alla scrittura:
+il repository non è stato aggiornato automaticamente. Il caricamento dei
+file sopra è quindi il passaggio necessario per ottenere la nuova app.

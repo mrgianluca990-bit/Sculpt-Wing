@@ -24,6 +24,26 @@ function assertInsertOwnership(d){
   assert(automix.length<=16,'automix has at most 16 channels');
   for(const id of automix)assert.equal(d.channels[id].postFx,null,`${id} cannot use automix and post FX together`);
 }
+test('legacy custom layers migrate to two ordered rows without duplicates or stale strips',()=>{
+  const {D}=fixture();
+  const restored=D.normalize({layers:[{id:'old',name:'Palco',members:['ch-3','bus-2','ch-1','bus-2','gone','aux-1','main-1']}],activeLayer:'old'});
+  assert.deepEqual(JSON.parse(JSON.stringify(restored.layers[0].rows)),{top:['bus-2','main-1'],bottom:['ch-3','ch-1','aux-1']});
+  assert.deepEqual(Array.from(restored.layers[0].members),['bus-2','main-1','ch-3','ch-1','aux-1']);
+  assert.equal(restored.activeLayer,'old');
+  assert.equal(D.normalize({layers:[],activeLayer:'gone'}).activeLayer,null);
+});
+test('custom rows keep cross-bank order and survive project serialization',()=>{
+  const {D,C}=fixture();
+  D.change(d=>d.layers.push({id:'two',name:'Due righe',rows:{top:[],bottom:[]},members:[]}));
+  D.setLayerRows('two',{top:['ch-12','bus-1','ch-2','missing'],bottom:['main-1','ch-12','aux-3']});
+  D.change(d=>d.activeLayer='two');
+  const rows={top:['ch-12','bus-1','ch-2'],bottom:['main-1','aux-3']};
+  assert.deepEqual(JSON.parse(JSON.stringify(D.get().layers[0].rows)),rows);
+  C.restore(C.capture());
+  assert.deepEqual(JSON.parse(JSON.stringify(D.get().layers[0].rows)),rows);
+  assert.equal(D.get().activeLayer,'two');
+  assert.equal(D.setLayerRows('missing',rows),false);
+});
 test('every strip and all FX have valid context-specific processor defaults',()=>{
   const {D,C}=fixture();assert.equal(C.listStrips().length,76);assert.equal(D.get().fx.length,16);
   for(const strip of C.listStrips())for(const [block,p]of Object.entries(D.get().processing[strip.id]))assert.ok(K.get({type:'strip',id:strip.id,block},p.model),`${strip.id}/${block}`);
