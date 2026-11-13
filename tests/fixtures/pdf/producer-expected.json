@@ -1,0 +1,53 @@
+{
+  "producerCommit": "e69d65b7a5bf1e4aa063f6d3c90b7fde6537568a",
+  "channelNames": [
+    "Kick",
+    "Snare up",
+    "Snare down",
+    "tom1",
+    "tom2",
+    "tom3",
+    "Over L",
+    "Over R",
+    "Basso",
+    "Chitarra 1",
+    "Chitarra 2",
+    "Key L · Tastiere Nord",
+    "Key R · Tastiere Nord",
+    "Piano L · Pianoforte acustico con nome deliberatamente lungo",
+    "Piano R · Pianoforte acustico con nome deliberatamente lungo",
+    "Piano Buca · Pianoforte acustico con nome deliberatamente lungo",
+    "Voce 1",
+    "Voce 2",
+    "Sequenze L",
+    "Sequenze R",
+    "Click"
+  ],
+  "outputs": [
+    {
+      "number": 1,
+      "destination": "Batteria",
+      "side": "mono"
+    },
+    {
+      "number": 2,
+      "destination": "Basso",
+      "side": "mono"
+    },
+    {
+      "number": 3,
+      "destination": "IEM Tastiere Nord",
+      "side": "L"
+    },
+    {
+      "number": 4,
+      "destination": "IEM Tastiere Nord",
+      "side": "R"
+    },
+    {
+      "number": 7,
+      "destination": "Monitor voce con destinazione molto lunga su due righe",
+      "side": "mono"
+    }
+  ]
+}

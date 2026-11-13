@@ -25,7 +25,7 @@ function appFixture(t){
   w.matchMedia=()=>({matches:false,addEventListener(){},removeEventListener(){}});w.ResizeObserver=class{observe(){}disconnect(){}};w.IntersectionObserver=class{observe(){}disconnect(){}};
   w.requestAnimationFrame=()=>0;w.cancelAnimationFrame=()=>{};w.HTMLElement.prototype.scrollTo=function(){};w.HTMLElement.prototype.scrollIntoView=function(){};w.HTMLElement.prototype.setPointerCapture=function(){};
   w.HTMLDialogElement.prototype.showModal=function(){this.open=true;};w.HTMLDialogElement.prototype.close=function(){this.open=false;this.dispatchEvent(new w.Event('close'));};
-  for(const name of ['plugin-data.js','model.js','app.js','desk.js','shell.js','channel-list.js'])vm.runInContext(fs.readFileSync(path.join(base,name),'utf8'),dom.getInternalVMContext(),{filename:name});
+  for(const name of ['plugin-data.js','model.js','app.js','desk.js','shell.js','channel-list.js','channel-list-scene.js','channel-list-preview.js'])vm.runInContext(fs.readFileSync(path.join(base,name),'utf8'),dom.getInternalVMContext(),{filename:name});
   const C=w.SculptController,liveSubscribers=new Set();let live=false;
   w.SculptLive={isLive:()=>live,canPersist:()=>!live,applying:()=>false,hasStripValue:()=>true,reviewMutation:()=>{throw new Error('Importer must never reach a live write');},subscribe:fn=>{liveSubscribers.add(fn);return()=>liveSubscribers.delete(fn);}};
   return {w,C,dom,liveSubscribers,setLive(value){live=value;for(const fn of liveSubscribers)fn();},button(label){return [...w.document.querySelectorAll('.cl-modal button')].find(b=>b.textContent===label);}};
@@ -86,17 +86,35 @@ test('validation rejects arbitrary output destinations, missing names and illega
 });
 
 test('instrument colours follow Gianluca’s requested palette and remain proposals',()=>{
-  const expected=[['Kick','#e31b44'],['Basso','#00b43d'],['Chitarra','#0089ff'],['Keys','#e0e0e0'],['Voce','#ff7679'],['Sax','#f6e100'],['Violino','#ff5a2d']];
+  const expected=[['Kick','#e31b44'],['Basso','#00b43d'],['Chitarra','#0089ff'],['Keys','#e0e0e0'],['Voce','#ff7679'],['Sax','#f6e100'],['Clarinetto basso','#f6e100'],['Bass clarinet','#f6e100'],['Violino','#ff5a2d']];
   for(const [name,color]of expected)assert.equal(Importer.suggestColor(name).color,color,name);
   const rows=Importer.parseText('1 Kick').rows;rows[0].color='#a52ff6';assert.equal(Importer.validateRows(rows).ok,true,'the proposed colour is editable');
 });
 
-test('identity import is one transaction; levels, sends, preamps, patch and layers are byte-for-byte preserved',()=>{
+test('Producer desktop stage printing enters the input table only at its explicit columns and skips quote rows',()=>{
+  const result=Importer.parseDocument({pages:[{items:[item('STAGE PLOT',20,10),item('1 Vocal on stage',80,35),item('AUX 7',270,45),item('CH',20,100),item('Sorgente',80,100),item('DI / Mic',250,100),item('Asta',340,100),item('Note',430,100),item('1',20,125),item('Basso',80,125),item('DI',250,125),item('Asta alta',340,125),item('PREVENTIVO',20,160),item('1 Service luci',20,185)]}]});
+  assert.deepEqual(result.rows.map(row=>[row.targetId,row.originalName]),[['ch-1','Basso']]);
+});
+
+test('instrument proposals share explicit descriptors and stereo parts while keeping two guitars and voices distinct',()=>{
+  const rows=Importer.parseText('1 Kick\n2 Snare up\n3 tom1\n4 Over L\n5 Over R\n6 Key L · Mario\n7 Key R · Mario\n8 Chitarra 1\n9 Chitarra 2\n10 Voce\n11 Voce\n12 Sequenze L\n13 Sequenze R\n14 Click').rows;
+  assert.equal(new Set(rows.slice(0,5).map(row=>row.instrumentKey)).size,1);
+  assert.equal(rows[5].instrumentKey,rows[6].instrumentKey);assert.equal(rows[5].instrumentName,'Mario');
+  assert.notEqual(rows[7].instrumentKey,rows[8].instrumentKey);assert.notEqual(rows[9].instrumentKey,rows[10].instrumentKey);
+  assert.deepEqual(rows.slice(9,11).map(row=>row.instrumentName),['Voce 1','Voce 2']);
+  assert.equal(new Set(rows.slice(11).map(row=>row.instrumentKey)).size,1);
+  assert.equal(rows[2].color,'#e31b44');assert.equal(rows[3].color,'#e31b44');
+});
+
+test('public import API prepares the scene in one transaction and preserves patch, processing and unassigned sends',()=>{
   const f=stateFixture(),before=plain(Model.serialize(f.state)),rows=Importer.parseText('1 New Vocal\n2 New Bass\nAUX 1 Player').rows;
-  const result=Importer.applyRows(rows,f.env);assert.equal(result.ok,true);assert.equal(result.count,3);assert.equal(f.transactions,1);
-  const after=plain(Model.serialize(f.state));for(const change of result.undo){after.values[change.id].name=before.values[change.id].name;after.values[change.id].color=before.values[change.id].color;}
-  assert.deepEqual(after,before,'only the selected names and colours may change');
-  const restored=Model.restore(Model.serialize(f.state));assert.equal(Model.find(restored,'ch-1').name,'New Vocal');assert.equal(Model.find(restored,'ch-2').name,'New Bass');assert.deepEqual(restored.sends,f.state.sends);
+  const result=Importer.applyRows(rows,f.env);assert.equal(result.ok,true);assert.equal(f.transactions,1);
+  for(const row of rows){const strip=Model.find(f.state,row.targetId);assert.equal(strip.name,row.name);assert.equal(strip.mute,true);assert.equal(strip.level,-90);}
+  assert.deepEqual(f.state.desk,before.desk);assert.deepEqual(f.state.sends['ch-1>bus-6'],before.sends['ch-1>bus-6']);
+  assert.equal(Model.getSend(f.state,'ch-1','bus-1').level,-5);assert.equal(Model.getSend(f.state,'ch-1','bus-1').mode,'PRE');
+  assert.equal(Model.getSend(f.state,'ch-1','bus-2').level,-8);assert.equal(Model.getSend(f.state,'ch-1','bus-2').mode,'POST');
+  const restored=Model.restore(Model.serialize(f.state));assert.equal(Model.find(restored,'ch-1').mute,true);assert.equal(Model.find(restored,'ch-2').level,-90);assert.deepEqual(restored.sends,f.state.sends);
+  assert.equal(Importer.undoRows(result.undo,f.env).ok,true);assert.deepEqual(plain(Model.serialize(f.state)),before);
 });
 
 test('duplicate/unassigned selected rows reject the entire plan without a partial first write',()=>{
@@ -112,37 +130,16 @@ test('live mode and a session transition at commit both prohibit every import mu
   assert.equal(Importer.applyRows(rows,f.env).ok,false);assert.deepEqual(f.state,before);
 });
 
-test('undo restores only identity, preserves intervening fader changes and refuses later name conflicts',()=>{
+test('undo preserves unrelated edits but refuses a later imported fader or name conflict',()=>{
   const f=stateFixture(),oldName=Model.find(f.state,'ch-1').name,rows=Importer.parseText('1 Imported').rows;
-  const first=Importer.applyRows(rows,f.env);Model.patchStrip(Model.find(f.state,'ch-1'),{level:-27});
-  assert.equal(Importer.undoRows(first.undo,f.env).ok,true);assert.equal(Model.find(f.state,'ch-1').name,oldName);assert.equal(Model.find(f.state,'ch-1').level,-27);
-  const second=Importer.applyRows(rows,f.env);Model.patchStrip(Model.find(f.state,'ch-1'),{name:'Edited later'});assert.equal(Importer.undoRows(second.undo,f.env).ok,false);assert.equal(Model.find(f.state,'ch-1').name,'Edited later');
+  const first=Importer.applyRows(rows,f.env);Model.patchStrip(Model.find(f.state,'ch-1'),{pan:27});
+  assert.equal(Importer.undoRows(first.undo,f.env).ok,true);assert.equal(Model.find(f.state,'ch-1').name,oldName);assert.equal(Model.find(f.state,'ch-1').pan,27);
+  const second=Importer.applyRows(rows,f.env);Model.patchStrip(Model.find(f.state,'ch-1'),{level:-27});assert.equal(Importer.undoRows(second.undo,f.env).ok,false);assert.equal(Model.find(f.state,'ch-1').level,-27);
+  Model.patchStrip(Model.find(f.state,'ch-1'),{name:'Edited later'});assert.equal(Importer.undoRows(second.undo,f.env).ok,false);assert.equal(Model.find(f.state,'ch-1').name,'Edited later');
   f.setLive(true);assert.equal(Importer.undoRows(second.undo,f.env).ok,false);
 });
 
-test('the actual app preview leaves the mixer unchanged until Apply and persists identities in the shared project',t=>{
-  const f=appFixture(t),before=plain(f.C.capture());f.w.SculptChannelList.open();
-  const textarea=f.w.document.querySelector('.cl-paste textarea');textarea.value='1 Imported Vox\n2 Imported Bass';f.button('Leggi il testo').click();
-  assert.deepEqual(plain(f.C.capture()),before);assert.equal(f.w.document.querySelectorAll('.cl-table tbody tr').length,2);assert.equal(f.button('Applica nomi e colori').disabled,false);
-  const input=f.w.document.querySelector('.cl-name');input.value='Lead Vox';input.dispatchEvent(new f.w.Event('input',{bubbles:true}));f.button('Applica nomi e colori').click();
-  assert.equal(f.C.getStrip('ch-1').name,'Lead Vox');assert.equal(f.w.document.querySelector('[data-id="ch-1"] .strip-name').textContent,'Lead Vox');
-  const persisted=JSON.parse(f.w.localStorage.getItem(f.w.SculptModel.KEY));assert.equal(persisted.values['ch-1'].name,'Lead Vox');
-  f.C.updateStrip('ch-1',{level:-22});f.button('Annulla importazione').click();assert.equal(f.C.getStrip('ch-1').name,before.values['ch-1'].name);assert.equal(f.C.getStrip('ch-1').level,-22);
-  f.button('Chiudi').click();assert.equal(f.liveSubscribers.size,0);
-});
-
-test('an open preview disables Apply when the app enters live, and rechecks even a programmatic click',t=>{
-  const f=appFixture(t),before=plain(f.C.capture());f.w.SculptChannelList.open();const textarea=f.w.document.querySelector('.cl-paste textarea');textarea.value='1 Prepared';f.button('Leggi il testo').click();
-  f.setLive(true);const apply=f.button('Applica nomi e colori');assert.equal(apply.disabled,true);apply.disabled=false;apply.click();assert.deepEqual(plain(f.C.capture()),before);assert.match(f.w.document.querySelector('.cl-status').textContent,/offline/);
-  f.setLive(false);assert.equal(apply.disabled,false);apply.click();assert.equal(f.C.getStrip('ch-1').name,'Prepared');
-});
-
-test('the PDF reader receives a file locally; stale async completion cannot replace a newer pasted preview',async t=>{
-  const f=appFixture(t);let resolveRead,observedFile,observedSignal;f.w.SculptPdfReader={readFile(file,options){observedFile=file;observedSignal=options.signal;return new Promise(resolve=>{resolveRead=resolve;});}};f.w.SculptChannelList.open();
-  const file=new f.w.File(['sample'],'rider.pdf',{type:'application/pdf'}),input=f.w.document.querySelector('.cl-file');Object.defineProperty(input,'files',{value:[file]});input.dispatchEvent(new f.w.Event('change',{bubbles:true}));assert.equal(observedFile,file);assert.equal(f.button('Applica nomi e colori').disabled,true);
-  const textarea=f.w.document.querySelector('.cl-paste textarea');textarea.value='9 Current';f.button('Leggi il testo').click();assert.equal(observedSignal.aborted,true);resolveRead(documentFixture());await Promise.resolve();await Promise.resolve();
-  assert.equal(f.w.document.querySelectorAll('.cl-table tbody tr').length,1);assert.equal(f.w.document.querySelector('.cl-name').value,'Current');assert.equal(f.w.document.querySelector('.cl-target').value,'ch-9');
-});
+// Editable-preview integration and cancellation are exercised in channel-list-preview.test.cjs.
 
 test('the channel editor selects every imported family colour and preserves custom project colours',t=>{
   const f=appFixture(t),I=f.w.SculptChannelList;

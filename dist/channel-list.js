@@ -1,5 +1,5 @@
-/* Channel-list preparation. Text extraction stays on this device. This module
- * edits only strip identity in the offline Sculpt project; it never patches I/O. */
+/* Channel-list recognition. Text extraction stays on this device. Scene
+ * planning and the editable preview are separate; channel I/O is never patched. */
 (function(root){
   'use strict';
   const MAX_NAME=16,MAX_ROWS=500;
@@ -11,15 +11,15 @@
     ['#00c6ca','Turchese'],['#707070','Grigio scuro'],['#e0e0e0','Bianco']
   ];
   const FAMILIES=[
-    {id:'drums',label:'Batteria',color:'#e31b44',test:/\b(kick|cassa|snare|rullante|hat|hihat|hi hat|tom|timpano|floor|overhead|oh|drums?|batteria|ride|crash)\b/},
-    {id:'percussion',label:'Percussioni',color:'#bd6a1b',test:/\b(perc\w*|conga\w*|bongo\w*|cajon|shaker|timbales?|djembe|marimba|vibrafono)\b/},
+    {id:'drums',label:'Batteria',color:'#e31b44',test:/\b(kick|cassa|snare|rullante|hat|hihat|hi hat|tom\d*|timpano|floor|overhead|over|oh|drums?|batteria|ride|crash)\b/},
+    {id:'percussion',label:'Percussioni',color:'#bd6a1b',test:/\b(perc\w*|conga\w*|bongo\w*|cajon|shaker|timbales?|djembe|marimba|vibrafono|tamburello|tammorra|xilofono|glockenspiel|piatti|triangolo|gong|campane tubolari)\b/},
     {id:'bass',label:'Basso',color:'#00b43d',test:/\b(bass|basso|contrabbasso|double bass)\b/},
     {id:'guitars',label:'Chitarre',color:'#0089ff',test:/\b(guitar\w*|gtr\w*|chit\w*|acoustic|e gtr|a gtr)\b/},
-    {id:'keys',label:'Tastiere',color:'#e0e0e0',test:/\b(keys?|keyb\w*|tast\w*|piano\w*|synth\w*|hammond|organ\w*|rhodes)\b/},
+    {id:'keys',label:'Tastiere',color:'#e0e0e0',test:/\b(keys?|keyb\w*|tast\w*|piano\w*|synth\w*|hammond|organ\w*|rhodes|fisarmonica|accordion|celesta|clavicembalo)\b/},
     {id:'vocals',label:'Voci',color:'#ff7679',test:/\b(vox|voc\w*|voce|voci|coro|cori|choir|singer|cant\w*|bvs?)\b/},
-    {id:'brass',label:'Fiati',color:'#f6e100',test:/\b(fiati|brass|horns?|sax\w*|trumpet|tromba|trombone|flute|flauto|clarinet\w*)\b/},
+    {id:'brass',label:'Fiati',color:'#f6e100',test:/\b(fiati|brass|horns?|corno|sax\w*|trumpet|tromba|trombone|flute|flauto|clarinet\w*|ottavino|oboe|fagotto|controfagotto|bassoon|contrabassoon|tuba)\b/},
     {id:'strings',label:'Archi',color:'#ff5a2d',test:/\b(archi|strings?|violin\w*|viola|cello|violoncell\w*)\b/},
-    {id:'playback',label:'Playback',color:'#00c6ca',test:/\b(playback|tracks?|seq\w*|basi|base|click|laptop|computer|ableton)\b/},
+    {id:'playback',label:'Playback',color:'#00c6ca',test:/\b(playback|tracks?|seq\w*|basi|base|click|laptop|computer|ableton|dj)\b/},
     {id:'ambient',label:'Ambienti / talkback',color:'#707070',test:/\b(amb\w*|audience|crowd|talk\w*|tb)\b/}
   ];
   const clean=value=>String(value??'').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g,'').replace(/\s+/g,' ').trim();
@@ -29,7 +29,8 @@
   const targetFor=(kind,number)=>Number.isInteger(number)&&number>0&&number<=(kind==='aux'?8:40)?`${kind}-${number}`:'';
   const labelFor=id=>String(id||'').replace(/^ch-/,'CH ').replace(/^aux-/,'AUX ');
   function suggestColor(name,group=''){
-    const direct=FAMILIES.find(f=>f.test.test(folded(name))),family=direct||FAMILIES.find(f=>f.test.test(folded(group)));
+    const text=folded(name),lowWind=/\b(?:clarinet\w*\s+basso|bass\s+(?:clarinet\w*|sax\w*|trombone|trumpet|flute))\b/.test(text);
+    const direct=lowWind?FAMILIES.find(f=>f.id==='brass'):FAMILIES.find(f=>f.test.test(text)),family=direct||FAMILIES.find(f=>f.test.test(folded(group)));
     return family?{color:family.color,family:family.label}:{color:PALETTE[0][0],family:'Da scegliere'};
   }
   function makeRow(info,index){
@@ -38,7 +39,7 @@
     if(originalName.length>MAX_NAME)notes.push('Nome accorciato a 16 caratteri: puoi modificarlo.');
     if(!targetId)notes.push(info.number?'Numero fuori dagli ingressi disponibili: scegli il canale.':'Scegli il canale di destinazione.');
     if(!name)notes.push('Nome mancante nel PDF.');
-    return {id:'channel-list-'+index,sourceNumber:info.sourceNumber??(info.number?String(info.number):'—'),pageNumber:info.pageNumber||1,originalName,name,targetId,color:identity.color,family:identity.family,selected:!!(targetId&&name),notes};
+    return {id:'channel-list-'+index,sourceNumber:info.sourceNumber??(info.number?String(info.number):'—'),pageNumber:info.pageNumber||1,originalName,name,targetId,color:identity.color,family:identity.family,group:clean(info.group),pairKey:info.pairKey||'',instrumentKey:info.instrumentKey||'',instrumentName:info.instrumentName||'',selected:!!(targetId&&name),notes};
   }
   function linesFromItems(items){
     const pieces=[];
@@ -61,7 +62,7 @@
   }
   const numberHeader=/^(?:#|n[°º.]?|no\.?|nr\.?|num\.?|number|numero|ch\.?|channel|canale|input|in\.?)(?:\s*(?:#|no\.?|n[°º.]?|number|numero))?$/i;
   const nameHeader=/^(?:name|nome|instrument|instrumento|strumento|source|sorgente|signal|segnale|description|descrizione|channel name|input name|nome canale)$/i;
-  const otherHeader=/^(?:mic(?:rophone)?(?:\s*\/\s*di)?|microfono|di|stand|asta|note|notes|patch|stagebox|phantom|48v|gain|insert|output|uscita|monitor|mix)$/i;
+  const otherHeader=/^(?:mic(?:rophone)?(?:\s*\/\s*di)?|di\s*\/\s*mic(?:rophone)?|microfono|di|stand|asta|note|notes|patch|stagebox|phantom|48v|gain|insert|output|uscita|monitor|mix)$/i;
   function findHeaders(line){
     const items=line.items,starts=items.map((item,index)=>({item,index})).filter(({item})=>numberHeader.test(item.text)),headers=[];
     for(let i=0;i<starts.length;i++){
@@ -69,7 +70,7 @@
       const name=items.find(item=>item.x>=start.item.x&&item.x<end&&nameHeader.test(item.text));
       if(!name)continue;
       const next=items.find(item=>item.x>name.x&&item.x<end&&otherHeader.test(item.text));
-      headers.push({left:start.item.x-8,right:end-8,numberX:start.item.x,nameX:name.x,nameEnd:next?.x??end-8});
+      headers.push({left:start.item.x-8,right:end-8,numberX:start.item.x,nameX:name.x,nameEnd:next?.x??end-8,producer:items.some(item=>/^di\s*\/\s*mic$/i.test(item.text))});
     }
     return headers;
   }
@@ -83,46 +84,127 @@
   }
   const inputTitle=/^(?:input\s*(?:list|patch)|channel\s*list|ch\s*list|lista\s*(?:canali|ingressi)|elenco\s*(?:canali|ingressi)|canali\s*(?:input|ingresso)|ingressi)(?:\b|\s*[:—-])/i;
   const outputTitle=/^(?:output\s*(?:list|patch)|monitor\s*(?:list|mix|outputs?|iem)|lista\s*(?:uscite|monitor)|elenco\s*(?:uscite|monitor)|uscite|outputs?\s*[:—-]|bus\s*list|aux\s*sends)(?:\b|\s*[:—-])/i;
+  const otherSection=/^(?:stage\s*plot|preventivo(?:\s|$)|quotation(?:\s|$)|quote(?:\s|$)|lista\s+di\s+carico|packing\s*list|stage\s*plan|pianta\s*palco)/i;
   const groupTitle=/^(?:drums?|batteria|percussion\w*|percussioni|bass|basso|guitars?|chitarre|keys|keyboards?|tastiere|vocals?|voci|cori|brass|fiati|strings|archi|playback|backing tracks?)\s*:?[\s]*$/i;
   function rowInfo(parsed,name,info){
     if(!parsed)return [{...info,name,sourceNumber:'—',targetId:''}];
     if(parsed.second){
       const stereo=/\b(?:stereo|l\s*[/+&-]\s*r|left\s*[/+&-]\s*right)\b/i.test(name),base=clean(name.replace(/\b(?:stereo|l\s*[/+&-]\s*r|left\s*[/+&-]\s*right)\b/ig,''));
-      if(stereo&&parsed.second===parsed.number+1)return [parsed.number,parsed.second].map((number,index)=>({...info,kind:parsed.kind,number,sourceNumber:String(number),name:base+' '+(index?'R':'L'),notes:['Coppia numerata L/R nel PDF; controlla i due nomi.']}));
+      if(stereo&&parsed.second===parsed.number+1)return [parsed.number,parsed.second].map((number,index)=>({...info,kind:parsed.kind,number,sourceNumber:String(number),name:base+' '+(index?'R':'L'),pairKey:info.pageNumber+':'+parsed.sourceNumber+':'+base,instrumentName:base,notes:['Coppia numerata L/R nel PDF; controlla i due nomi.']}));
       return [{...info,name,sourceNumber:parsed.sourceNumber,targetId:'',notes:['Numerazione multipla: assegna il primo ingresso e aggiungi le altre righe necessarie.']}];
     }
     return [{...info,...parsed,name}];
   }
+  function instrumentHints(rows){
+    const hasSequences=rows.some(row=>/\b(seq\w*|backing tracks?)\b/i.test(row.originalName));
+    const drumPart=/^(?:kick|cassa|snare|rullante|hi[ -]?hat|hh|tom\d*|floor|over(?:head)?|oh|ride|crash)(?:\b|\s*\d)/i;
+    for(const row of rows){
+      const name=clean(row.originalName),suffix=/^(.+?)\s*[·•]\s*(.+)$/.exec(name),stereo=/^(.+?)\s+(?:l|r|left|right|sx|dx)$/i.exec(name);
+      let key='',label='';
+      if(row.instrumentKey){continue;}
+      if(suffix){key='named:'+folded(suffix[2]);label=clean(suffix[2]);}
+      else if(row.pairKey){key='pair:'+row.pairKey;label=row.instrumentName||name.replace(/\s+[LR]$/,'');}
+      else if(/^drum\s*pad\b/i.test(name)){key='instrument:drum pad';label='Drum pad';}
+      else if(drumPart.test(name)||/^(?:batteria|drums?)$/i.test(row.group)&&row.family==='Batteria'){key='instrument:batteria';label='Batteria';}
+      else if(/^(?:piano|pianoforte)\s+(?:l|r|buca|left|right|sx|dx)$/i.test(name)){key='instrument:piano';label='Piano';}
+      else if(/^(?:seq\w*|backing tracks?)(?:\s+[lr])?$/i.test(name)||hasSequences&&/^click$/i.test(name)){key='instrument:sequenze';label='Sequenze';}
+      else if(stereo){label=clean(stereo[1]);key='stereo:'+folded(label);}
+      else if(/^(?:bass|basso)\b.*\s+(?:di|mic)$/i.test(name)){label=name.replace(/\s+(?:di|mic)$/i,'');key='bass:'+folded(label);}
+      else{label=name||'Strumento';key='row:'+row.id;}
+      row.instrumentKey=key;row.instrumentName=label;
+    }
+    // Repeated anonymous one-channel names are distinct performers; a colour
+    // family is never sufficient evidence that they share one monitor.
+    const anonymous=new Map();
+    for(const row of rows)if(row.instrumentKey.startsWith('row:')){const key=folded(row.instrumentName);if(!anonymous.has(key))anonymous.set(key,[]);anonymous.get(key).push(row);}
+    for(const group of anonymous.values())if(group.length>1)group.forEach((row,i)=>{row.instrumentName+=' '+(i+1);});
+    return rows;
+  }
+  function findOutputHeader(line){
+    const items=line.items,start=items.find(item=>/^(?:uscita|output|aux|bus|ch|#)$/i.test(item.text)),name=items.find(item=>/^(?:destinazione|destination|name|nome|instrument|strumento|sorgente|source)$/i.test(item.text));
+    if(!start||!name||name.x<=start.x)return null;
+    const format=items.find(item=>/^(?:formato|format|side|l\/r)$/i.test(item.text)),next=items.find(item=>item.x>name.x&&/^(?:formato|format|side|note|notes|mic(?:\/di)?|stand|asta|patch)$/i.test(item.text));
+    return {left:start.x-8,numberX:start.x,nameX:name.x,nameEnd:next?.x??Infinity,formatX:format?.x,formatEnd:items.find(item=>item.x>(format?.x??Infinity))?.x??Infinity,producer:/^uscita$/i.test(start.text)};
+  }
+  function monitorHints(infos,warnings){
+    const monitors=[],paired=new Set();
+    for(const [index,info]of infos.entries()){
+      if(paired.has(index)||!clean(info.name))continue;
+      const originalName=clean(info.name),normal=folded(originalName),explicitMonitor=/\b(iem|in ear|monitor|wedge|mon\d*)\b/.test(normal);
+      if(!explicitMonitor&&/\b(main|pa|foh|sub|subwoofer|record\w*|stream\w*|broadcast|frontfill|front fill|delay|matrix|matrice)\b/.test(normal)){
+        warnings.push('Uscita «'+originalName+'» esclusa dai monitor: puoi aggiungerla manualmente.');continue;
+      }
+      const sourceNumbers=[info.sourceNumber],sides=[info.side||'Mono'];
+      if(['L','R'].includes(info.side)){
+        const partner=infos.findIndex((other,j)=>j>index&&!paired.has(j)&&folded(other.name)===normal&&other.side===(info.side==='L'?'R':'L'));
+        if(partner>=0){paired.add(partner);sourceNumbers.push(infos[partner].sourceNumber);sides.push(infos[partner].side);}
+        else warnings.push('Uscita «'+originalName+'»: nel PDF è presente soltanto il lato '+info.side+'. Verifica il monitor.');
+      }
+      const instrumentName=clean(originalName.replace(/^(?:(?:iem|in[- ]?ear|monitor|wedge|mon)\s*[-:·]?\s*)/i,''))||originalName;
+      monitors.push({id:'pdf-monitor-'+(monitors.length+1),name:originalName.slice(0,MAX_NAME),originalName,instrumentName,sourceNumbers,format:sides.length===2?'L/R':sides[0],pageNumber:info.pageNumber});
+    }
+    return monitors;
+  }
   function parseDocument(document,options={}){
     if(!document||!Array.isArray(document.pages))throw new Error('Il PDF non contiene pagine leggibili.');
-    const infos=[],warnings=[],emptyPages=[],pageCount=document.pages.length;
-    let section='input',group='',anyText=false,hadHeader=false,previousHeaders=[];
-    for(const [pageIndex,page]of document.pages.entries()){
-      const lines=linesFromItems(page.items),pageNumber=page.pageNumber||pageIndex+1;
+    const infos=[],outputInfos=[],warnings=[],emptyPages=[],pageCount=document.pages.length;
+    const pages=document.pages.map((page,index)=>({...page,pageNumber:page.pageNumber||index+1,lines:linesFromItems(page.items)}));
+    const hasInputSection=pages.some(page=>page.lines.some(line=>inputTitle.test(clean(line.text))));
+    const hasInputTable=pages.some(page=>page.lines.some(line=>findHeaders(line).length));
+    let section=hasInputSection?'other':'input',group='',anyText=false,hadHeader=false,previousHeaders=[],outputHeader=null;
+    for(const page of pages){
+      const lines=page.lines,pageNumber=page.pageNumber;
       if(lines.length)anyText=true;else emptyPages.push(pageNumber);
-      let headers=previousHeaders;
+      let headers=previousHeaders,lastInputByColumn=new Map(),lastOutput=null;
       for(const line of lines){
         const text=clean(line.text);
         if(!text)continue;
-        if(inputTitle.test(text)){section='input';headers=[];continue;}
-        if(outputTitle.test(text)){section='output';headers=[];continue;}
-        if(section==='output')continue;
-        const found=findHeaders(line);
-        if(found.length){headers=found;hadHeader=true;continue;}
-        if(/^(?:#|ch\.?|channel|canale|input|n[°º.]?|nr\.?)\s+(?:name|nome|source|sorgente|instrument|strumento|description|descrizione)\b/i.test(text))continue;
-        if(groupTitle.test(text)){group=text.replace(/:$/,'');continue;}
+        if(inputTitle.test(text)){section='input';headers=[];outputHeader=null;lastInputByColumn.clear();continue;}
+        if(outputTitle.test(text)){section='output';headers=[];outputHeader=null;lastInputByColumn.clear();lastOutput=null;continue;}
+        if(otherSection.test(text)){section=/^(?:stage|pianta)/i.test(text)?'stage':'other';headers=[];outputHeader=null;lastInputByColumn.clear();continue;}
         if(/^(?:page|pagina|pag\.?|foglio)\s*\d|^\d+\s*(?:of|di|\/)\s*\d+$|^(?:date|data|band|artist|artista|venue|location|contatti|contact|tech rider)\b/i.test(text))continue;
+        if(section==='output'){
+          const found=findOutputHeader(line);if(found){outputHeader=found;lastOutput=null;continue;}
+          if(outputHeader){
+            const h=outputHeader,numberText=line.items.filter(i=>i.x>=h.left&&i.x<h.nameX-5).map(i=>i.text).join(' '),parsed=parseNumber(numberText),name=line.items.filter(i=>i.x>=h.nameX-5&&i.x<h.nameEnd-5).map(i=>i.text).join(' '),side=line.items.filter(i=>i.x>=(h.formatX??Infinity)-5&&i.x<h.formatEnd-5).map(i=>i.text).join(' ');
+            if(parsed){lastOutput={name,sourceNumber:parsed.sourceNumber,side:/^[lr]$/i.test(side)?side.toUpperCase():'Mono',pageNumber};outputInfos.push(lastOutput);}
+            else if(!numberText&&name&&lastOutput&&(h.producer||line.y-(lastOutput.lastY??line.y)<=line.height*1.5)){lastOutput.name=clean(lastOutput.name+' '+name);}
+            if(lastOutput)lastOutput.lastY=line.y;
+          }else{
+            const leading=parseLeading(text);if(leading)outputInfos.push({name:leading.name,sourceNumber:leading.sourceNumber,side:'Mono',pageNumber});
+          }
+          continue;
+        }
+        if(section==='stage'){
+          // Producer's desktop print puts the input table directly after the
+          // stage plot, without a CHANNEL LIST/INGRESSI heading. Its explicit
+          // columns are required before accepting any stage labels as inputs.
+          const stageHeaders=findHeaders(line);
+          if(stageHeaders.length){section='input';headers=stageHeaders;hadHeader=true;lastInputByColumn.clear();}
+          continue;
+        }
+        if(section!=='input')continue;
+        const found=findHeaders(line);
+        if(found.length){headers=found;hadHeader=true;lastInputByColumn.clear();continue;}
+        if(!headers.length&&hasInputTable)continue;
+        if(/^(?:#|ch\.?|channel|canale|input|n[°º.]?|nr\.?)\s+(?:name|nome|source|sorgente|instrument|strumento|description|descrizione)\b/i.test(text))continue;
+        if(groupTitle.test(text)){group=text.replace(/:$/,'');lastInputByColumn.clear();continue;}
         if(infos.length>=MAX_ROWS)throw new Error('La lista contiene più di 500 righe. Importa soltanto le pagine della channel list.');
         if(headers.length){
           for(const header of headers){
             const cells=line.items.filter(i=>i.x>=header.left&&i.x<header.right);
             if(!cells.length)continue;
             const numberText=cells.filter(i=>i.x<header.nameX-5).map(i=>i.text).join(' '),name=cells.filter(i=>i.x>=header.nameX-5&&i.x<header.nameEnd-5).map(i=>i.text).join(' '),parsed=parseNumber(numberText);
-            if(parsed){infos.push(...rowInfo(parsed,name,{pageNumber,group}));continue;}
+            if(parsed){const newInfos=rowInfo(parsed,name,{pageNumber,group});infos.push(...newInfos);lastInputByColumn.set(header.left,{infos:newInfos,lastY:line.y});continue;}
             // Some generators put a whole table row into one text item.
-            const leading=parseLeading(cells.map(i=>i.text).join(' '));
+            const leading=cells[0].x<header.nameX-5?parseLeading(cells.map(i=>i.text).join(' ')):null;
             if(leading){infos.push(...rowInfo(leading,leading.name,{pageNumber,group,notes:['Riga senza colonne separate: verifica il nome.']}));continue;}
-            if(!numberText&&name&&!nameHeader.test(name)&&!otherHeader.test(name))infos.push(...rowInfo(null,name,{pageNumber,group}));
+            if(!numberText&&name&&!nameHeader.test(name)&&!otherHeader.test(name)){
+              const previous=lastInputByColumn.get(header.left);
+              if(previous&&previous.infos.length===1&&(header.producer||line.y-previous.lastY<=line.height*1.5)){
+                previous.infos[0].name=clean(previous.infos[0].name+' '+name);previous.lastY=line.y;
+              }else{const newInfos=rowInfo(null,name,{pageNumber,group});infos.push(...newInfos);lastInputByColumn.set(header.left,{infos:newInfos,lastY:line.y});}
+            }
           }
         }else{
           const leading=parseLeading(text);
@@ -141,7 +223,9 @@
     if(emptyPages.length)warnings.push('Pagine senza testo selezionabile, non lette: '+emptyPages.join(', ')+'.');
     if(!infos.length)warnings.push('Non ho riconosciuto righe di ingresso. Puoi incollare la lista o aggiungere i canali manualmente.');
     if(infos.length&&!hadHeader)warnings.push('Colonne non riconosciute: controlla che ogni nome contenga soltanto il nome del canale.');
-    return {rows:infos.map(makeRow),warnings,pageCount};
+    const rows=instrumentHints(infos.map(makeRow)),monitors=monitorHints(outputInfos,warnings);
+    if(monitors.length)warnings.push('Monitor letti dal PDF: controlla i bus e gli strumenti assegnati. I numeri AUX del documento non modificano il routing della WING.');
+    return {rows,monitors,warnings,pageCount};
   }
   function parseText(text){
     const items=[];
@@ -167,107 +251,21 @@
     }
     return {ok:selected.length>0&&errors.length===0,errors:[...new Set(errors)],rowErrors,selectedCount:selected.length,excludedCount:(rows||[]).length-selected.length};
   }
-  const allStrips=state=>state.values?Object.values(state.values):[...(state.inputs||[]),...(state.outputs||[])];
-  function identityPlan(rows,state){
-    const validation=validateRows(rows);
-    if(!validation.ok)return {...validation,changes:[],message:validation.errors[0]||'Seleziona almeno un canale.'};
-    const strips=new Map(allStrips(state).map(strip=>[strip.id,strip])),changes=[];
-    for(const row of rows.filter(r=>r.selected)){
-      const strip=strips.get(row.targetId);
-      if(!strip||!['CH','AUX'].includes(strip.kind))return {...validation,ok:false,changes:[],message:'Ingresso non disponibile: '+labelFor(row.targetId)};
-      const before={name:strip.name,color:strip.color},after={name:clean(row.name),color:row.color.toLowerCase()};
-      if(before.name!==after.name||before.color.toLowerCase()!==after.color)changes.push({id:strip.id,before,after});
-    }
-    return {...validation,changes,message:changes.length?'':'I nomi e i colori selezionati sono già applicati.'};
+  function sceneEngine(){
+    if(root.SculptChannelScene)return root.SculptChannelScene;
+    if(typeof module!=='undefined'&&module.exports)return require('./channel-list-scene.js');
+    throw new Error('Il modulo di preparazione scena non è disponibile. Riapri l’app aggiornata.');
   }
-  const environment=env=>({controller:env?.controller||root.SculptController,model:env?.model||root.SculptModel,live:env?.live||root.SculptLive});
-  const isLive=env=>env.live?.isLive?.()===true||env.live?.canPersist?.()===false;
-  function applyRows(rows,env){
-    const e=environment(env);
-    if(isLive(e))return {ok:false,message:'Passa alla demo offline per applicare la channel list.'};
-    if(!e.controller?.getState||!e.controller?.transact||!e.model?.patchStrip)return {ok:false,message:'Il mixer locale non è disponibile.'};
-    const plan=identityPlan(rows,e.controller.getState());
-    if(!plan.ok||!plan.changes.length)return {...plan,ok:false};
-    let applied=false;
-    const accepted=e.controller.transact(state=>{
-      if(isLive(e))return;
-      const current=identityPlan(rows,state);if(!current.ok)return;
-      const byId=new Map(allStrips(state).map(strip=>[strip.id,strip]));
-      for(const change of plan.changes){const strip=byId.get(change.id);if(!strip||strip.name!==change.before.name||strip.color!==change.before.color)return;}
-      for(const change of plan.changes)e.model.patchStrip(byId.get(change.id),change.after);
-      applied=true;
-    },'channel-list');
-    if(accepted===false||!applied)return {ok:false,message:'Il progetto è cambiato. Controlla l’anteprima prima di applicare.'};
-    return {ok:true,count:plan.changes.length,undo:clone(plan.changes),message:plan.changes.length+' ingressi aggiornati nel progetto offline.'};
+  function sceneDraft(rowsOrDraft,env){
+    const state=(env?.controller||root.SculptController)?.getState?.();
+    return Array.isArray(rowsOrDraft)?sceneEngine().prepareDraft({rows:rowsOrDraft},state):rowsOrDraft;
   }
-  function undoRows(changes,env){
-    const e=environment(env);
-    if(isLive(e))return {ok:false,message:'Passa alla demo offline per annullare l’importazione.'};
-    if(!Array.isArray(changes)||!changes.length)return {ok:false,message:'Nessuna importazione da annullare.'};
-    let restored=false,conflict=false;
-    const accepted=e.controller.transact(state=>{
-      if(isLive(e))return;
-      const byId=new Map(allStrips(state).map(strip=>[strip.id,strip]));
-      for(const change of changes){const strip=byId.get(change.id);if(!validTarget(change.id)||!strip||strip.name!==change.after.name||strip.color!==change.after.color){conflict=true;return;}}
-      for(const change of changes)e.model.patchStrip(byId.get(change.id),{name:change.before.name,color:change.before.color});
-      restored=true;
-    },'channel-list-undo');
-    return accepted!==false&&restored?{ok:true,message:'Nomi e colori precedenti ripristinati.'}:{ok:false,message:conflict?'Alcuni nomi o colori sono cambiati dopo l’importazione: annullamento non applicato.':'Il progetto non è più disponibile offline.'};
-  }
-  let active=null;
+  function applyRows(rowsOrDraft,env){return sceneEngine().applyDraft(sceneDraft(rowsOrDraft,env),env);}
+  function undoRows(token,env){return sceneEngine().undoDraft(token,env);}
   function open(){
-    if(active?.dialog.open){active.dialog.focus();return active;}
-    const U=root.SculptUI;if(!U?.modal)throw new Error('Interfaccia Sculpt non disponibile.');
-    const el=U.el,button=U.button,pane=el('section','cl-import'),intro=el('p','cl-intro','Importa il PDF, controlla la lista e scegli quali nomi e colori applicare al progetto offline.'),file=el('input','desk-input cl-file');
-    file.type='file';file.accept='.pdf,application/pdf';file.setAttribute('aria-label','Scegli channel list PDF');
-    const details=el('details','cl-paste'),summary=el('summary','','Incolla una lista di testo'),textarea=el('textarea','desk-input');textarea.rows=5;textarea.placeholder='1 Kick\n2 Snare\n3 Bass';textarea.setAttribute('aria-label','Testo della channel list');
-    const parseButton=button('Leggi il testo',()=>{if(!textarea.value.trim()){status.textContent='Incolla almeno una riga.';return;}cancelRead();try{install(parseText(textarea.value),'Lista incollata');}catch(error){status.textContent=error.message;}},'cl-parse');details.append(summary,textarea,parseButton);
-    const status=el('p','cl-status','PDF con testo selezionabile. Lettura sul dispositivo; per le scansioni l’OCR non è ancora disponibile.');status.setAttribute('role','status');
-    const preview=el('div','cl-preview'),footer=el('div','cl-footer'),selectionSummary=el('p','cl-selection'),liveNote=el('p','cl-live-note'),apply=button('Applica nomi e colori',()=>{
-      const result=applyRows(rows);status.textContent=result.message;
-      if(result.ok){undoToken=result.undo;undo.hidden=false;undo.disabled=false;U.toast(result.message);}
-      refreshStatus();
-    },'desk-primary cl-apply'),undo=button('Annulla importazione',()=>{const result=undoRows(undoToken);status.textContent=result.message;if(result.ok){undoToken=null;undo.hidden=true;U.toast(result.message);}refreshStatus();},'cl-undo');undo.hidden=true;
-    const finish=button('Chiudi',()=>handle.close()),actions=el('div','cl-actions');actions.append(undo,finish,apply);footer.append(selectionSummary,liveNote,actions);pane.append(intro,file,details,status,preview,footer);
-    const handle=active=U.modal('Importa channel list',pane);handle.dialog.classList.add('cl-modal');
-    let rows=[],generation=0,abort=null,busy=false,closed=false,undoToken=null,sourceName='',rowNodes=new Map();
-    function cancelRead(){generation++;abort?.abort();abort=null;busy=false;}
-    function refreshStatus(){
-      if(closed)return;
-      const validation=validateRows(rows),blocked=isLive(environment());
-      selectionSummary.textContent=rows.length?`${validation.selectedCount} righe selezionate · ${validation.excludedCount} escluse`:'';
-      liveNote.textContent=blocked?'Modalità WING attiva. Puoi preparare la lista; passa alla demo offline per applicarla.':validation.errors[0]||'';
-      apply.disabled=busy||blocked||!validation.ok;undo.disabled=blocked||busy;
-      for(const row of rows){const nodes=rowNodes.get(row.id);if(!nodes)continue;const errors=validation.rowErrors[row.id]||[];nodes.tr.classList.toggle('cl-row-error',errors.length>0);nodes.note.textContent=[...errors,...row.notes].join(' ');nodes.checkbox.checked=row.selected;}
-    }
-    function paint(){
-      preview.replaceChildren();rowNodes=new Map();
-      const addRow=()=>{if(rows.length>=MAX_ROWS){status.textContent='Puoi preparare al massimo 500 righe.';return;}rows.push(makeRow({name:'',targetId:''},'manual-'+generation+'-'+rows.length));paint();};
-      if(!rows.length){preview.append(button('Aggiungi riga',addRow));refreshStatus();return;}
-      const heading=el('div','cl-heading'),title=el('h3','',sourceName),hint=el('p','desk-note','Colori proposti per famiglia di strumenti, modificabili. Il nome sul banco usa al massimo 16 caratteri.');heading.append(title,hint);
-      const tools=el('div','cl-toolbar');tools.append(button('Seleziona assegnate',()=>{rows.forEach(row=>row.selected=validTarget(row.targetId)&&!!clean(row.name));refreshStatus();}),button('Deseleziona tutto',()=>{rows.forEach(row=>row.selected=false);refreshStatus();}),button('Aggiungi riga',addRow));
-      const wrap=el('div','cl-table-wrap'),table=el('table','cl-table'),head=el('thead'),tr=el('tr');for(const text of ['Usa','PDF','Destinazione','Nome','Colore']){const th=el('th','',text);th.scope='col';tr.append(th);}head.append(tr);table.append(head);const body=el('tbody');
-      for(const row of rows){
-        const tr=el('tr'),checkCell=el('td'),checkbox=el('input');tr.dataset.rowId=row.id;checkbox.type='checkbox';checkbox.checked=row.selected;checkbox.setAttribute('aria-label','Importa riga '+row.sourceNumber+' '+row.originalName);checkbox.addEventListener('change',()=>{row.selected=checkbox.checked;refreshStatus();});checkCell.append(checkbox);
-        const pdfCell=el('td','cl-source');pdfCell.append(el('strong','',row.sourceNumber),el('small','','pag. '+row.pageNumber));
-        const destCell=el('td'),destination=el('select','desk-input cl-target');destination.setAttribute('aria-label','Destinazione riga '+row.sourceNumber);let option=el('option','','Non assegnato');option.value='';destination.append(option);
-        for(const [kind,count]of [['ch',40],['aux',8]])for(let n=1;n<=count;n++){option=el('option','',labelFor(kind+'-'+n));option.value=kind+'-'+n;destination.append(option);}destination.value=row.targetId;destination.addEventListener('change',()=>{row.targetId=destination.value;row.selected=validTarget(row.targetId)&&!!clean(row.name);row.notes=row.notes.filter(note=>!note.startsWith('Numero fuori')&&!note.startsWith('Scegli il canale'));refreshStatus();});destCell.append(destination);
-        const nameCell=el('td','cl-name-cell'),name=el('input','desk-input cl-name');name.type='text';name.maxLength=MAX_NAME;name.value=row.name;name.setAttribute('aria-label','Nome riga '+row.sourceNumber);name.addEventListener('input',()=>{row.name=name.value;refreshStatus();});nameCell.append(name);if(row.originalName)nameCell.append(el('small','cl-original','PDF: '+row.originalName));const note=el('small','cl-row-note');nameCell.append(note);
-        const colorCell=el('td'),colorLine=el('div','cl-color-line'),swatch=el('i','cl-swatch'),color=el('select','desk-input cl-color');color.setAttribute('aria-label','Colore riga '+row.sourceNumber);swatch.style.backgroundColor=row.color;swatch.setAttribute('aria-hidden','true');for(const [value,label]of PALETTE){option=el('option','',label);option.value=value;color.append(option);}color.value=row.color;color.addEventListener('change',()=>{row.color=color.value;swatch.style.backgroundColor=row.color;refreshStatus();});colorLine.append(swatch,color);colorCell.append(colorLine,el('small','cl-family',row.family));tr.append(checkCell,pdfCell,destCell,nameCell,colorCell);body.append(tr);rowNodes.set(row.id,{tr,note,checkbox});
-      }
-      table.append(body);wrap.append(table);preview.append(heading,tools,wrap);refreshStatus();
-    }
-    function install(result,label){rows=result.rows;sourceName=label;status.textContent=result.warnings.length?result.warnings.join(' '):`${rows.length} righe lette. Controlla l’anteprima prima di applicare.`;paint();}
-    file.addEventListener('change',async()=>{
-      const selected=file.files?.[0];if(!selected)return;cancelRead();const ticket=generation;abort=new AbortController();busy=true;rows=[];sourceName='';status.textContent='Lettura del PDF…';paint();
-      try{if(!root.SculptPdfReader?.readFile)throw new Error('Il lettore PDF non è disponibile. Riapri l’app aggiornata.');const data=await root.SculptPdfReader.readFile(selected,{signal:abort.signal,onProgress:progress=>{if(ticket===generation&&!closed)status.textContent=typeof progress==='string'?progress:progress?.totalPages?'Lettura del PDF · pagina '+progress.pageNumber+' di '+progress.totalPages+'…':'Lettura del PDF…';}});if(ticket!==generation||closed)return;install(parseDocument(data),selected.name);}
-      catch(error){if(ticket===generation&&!closed&&error.name!=='AbortError')status.textContent=error.message||'Non è stato possibile leggere il PDF.';}
-      finally{if(ticket===generation&&!closed){busy=false;refreshStatus();}}
-    });
-    const unsubscribe=root.SculptLive?.subscribe?.(refreshStatus);
-    handle.dialog.addEventListener('close',()=>{closed=true;cancelRead();unsubscribe?.();if(active===handle)active=null;},{once:true});
-    paint();return handle;
+    if(!root.SculptChannelPreview?.open)throw new Error('L’anteprima della scena non è disponibile. Riapri l’app aggiornata.');
+    return root.SculptChannelPreview.open();
   }
-  const API={open,parseDocument,parseText,linesFromItems,suggestColor,validateRows,identityPlan,applyRows,undoRows,palette:PALETTE,maxNameLength:MAX_NAME};
+  const API={open,parseDocument,parseText,linesFromItems,suggestColor,validateRows,instrumentHints,applyRows,undoRows,palette:PALETTE,maxNameLength:MAX_NAME};
   if(typeof module!=='undefined'&&module.exports)module.exports=API;root.SculptChannelList=API;
 })(typeof window!=='undefined'?window:globalThis);

@@ -1,71 +1,73 @@
-SCULPT WING 0.6.2 — CHANNEL LIST PDF · MAC M1
+SCULPT WING 0.6.3 — SCENA DA PDF E MONITOR · MAC M1
 
-Questo ZIP contiene i sorgenti aggiornati da caricare nel repository esistente
-mrgianluca990-bit/Sculpt-Wing. GitHub Actions crea la nuova Sculpt Wing.app
-per Mac Apple Silicon arm64/M1. Questo archivio non è l’app compilata.
+Questo ZIP contiene i sorgenti aggiornati per il repository esistente
+mrgianluca990-bit/Sculpt-Wing. Dopo il caricamento, GitHub Actions crea
+Sculpt Wing.app per Mac Apple Silicon arm64/M1.
 
-IMPORTARE LA CHANNEL LIST
-1. Apri Menu del banco -> Importa channel list.
-2. Scegli il PDF con testo selezionabile, oppure incolla una lista di testo.
-3. Controlla destinazioni CH/AUX, nomi, colori e righe selezionate.
-4. Premi Applica nomi e colori per aggiornare il progetto offline.
-5. Nello stesso dialogo puoi annullare l’importazione appena applicata.
+IMPORTARE IL PDF DI PRODUCER
+1. Apri Menu del banco -> Importa channel list e scegli il PDF.
+2. In CANALI controlla destinazioni, nomi, colori, bus principale, mute e fader.
+3. In MANDATE controlla i monitor assegnati e ogni invio del canale.
+4. In RIMANENTI scegli se conservare gli altri ingressi o inizializzarne
+   nome, colore, mute e fader. Puoi escluderli e correggerli singolarmente.
+5. Premi Applica scena. Annulla importazione resta disponibile nello stesso
+   dialogo, purché i valori interessati non siano stati modificati dopo.
 
-La palette automatica richiesta è:
-- Batteria: rosso
-- Basso: verde
-- Chitarre: blu
-- Tastiere: bianco
-- Voci: rosa
-- Fiati: giallo
-- Archi: arancio
-Ogni colore è modificabile prima dell’applicazione.
+VALORI INIZIALI, TUTTI MODIFICABILI NELL’ANTEPRIMA
+- Canali importati: mute attivo e fader a −∞.
+- Monitor principale: mandata attiva, −5 dB PRE.
+- Tutti gli altri monitor assegnati: mandata attiva, −8 dB POST.
+- Segue mute: attivo.
+- Canali rimanenti: lasciati come sono.
 
-La lettura avviene sul dispositivo e non richiede Internet, chiavi API o un’app
-ponte. Questa versione legge PDF con testo; le scansioni richiedono OCR, che
-non è ancora incluso. Segnala duplicati, nomi accorciati e canali non assegnati.
-Il numero 41 non viene convertito automaticamente in AUX 1.
+Più canali dello stesso strumento possono condividere un bus principale.
+Sono disponibili 16 BUS; ogni livello e PRE/POST si modifica separatamente.
+Puoi applicare nome e colore anche ai BUS oppure conservarne l’identità.
+I fader, i mute e il routing delle uscite BUS restano conservati.
 
-In questo primo passo vengono applicati soltanto nomi e colori. Monitor e IEM
-saranno configurati in seguito secondo le indicazioni dell’utente. Non vengono
-cambiati livelli, mandate, patch, link stereo, gain, phantom o processing.
-La modifica prepara il progetto Sculpt offline; non genera uno snapshot WING.
+La palette richiesta è: batteria rosso, basso verde, chitarre blu,
+tastiere bianco, voci rosa, fiati giallo, archi arancio.
 
-PANNELLI COMPLETATI
-Aggiunti Tilt EQ, Maxer, AP90, AP180, Dual Dynamic EQ, PSE/LA Combo,
-Even 88 Compressor, LMT e One Knob Compressor. Tutte le 108 definizioni non vuote del
-catalogo hanno ora un pannello basato sui riferimenti disponibili. NONE resta
-lo slot vuoto dedicato. Sono ricostruzioni interattive: non è dichiarata identità
-pixel per pixel con ogni versione di WING EDIT. Copertura e limiti in
- docs/PLUGIN_ORIGINAL_SURFACES.md.
+ROUTING CONSERVATO
+L’importazione conserva patch, sorgenti alternative, insert, gain, phantom,
+processing e punti di prelievo del canale. Le mandate verso MAIN/MTX e verso
+BUS esclusi dall’elenco monitor restano conservate.
+“Inizializza” riguarda soltanto nome, colore, mute e fader dei rimanenti;
+le loro mandate e il processing esistenti restano conservati.
 
-Restano le correzioni 0.6.1: scorrimento orizzontale con click e trascinamento,
-fader dalla sola testa e Custom Layer con due righe indipendenti.
+Il PDF di Producer non stampa l’abbinamento esplicito strumento-monitor.
+Wing propone gli abbinamenti dai nomi; quelli ambigui richiedono una scelta.
+Le uscite AUX e le coppie L/R del documento non modificano il patch WING.
+Se un tap condiviso AFL/POST impedisce un vero PRE, l’anteprima lo segnala.
 
-CARICAMENTO SU GITHUB
+La lettura è locale. Sono supportati PDF con testo selezionabile e liste
+incollate; le scansioni richiedono OCR, ancora non incluso. Applica scena
+prepara il progetto Sculpt offline e non genera uno snapshot nativo WING.
+
+CARICAMENTO SU GITHUB E APP MAC
 1. Estrai questo ZIP sul Mac.
 2. Nel Finder premi Cmd + Shift + . per vedere anche .github e .gitignore.
 3. Apri https://github.com/mrgianluca990-bit/Sculpt-Wing, ramo main,
    quindi Add file -> Upload files.
-4. Trascina il CONTENUTO della cartella estratta mantenendo i percorsi:
-   .github, desktop, dist, docs, native, tests e i file nella cartella principale.
-   Non caricare lo ZIP o la cartella esterna che lo contiene. Non eliminare
-   gli altri file già nel repository.
-5. Controlla in particolare dist/pdf-reader.js, dist/pdf.worker.js,
-   dist/channel-list.js, native/package-lock.json e il workflow in .github.
-   Premi Commit changes su main.
+4. Trascina il CONTENUTO estratto mantenendo le cartelle e i percorsi:
+   .github, desktop, dist, docs, native, tests e i file principali.
+   Carica i file estratti, senza la cartella esterna che li contiene.
+   Conserva gli altri file già nel repository.
+5. Verifica che siano presenti dist/channel-list.js,
+   dist/channel-list-scene.js e dist/channel-list-preview.js,
+   poi premi Commit changes su main.
 6. In Actions attendi il verde di “Build Sculpt Wing - Mac M1”.
 7. Scarica l’artifact “Sculpt-Wing-Mac-M1” e apri lo ZIP contenuto:
-   Sculpt-Wing-0.6.2-mac-arm64.zip. Dentro trovi Sculpt Wing.app.
+   Sculpt-Wing-0.6.3-mac-arm64.zip. Dentro trovi Sculpt Wing.app.
 8. Chiudi la vecchia app e sostituiscila con la nuova in Applicazioni.
 
-Il contenuto conserva tutte le modifiche della 0.6.1 già caricate nel commit
-7fc4cf2f56c7c84d5def08a2937634b0c1afdc43. Il pacchetto è cumulativo.
+La base conserva la 0.6.2 caricata nel commit
+70b4c8265a60c90e908a540de0daf49323988ee6 e le correzioni della 0.6.1.
+Restano fader dalla testa, scorrimento con trascinamento e Custom Layer
+a due righe, oltre ai pannelli dei processori già completati.
 
-VERIFICHE E LIMITI
-Vedi docs/RELEASE_0.6.2_MAC_M1.md e docs/CHANNEL_LIST_IMPORT.md.
-Il codice e il flusso di importazione sono stati verificati nell’ambiente di
-sviluppo. La compilazione macOS 0.6.2 deve essere eseguita da GitHub Actions;
-non viene dichiarato un collaudo su un Mac M1 o su una WING fisica.
-L’accesso GitHub disponibile ha restituito 403 alla scrittura nella sessione;
+DETTAGLI E VERIFICHE
+Vedi docs/CHANNEL_LIST_IMPORT.md e docs/RELEASE_0.6.3_MAC_M1.md.
+L’accesso GitHub disponibile aveva restituito 403 alla scrittura;
 il repository non è stato aggiornato automaticamente da questa consegna.
+La build del nuovo binario macOS viene eseguita dal workflow GitHub.

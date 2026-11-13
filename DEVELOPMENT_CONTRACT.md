@@ -42,3 +42,17 @@ L’utente richiede di completare le superfici dei processori ancora mancanti e 
 La palette automatica richiesta è: batteria rosso, basso verde, chitarre blu, tastiere bianco, voci rosa, fiati giallo, archi arancio. Ogni colore resta modificabile nell’anteprima.
 
 **Monitor e IEM sono rimandati alle istruzioni dell’utente.** L’importazione non imposta mandate, bus, patch, link stereo, gain, phantom o processing. Non genera livelli monitor predefiniti. Le macro restano fuori da questa modifica. Conservare scorrimento orizzontale del mouse, fader dalla sola testa e Custom Layer a due righe della versione 0.6.1.
+
+## Aggiornamento 0.6.3 — scena da Producer e anteprima modificabile
+
+Le nuove istruzioni dell’utente definiscono ora le mandate monitor e superano il rinvio della sezione 0.6.2. Il flusso richiesto è **Producer → PDF → Sculpt Wing**, con canali, nomi, colori e mandate preparati nel progetto locale. La priorità di distribuzione resta **Mac M1 / Apple Silicon arm64**.
+
+L’importatore propone gli ingressi selezionati in mute e con fader a −∞. Ogni strumento ha un monitor principale, eventualmente condiviso da più canali, con mandata attiva a **−5 dB PRE**; verso tutti gli altri monitor assegnati propone **−8 dB POST**. Le mandate proposte seguono il mute del canale. **Tutti i valori proposti devono essere modificabili nell’anteprima**, comprese destinazioni, nomi, colori, mute, fader, BUS, singole mandate, PRE/POST e Segue mute. L’identità dei BUS assegnati è applicabile con esclusione facoltativa; i loro fader e mute restano conservati.
+
+Per gli ingressi rimanenti, la scelta iniziale è conservarli. L’opzione di inizializzazione deve dichiarare esattamente il proprio ambito: **nome standard, colore grigio, mute attivo e fader a −∞**, con eccezioni e correzioni per canale. Processing e mandate preesistenti dei rimanenti restano conservati.
+
+**Il routing del canale non deve mai essere modificato dall’importazione.** Conservare sorgenti, sorgenti alternative, patch delle uscite, preamplificatori, phantom, insert, ordine dei processori, punti PRE condivisi, invii MAIN/MTX, invii ai BUS esclusi e ogni altro campo non esplicitamente previsto. Un tap condiviso AFL/POST che contraddice una proposta PRE deve produrre una segnalazione bloccante, senza riscrivere il tap.
+
+Il PDF Producer attuale non stampa gli identificativi degli strumenti né un’associazione esplicita tra ingressi e monitor. Il riconoscimento dai nomi deve restare una proposta; gli abbinamenti non univoci richiedono una scelta nell’anteprima. I numeri AUX del PDF e le coppie L/R non autorizzano modifiche al patch o alla modalità stereo dei BUS. Conservarne la provenienza visibile per il controllo dell’utente.
+
+L’applicazione deve essere atomica e limitata al progetto offline, con annullamento selettivo e controllo dei conflitti. Nessun dato della preview deve modificare il mixer prima di Applica scena. La funzione non genera uno snapshot nativo WING e non autorizza una nuova procedura di scrittura massiva live. Conservare le funzionalità della 0.6.2 e le correzioni a gesti, fader e Custom Layer della 0.6.1; le macro restano fuori da questa modifica.
