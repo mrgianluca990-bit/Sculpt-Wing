@@ -6,6 +6,6 @@ const driver = new WingClient(new NativeTransport());
 Object.assign(window, { SculptNative: Object.freeze({
   available: nativeAvailable,
   platform: nativePlatform,
-  version: '0.7.1',
+  version: '0.7.2',
   driver,
 }) });
