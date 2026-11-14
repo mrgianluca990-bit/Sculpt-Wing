@@ -1,0 +1,35 @@
+{
+  "url": "http://127.0.0.1:4173/wing068-verified/",
+  "viewport": "1363 × 936",
+  "pan": {
+    "keyboard": "ArrowRight → R 2",
+    "doubleClick": "C (0)"
+  },
+  "editor": {
+    "from": "CH 1 · Kick",
+    "to": "CH 2 · Snare up",
+    "moduleRetained": "EQ"
+  },
+  "eqPointer": {
+    "pickup": "Offset retained; pointerdown does not change parameters",
+    "observedDragPixels": {
+      "x": 59.97,
+      "y": -19.99
+    },
+    "result": "547 Hz / +8.1 dB"
+  },
+  "rta": {
+    "offline": "Collega WING; empty spectrum",
+    "toolbar": "Full status visible after CSS fix; 58px clientWidth / 58px scrollWidth"
+  },
+  "console": [],
+  "screenshots": [
+    "eq-pan-068.jpg",
+    "rta-068-offline.jpg"
+  ],
+  "limitations": [
+    "Browser demo only",
+    "No physical WING",
+    "No native macOS execution"
+  ]
+}

@@ -1,10 +1,10 @@
-# Sculpt Wing per Mac M1 · 0.6.7
+# Sculpt Wing per Mac M1 · 0.6.8
 
 L’app desktop usa la stessa interfaccia del progetto web e comunica direttamente con la WING tramite TCP/UDP. Include anche un trasporto OSC per Sculpt Show o altri destinatari. Le due connessioni sono indipendenti; non serve un’app ponte.
 
 ## Pacchetto generato da GitHub
 
-Il workflow **Build Sculpt Wing - Mac M1**, in `.github/workflows/build-desktop.yml`, compila il solo target **Apple Silicon ARM64**. L’artifact **Sculpt-Wing-Mac-M1** contiene `Sculpt-Wing-0.6.7-mac-arm64.zip`, con **Sculpt Wing.app**. Estrai l’app e spostala in Applicazioni dopo aver chiuso la versione precedente. L’app incorpora il runtime: non richiede Node.js sul computer dell’utente.
+Il workflow **Build Sculpt Wing - Mac M1**, in `.github/workflows/build-desktop.yml`, compila il solo target **Apple Silicon ARM64**. L’artifact **Sculpt-Wing-Mac-M1** contiene `Sculpt-Wing-0.6.8-mac-arm64.zip`, con **Sculpt Wing.app**. Estrai l’app e spostala in Applicazioni dopo aver chiuso la versione precedente. L’app incorpora il runtime: non richiede Node.js sul computer dell’utente.
 
 Il workflow esegue prima i test nell’ambiente Linux e poi quelli del trasporto sul runner Mac; compila esplicitamente ARM64, verifica l’architettura dell’eseguibile e la firma ad hoc. Non applica Developer ID o notarizzazione e non pubblica automaticamente una Release. La nuova compilazione macOS deve essere eseguita dopo il caricamento dei sorgenti: questa consegna non contiene un binario Mac già collaudato.
 
@@ -17,6 +17,12 @@ Per il caricamento seguire [CARICA_SU_GITHUB.md](../CARICA_SU_GITHUB.md).
 3. Attiva **Controllo** per modificare i valori.
 
 Il controllo WING usa la porta 2222 TCP/UDP e una porta UDP locale assegnata dal sistema per i meter. Se macOS richiede il permesso per la rete locale, concedilo all’app. Dopo sospensione, chiusura o ricaricamento della finestra la sessione termina: ricollega il banco per rileggere lo stato. La demo non viene inviata automaticamente alla WING.
+
+## EQ, pan e RTA
+
+Il cambio canale mantiene il modulo dell’editor aperto. Le bande EQ usano le coordinate effettive del grafico ridimensionato e conservano il punto di presa. Pan sopra i fader: trascina o usa le frecce; doppio clic per il centro. Un gesto resta una sola operazione Annulla.
+
+Lo spettro RTA arriva direttamente dal trasporto UDP WING già integrato. Si attiva soltanto mentre una vista RTA è aperta e visibile. La console dispone di un analizzatore condiviso: la sorgente effettiva è riportata, e un indice senza mappatura verificata non viene presentato come il canale selezionato. Scala relativa; prova hardware ancora necessaria. Vedi [RTA_WING.md](../docs/RTA_WING.md).
 
 ## OSC e Sculpt Show
 
@@ -63,4 +69,4 @@ Gli output sono in `desktop/release/`. L’app incorpora `dist/` dalla radice e 
 
 L’interfaccia usa l’origine locale `sculpt://app` e conserva i dati sul computer. Node è disabilitato nel renderer; restano sandbox, isolamento del contesto, blocco delle navigazioni e controllo del mittente IPC.
 
-Le prove della consegna comprendono **28 test desktop**, inclusi UDP reali in loopback e Undo/Redo del menu Mac con shell simulata. Non è stato eseguito il binario 0.6.7 su un Mac fisico, né collegata una WING o l’app Show reale. Vedi [risultati completi](../docs/RELEASE_0.6.7_MAC_M1.md) e [collaudo WING/Show](../docs/COLLAUDO_WING_SHOW_0.6.7.md).
+Le prove della consegna comprendono **28 test desktop**, inclusi UDP reali in loopback e Undo/Redo del menu Mac con shell simulata. Non è stato eseguito il binario 0.6.8 su un Mac fisico, né collegata una WING o l’app Show reale. Vedi [risultati completi](../docs/RELEASE_0.6.8_MAC_M1.md) e [collaudo WING/Show](../docs/COLLAUDO_0.6.8.md).

@@ -14,14 +14,19 @@
   function interpolate(value,from,to){for(let i=1;i<taper.length;i++)if(value<=taper[i][from]){const a=taper[i-1],b=taper[i];return a[to]+(value-a[from])/(b[from]-a[from])*(b[to]-a[to]);}return taper.at(-1)[to];}
   const toPosition=db=>clamp(interpolate(db,1,0),0,1);
   const toDb=position=>{const raw=interpolate(clamp(position,0,1),0,1);return raw<=-89?-90:Math.round(raw*10)/10;};
-  let storageWarning=false,saveTimer=null,savePending=false;
+  let storageWarning=false,saveTimer=null,saveIdle=null,savePending=false;
   function flushSave(){
     if(saveTimer!==null)clearTimeout(saveTimer);saveTimer=null;
+    if(saveIdle!==null)window.cancelIdleCallback?.(saveIdle);saveIdle=null;
     if(!savePending)return;savePending=false;
     if(window.SculptLive?.canPersist?.()===false)return;
     try{localStorage.setItem(M.KEY,JSON.stringify(M.serialize(state)));storageWarning=false;}catch{if(!storageWarning){storageWarning=true;setTimeout(()=>toast('Memoria locale piena: esporta il progetto per conservarlo.'),0);}}
   }
-  function save(){if(window.SculptLive?.canPersist?.()===false)return;savePending=true;if(saveTimer===null)saveTimer=setTimeout(flushSave,180);}
+  function save(){
+    if(window.SculptLive?.canPersist?.()===false)return;savePending=true;
+    if(saveTimer!==null)clearTimeout(saveTimer);if(saveIdle!==null)window.cancelIdleCallback?.(saveIdle);saveIdle=null;
+    saveTimer=setTimeout(()=>{saveTimer=null;if(window.requestIdleCallback)saveIdle=window.requestIdleCallback(()=>{saveIdle=null;flushSave();},{timeout:1500});else flushSave();},180);
+  }
   function reconcile(target,source){
     if(Array.isArray(target)&&Array.isArray(source)){while(target.length>source.length)target.pop();for(let i=0;i<source.length;i++){if(source[i]&&typeof source[i]==='object'&&target[i]&&typeof target[i]==='object'&&Array.isArray(source[i])===Array.isArray(target[i]))reconcile(target[i],source[i]);else target[i]=source[i];}return;}
     for(const key of Object.keys(target))if(!(key in source))delete target[key];
@@ -61,13 +66,25 @@
     const old=stripById(state.selected);state.selected=id;
     if(old)updateStrip(old);updateStrip(strip);updateSelection();if(persist)save();return true;
   }
-  function openEditor(id,origin){select(id);if(window.SculptEditor?.open)window.SculptEditor.open(id,false,origin);}
+  function openEditor(id,origin){if(window.SculptEditor?.open)window.SculptEditor.open(id,false,origin);else select(id);}
+  const formatPan=value=>Math.abs(value)<.05?'C':`${value<0?'L':'R'} ${Math.round(Math.abs(value))}`;
+  function panView(strip,view=M.display(state,strip.id)){
+    const send=view.send?M.getSend(state,strip.id,view.targetId):null;
+    const supported=!send||['CH','AUX'].includes(strip.kind),linked=!!send?.panLink;
+    const path=send?window.SculptWingMap?.sendPath(strip.id,view.targetId,'pan'):window.SculptWingMap?.stripPath(strip.id)+'/pan';
+    const live=window.SculptLive,isLive=live?.isLive?.(),meta=isLive?live.metadata?.(path):null;
+    const linkKnown=!isLive||!send||!!live.hasValue?.(window.SculptWingMap?.sendPath(strip.id,view.targetId,'panLink'));
+    const loaded=!isLive||!!(path&&live.hasValue?.(path)&&linkKnown&&(!linked||live.hasValue?.(window.SculptWingMap?.stripPath(strip.id)+'/pan')));
+    const writable=supported&&!linked&&loaded&&(!isLive||!!(live.isWritable?.()&&meta&&!meta.readOnly));
+    return {value:linked?strip.pan:(send?.pan??strip.pan),targetId:view.targetId,supported,linked,linkKnown,loaded,writable};
+  }
   function updateStrip(strip){
     const el=elements.get(strip.id);if(!el)return;
     const view=M.display(state,strip.id),target=view.send?stripById(view.targetId):null;
     const effective=window.SculptDesk?.effective(strip.id);
     const loaded=window.SculptLive?.hasStripValue(strip.id,view.targetId)??true;
-    const signature=[strip.name,strip.color,strip.mute,state.selected===strip.id,state.sof===strip.id,view.level,view.on,view.send,view.targetId,target?.name,effective?.muted,effective?.solo,loaded,el.row].join('|');
+    const pan=panView(strip,view);
+    const signature=[strip.name,strip.color,strip.mute,state.selected===strip.id,state.sof===strip.id,view.level,view.on,view.send,view.targetId,target?.name,effective?.muted,effective?.solo,loaded,pan.value,pan.supported,pan.linked,pan.linkKnown,pan.loaded,pan.writable,el.row].join('|');
     if(el.signature===signature)return;el.signature=signature;
     const description=view.send?`Mandata ${label(strip)} a ${label(target)}`:`Livello ${label(strip)}`;
     el.article.style.setProperty('--color',strip.color);
@@ -89,6 +106,18 @@
     el.readout.setAttribute('aria-label',`Inserisci ${view.send?'mandata':'livello'} per ${label(strip)}`);
     el.article.classList.toggle('live-unknown',!loaded);
     el.readout.querySelector('span').textContent=loaded?format(view.level):'—';
+    const panLabel=view.send?`Pan mandata ${label(strip)} a ${label(target)}`:`Pan ${label(strip)}`;
+    const panSignature=[panLabel,pan.value,pan.supported,pan.linked,pan.linkKnown,pan.loaded,pan.writable].join('|');
+    if(el.panSignature!==panSignature){
+      el.panSignature=panSignature;el.pan.style.setProperty('--pan-angle',`${clamp(pan.value,-100,100)*1.25}deg`);
+      el.pan.setAttribute('aria-label',panLabel);if(pan.loaded&&pan.supported)el.pan.setAttribute('aria-valuenow',String(pan.value));else el.pan.removeAttribute('aria-valuenow');
+      el.pan.setAttribute('aria-valuetext',pan.loaded&&pan.supported?`${formatPan(pan.value)}${pan.linked?' · segue il pan del canale':''}`:'Non disponibile');
+      el.pan.setAttribute('aria-disabled',String(!pan.writable));
+      el.pan.dataset.known=String(pan.loaded&&pan.supported);
+      el.panValue.textContent=pan.loaded&&pan.supported?formatPan(pan.value):'—';
+      el.panCaption.textContent=pan.linkKnown&&pan.linked?'LINK':view.send?'SEND':'PAN';
+      el.pan.title=`${panLabel} · ${!pan.supported?'Pan separato non previsto per questa mandata':!pan.loaded?'In attesa del valore dalla WING':pan.linked?'Segue il pan del canale; disattiva Pan link nell’editor Mandate per regolarlo':!pan.writable?'Sola lettura':'Trascina · doppio clic: centro · Maiusc: regolazione fine'}`;
+    }
     el.mute.textContent=view.send?(view.on?'ON':'OFF'):'MUTE';
     el.mute.setAttribute('aria-label',view.send?`Mandata attiva ${label(strip)} a ${label(target)}`:`Mute ${label(strip)}`);
     el.mute.setAttribute('aria-pressed',String(view.send?view.on:strip.mute));
@@ -114,23 +143,65 @@
     if(!commit(()=>{if(targetId)M.setSend(state,id,targetId,{level});else M.patchStrip(strip,{level});},targetId?'send':'strip',id))return;
     updateStrip(strip);updateSelection();if(persist){save();emit(targetId?'send':'strip',id);}
   }
+  function changePan(id,value,targetId,persist=true){
+    const strip=stripById(id);if(!strip)return false;
+    const view=panView(strip);if(history?.busy||!view.writable||view.targetId!==targetId)return false;
+    value=Math.round(clamp(value,-100,100));if(value===view.value)return true;
+    if(!commit(()=>{if(targetId)M.setSend(state,id,targetId,{pan:value});else M.patchStrip(strip,{pan:value});},targetId?'send':'strip',id))return false;
+    updateStrip(strip);if(persist){save();emit(targetId?'send':'strip',id);}return true;
+  }
   function makeStrip(strip,index,row){
     const article=document.createElement('article');
     article.className=`strip${['CH','AUX'].includes(strip.kind)?' input-strip':''}${(strip.kind==='MTX'||strip.kind==='MAIN'||strip.kind==='AUX')&&strip.number===1?' group-first':''}`;
     article.dataset.id=strip.id;
     article.innerHTML=`<button class="strip-label" type="button"><span class="strip-index"><span class="strip-number"></span><i aria-hidden="true"></i></span><span class="strip-name"></span></button>
+      <div class="strip-pan" role="slider" tabindex="0" aria-valuemin="-100" aria-valuemax="100" aria-orientation="horizontal"><span class="strip-pan-dial" aria-hidden="true"><i></i></span><span class="strip-pan-value"><small>PAN</small><output>C</output></span></div>
       <button class="level-readout" type="button"><span></span><small>dB</small></button>
       <div class="fader-well"><div class="fader" role="slider" tabindex="0" aria-valuemin="-90" aria-valuemax="10" aria-orientation="vertical">
       <div class="fader-scale" aria-hidden="true">${[10,0,-10,-20,-40,-90].map(v=>`<div class="tick${v===0?' zero':''}${v===-10||v===-40?' secondary':''}${v===10||v===-20?' compact-hide':''}" style="top:${(1-toPosition(v))*100}%"><span>${v===-90?'−∞':v>0?'+'+v:String(v).replace('-','−')}</span></div>`).join('')}</div><div class="fader-cap" aria-hidden="true"></div></div>
       <div class="meter-pair" aria-hidden="true"><div class="meter"><i class="meter-fill"></i><i class="meter-peak"></i></div><div class="meter"><i class="meter-fill"></i><i class="meter-peak"></i></div></div>${['CH','AUX'].includes(strip.kind)?'<div class="strip-gr-pair" aria-label="Riduzione di guadagno"><div class="strip-gr gate-gr" role="meter" aria-label="GR gate" aria-valuemin="0" aria-valuemax="100"><span>G</span><i></i></div><div class="strip-gr comp-gr" role="meter" aria-label="GR compressore" aria-valuemin="0" aria-valuemax="100"><span>C</span><i></i></div></div>':''}</div>
       <div class="strip-buttons"><button class="mute-button" type="button" aria-pressed="false">MUTE</button>${strip.kind==='BUS'||strip.kind==='MTX'?'<button class="sof-button" type="button" aria-pressed="false">SOF</button>':''}</div>`;
-    const fader=article.querySelector('.fader'),readout=article.querySelector('.level-readout'),mute=article.querySelector('.mute-button'),sof=article.querySelector('.sof-button'),labelButton=article.querySelector('.strip-label');
-    elements.set(strip.id,{article,fader,readout,mute,sof,labelButton,number:article.querySelector('.strip-number'),name:article.querySelector('.strip-name'),mode:article.querySelector('.strip-index i'),meters:[...article.querySelectorAll('.meter')],gr:[...article.querySelectorAll('.strip-gr')],visible:true,index,row});
+    const fader=article.querySelector('.fader'),panControl=article.querySelector('.strip-pan'),readout=article.querySelector('.level-readout'),mute=article.querySelector('.mute-button'),sof=article.querySelector('.sof-button'),labelButton=article.querySelector('.strip-label');
+    elements.set(strip.id,{article,fader,pan:panControl,panValue:panControl.querySelector('output'),panCaption:panControl.querySelector('small'),readout,mute,sof,labelButton,number:article.querySelector('.strip-number'),name:article.querySelector('.strip-name'),mode:article.querySelector('.strip-index i'),meters:[...article.querySelectorAll('.meter')],gr:[...article.querySelectorAll('.strip-gr')],visible:true,index,row});
     labelButton.addEventListener('click',()=>openEditor(strip.id,labelButton));
     article.addEventListener('click',event=>{if(!event.target.closest('button,[role="slider"]'))openEditor(strip.id,labelButton);});
     readout.addEventListener('click',()=>openLevel(strip.id));
     mute.addEventListener('click',()=>{const view=M.display(state,strip.id);if(!commit(()=>{if(view.send)M.setSend(state,strip.id,view.targetId,{on:!view.on});else strip.mute=!strip.mute;},view.send?'send':'strip',strip.id))return;select(strip.id);updateStrip(strip);save();emit(view.send?'send':'strip',strip.id);});
     if(sof)sof.addEventListener('click',()=>setSof(state.sof===strip.id?null:strip.id));
+    let panDrag=null;
+    const finishPan=event=>{
+      if(!panDrag||(event&&event.pointerId!==panDrag.pointer))return;
+      const {pointer,targetId,moved}=panDrag;panDrag=null;panControl.classList.remove('dragging');
+      if(panControl.hasPointerCapture?.(pointer))panControl.releasePointerCapture(pointer);
+      history?.end();if(moved){save();emit(targetId?'send':'strip',strip.id);}
+    };
+    panControl.addEventListener('pointerdown',event=>{
+      if(panDrag||history?.busy||event.button!==0)return;const view=panView(strip);if(!view.writable)return;
+      panControl.focus({preventScroll:true});select(strip.id,false);history?.begin(view.targetId?'Pan mandata':'Pan');
+      panDrag={pointer:event.pointerId,x:event.clientX,y:event.clientY,value:view.value,targetId:view.targetId,session:window.SculptLive?.sessionToken?.(),moved:false};
+      panControl.setPointerCapture(event.pointerId);panControl.classList.add('dragging');event.preventDefault();
+    });
+    panControl.addEventListener('pointermove',event=>{
+      if(!panDrag||event.pointerId!==panDrag.pointer)return;
+      const view=panView(strip);if(history?.busy||!view.writable||view.targetId!==panDrag.targetId||panDrag.session!==window.SculptLive?.sessionToken?.()){finishPan(event);return;}
+      const dx=event.clientX-panDrag.x,dy=panDrag.y-event.clientY;
+      if(!panDrag.axis&&Math.max(Math.abs(dx),Math.abs(dy))>=2)panDrag.axis=Math.abs(dx)>=Math.abs(dy)?'x':'y';
+      if(!panDrag.axis)return;
+      panDrag.value=clamp(panDrag.value+(panDrag.axis==='x'?dx:dy)*(event.shiftKey?.2:1),-100,100);
+      panDrag.x=event.clientX;panDrag.y=event.clientY;
+      if(changePan(strip.id,panDrag.value,panDrag.targetId,false))panDrag.moved=true;else finishPan(event);event.preventDefault();
+    });
+    for(const event of ['pointerup','pointercancel','lostpointercapture'])panControl.addEventListener(event,finishPan);
+    window.addEventListener('blur',()=>finishPan());
+    panControl.addEventListener('dblclick',event=>{if(event.button!==0)return;finishPan();changePan(strip.id,0,panView(strip).targetId);event.preventDefault();event.stopPropagation();});
+    panControl.addEventListener('keydown',event=>{
+      const view=panView(strip);let value=view.value;
+      if(['ArrowRight','ArrowUp'].includes(event.key))value+=event.shiftKey?1:2;
+      else if(['ArrowLeft','ArrowDown'].includes(event.key))value-=event.shiftKey?1:2;
+      else if(event.key==='Home')value=-100;else if(event.key==='End')value=100;
+      else if(event.key==='Enter'||event.key==='0')value=0;else return;
+      changePan(strip.id,value,view.targetId);event.preventDefault();event.stopPropagation();
+    });
     let drag=null;
     fader.addEventListener('pointerdown',event=>{
       if(drag||event.button!==0||!event.target.closest('.fader-cap'))return;
@@ -174,7 +245,7 @@
     };
     scroller.addEventListener('pointerdown',event=>{
       suppressClick=false;
-      if(pan||event.defaultPrevented||event.pointerType==='touch'||event.button!==0||event.target.closest('.fader-cap,input,select,textarea,[contenteditable="true"]'))return;
+      if(pan||event.defaultPrevented||event.pointerType==='touch'||event.button!==0||event.target.closest('.fader-cap,.strip-pan,input,select,textarea,[contenteditable="true"]'))return;
       if(scroller.scrollWidth<=scroller.clientWidth)return;
       pan={pointer:event.pointerId,startX:event.clientX,startY:event.clientY,startScroll:scroller.scrollLeft,active:false};
     });
@@ -202,15 +273,17 @@
     bindBankPan(scroller);
     const updateBank=()=>{
       const progress=document.getElementById(`${row}-progress`),total=Math.max(scroller.scrollWidth,scroller.clientWidth,1);
-      progress.style.width=`${Math.min(100,scroller.clientWidth/total*100)}%`;progress.style.left=`${scroller.scrollLeft/total*100}%`;
-      const visible=[...bank.querySelectorAll('.strip:not([hidden])')],width=visible[0]?.getBoundingClientRect().width||0;
-      if(width<=0||layerMembers)return;
+      const progressWidth=`${Math.min(100,scroller.clientWidth/total*100)}%`,progressLeft=`${scroller.scrollLeft/total*100}%`;
+      const visible=layerMembers?[]:[...bank.querySelectorAll('.strip:not([hidden])')];
       // Use actual nodes: pinned strips have left the center and DCA masters
-      // now share its final sixteen positions with the regular outputs.
-      const first=visible.find(node=>node.offsetLeft+node.getBoundingClientRect().width*.6>scroller.scrollLeft)||visible.at(-1);
+      // share its final sixteen positions. Finish layout reads before writes.
+      const first=visible.find(node=>node.offsetLeft+(node.offsetWidth||node.getBoundingClientRect().width)*.6>scroller.scrollLeft)||visible.at(-1);
+      if(progress.style.width!==progressWidth)progress.style.width=progressWidth;
+      if(progress.style.left!==progressLeft)progress.style.left=progressLeft;
+      if(!first||layerMembers)return;
       if(row==='outputs')window.SculptDcaBank?.syncNavigation(first);
       const index=state[row].findIndex(strip=>strip.id===first?.dataset.id),activeIndex=index<0?-1:Math.floor(index/8)*8;
-      buttons.forEach(button=>{const active=Number(button.dataset.index)===activeIndex;button.classList.toggle('active',active);button.setAttribute('aria-pressed',String(active));});
+      buttons.forEach(button=>{const active=Number(button.dataset.index)===activeIndex;if(button.getAttribute('aria-pressed')===String(active))return;button.classList.toggle('active',active);button.setAttribute('aria-pressed',String(active));});
     };
     bankUpdates.set(row,updateBank);
     scroller.addEventListener('scroll',updateBank,{passive:true});new ResizeObserver(updateBank).observe(scroller);
@@ -235,8 +308,8 @@
   function animateMeters(time){
     meterFrame=null;
     if(!metersVisible())return;
-    if(time-lastFrame>120){lastFrame=time;for(const [i,strip]of all().entries()){
-      const el=elements.get(strip.id);if(!el.visible&&!window.SculptStripPins?.isPinnedVisible(strip.id))continue;const view=M.display(state,strip.id),t=state.meters?time*.001:12;
+    if(time-lastFrame>120){lastFrame=time;const coveredRow=document.querySelector('.mixer-row.editor-host');for(const [i,strip]of all().entries()){
+      const el=elements.get(strip.id);if(el.article.hidden||coveredRow?.contains(el.article)||!el.visible&&!window.SculptStripPins?.isPinnedVisible(strip.id))continue;const view=M.display(state,strip.id),t=state.meters?time*.001:12;
       if(window.SculptLive?.isLive()){const m=window.SculptLive.meter(strip.id,['CH','AUX'].includes(strip.kind)?'input':'output');el.meters.forEach((meter,ch)=>{const db=m?(ch?m.right:m.left):-144,pct=clamp((db+60)/60,0,1)*100;meter.style.setProperty('--meter',`${pct}%`);meter.style.setProperty('--peak',`${pct}%`);});updateGr(el,window.SculptLive.gainReduction?.(strip.id));continue;}
       const input=['CH','AUX'].includes(strip.kind),effective=input?null:window.SculptDesk?.effective(strip.id);
       const meterLevel=view.send?view.level:(effective?.level??view.level);
@@ -257,6 +330,7 @@
     el.gr.forEach((meter,index)=>{
       const value=reduction?.[index?'comp':'gate'],available=Number.isFinite(value?.fraction),pct=available?clamp(value.fraction,0,1)*100:0;
       const name=index?'Compressore':'Gate',text=!available?'Dato non disponibile':Number.isFinite(value.db)?`${value.db.toFixed(1)} dB di riduzione`:`${Math.round(pct)}% della scala GR`;
+      const signature=[available,pct.toFixed(1),text,demo].join('|');if(meter._grSignature===signature)return;meter._grSignature=signature;
       meter.style.setProperty('--gr',`${pct}%`);meter.classList.toggle('gr-unavailable',!available);
       if(available)meter.setAttribute('aria-valuenow',String(Math.round(pct)));else meter.removeAttribute('aria-valuenow');
       meter.setAttribute('aria-valuetext',`${demo?'Demo · ':''}${text}`);meter.title=`GR ${name} · ${demo?'simulata · ':''}${text}`;
@@ -331,7 +405,7 @@
     getState:()=>state,
     capture:()=>JSON.parse(JSON.stringify(M.serialize(state))),
     refresh:updateMode,
-    transact(mutator,type='console',options={}){const accepted=commit(mutator,type,options.id,options);if(['parameter','processing'].includes(type)){if(options.id&&stripById(options.id))updateStrip(stripById(options.id));}else updateMode();if(accepted){save();emit(type,options.id);}return accepted;},
+    transact(mutator,type='console',options={}){const accepted=commit(mutator,type,options.id,options);if(['parameter','processing','history','macros'].includes(type)){if(options.id&&stripById(options.id))updateStrip(stripById(options.id));}else updateMode();if(accepted){save();emit(type,options.id);}return accepted;},
     beginGesture:label=>history?.begin(label),endGesture:()=>history?.end(),
     historyState:()=>history?.status()||{canUndo:false,canRedo:false,undoCount:0,redoCount:0},
     clearHistory:()=>history?.clear(),

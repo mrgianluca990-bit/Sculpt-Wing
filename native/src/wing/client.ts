@@ -1,5 +1,5 @@
 import type { ConsoleInfo, LinkStatus, MeterFrame, TransportPacket, TransportStatus, WingSchemaDriver, WingTransport, WingValue,
-  NodeMetadata, SchemaChange, StripMeterSelection, StripMeterFrame } from './types';
+  NodeMetadata, SchemaChange, StripMeterSelection, StripMeterFrame, RtaFrame } from './types';
 import {
   decodeIdentity, decodeStripMeterPacket, encodeMeterRenewal, encodeStripMeterRequest,
   encodeRequest, encodeSet, IDENTITY_REQUEST, validateConsoleHost, validateMeterSelection, validateStripMeterSelection, STRIP_FAMILIES,
@@ -118,6 +118,7 @@ export class WingClient implements WingSchemaDriver {
   private heartbeatPending = false;
   private meterTimer: ReturnType<typeof setInterval> | undefined;
   private meterSelection: StripMeterReport | undefined;
+  private rtaEnabled = false;
   private reportId = Math.floor(Math.random() * 0xffffffff) >>> 0;
   private readonly children = new Map<number, NodeDefinition[]>();
   private readonly paths = new Map<string, NodeDefinition>();
@@ -128,6 +129,7 @@ export class WingClient implements WingSchemaDriver {
   private readonly valueListeners = new Set<(path: string, value: WingValue) => void>();
   private readonly meterListeners = new Set<(frame: MeterFrame) => void>();
   private readonly stripMeterListeners = new Set<(frame: StripMeterFrame) => void>();
+  private readonly rtaListeners = new Set<(frame: RtaFrame) => void>();
   private readonly schemaListeners = new Set<(change: SchemaChange) => void>();
   private readonly statusListeners = new Set<(status: LinkStatus, message?: string) => void>();
 
@@ -154,6 +156,9 @@ export class WingClient implements WingSchemaDriver {
   }
   onStripMeters(listener: (frame: StripMeterFrame) => void): () => void {
     this.stripMeterListeners.add(listener); return () => this.stripMeterListeners.delete(listener);
+  }
+  onRta(listener: (frame: RtaFrame) => void): () => void {
+    this.rtaListeners.add(listener); return () => this.rtaListeners.delete(listener);
   }
   onSchemaChange(listener: (change: SchemaChange) => void): () => void {
     this.schemaListeners.add(listener); return () => this.schemaListeners.delete(listener);
@@ -309,19 +314,34 @@ export class WingClient implements WingSchemaDriver {
   }
 
   async subscribeStripMeters(requested: StripMeterSelection): Promise<void> {
+    await this.replaceMeterReport(requested, this.rtaEnabled);
+  }
+
+  async subscribeRta(enabled: boolean): Promise<number> {
+    if (typeof enabled !== 'boolean') throw new WingProtocolError('Invalid WING RTA selection');
+    this.assertSession(this.epoch, true);
+    if (!this.meterSelection) throw new WingProtocolError('Attiva prima i meter della WING.');
+    if (!enabled && !this.rtaEnabled) return this.meterSelection.reportId;
+    // Calling true again intentionally rotates the ID after a source/tap
+    // change; queued datagrams cannot be relabelled as the new source.
+    return this.replaceMeterReport(this.meterSelection.selection, enabled);
+  }
+
+  private async replaceMeterReport(requested: StripMeterSelection, rta: boolean): Promise<number> {
     validateStripMeterSelection(requested);
     const epoch = this.epoch, session = this.assertSession(epoch, true);
     this.reportId = (this.reportId + 1) >>> 0;
     if (this.reportId === 0) this.reportId = 1;
     const selection: StripMeterSelection = {};
     for (const family of STRIP_FAMILIES) if (requested[family]?.length) selection[family] = [...requested[family]!];
-    const report: StripMeterReport = { reportId: this.reportId, selection };
-    this.meterSelection = report;
+    const report: StripMeterReport = { reportId: this.reportId, selection, ...(rta ? { rta: true } : {}) };
+    this.meterSelection = report; this.rtaEnabled = rta;
     try { await this.transmit(encodeStripMeterRequest(session.meterPort, report), epoch); }
     catch (error) {
       if (this.meterSelection === report) this.meterSelection = undefined;
       throw error;
     }
+    return report.reportId;
   }
 
   private enqueue<T>(operation: (epoch: number) => Promise<T>): Promise<T> {
@@ -546,6 +566,7 @@ export class WingClient implements WingSchemaDriver {
           if (frame) {
             this.notify(this.meterListeners, listener => listener(frame));
             this.notify(this.stripMeterListeners, listener => listener(frame));
+            if (frame.rta) this.notify(this.rtaListeners, listener => listener(frame.rta!));
           }
         }
       }
@@ -597,7 +618,7 @@ export class WingClient implements WingSchemaDriver {
   }
 
   private invalidate(error: Error): void {
-    ++this.epoch; this.session = undefined; this.meterSelection = undefined;
+    ++this.epoch; this.session = undefined; this.meterSelection = undefined; this.rtaEnabled = false;
     clearInterval(this.keepaliveTimer); clearInterval(this.meterTimer);
     this.keepaliveTimer = undefined; this.meterTimer = undefined;
     this.heartbeatPending = false;

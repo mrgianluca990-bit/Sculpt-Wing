@@ -1,0 +1,41 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> sculpt-wing-desktop@0.6.8 test
+> node --test --test-timeout=30000 --test-reporter=spec tests/*.test.cjs
+
+✔ OSC encoder writes network-endian typed arguments and padded UTF-8 strings (2.03572ms)
+✔ invalid OSC requests fail before any socket is created (1.726623ms)
+✔ OSC sends a real datagram over loopback and reports transport delivery without execution acknowledgement (23.024589ms)
+✔ Show status requires a valid OSC reply from the selected endpoint (1.993596ms)
+✔ Show timeout is an error and closes its pending socket (41.827592ms)
+✔ foreign UDP replies are ignored and app suspension cancels the request (0.819837ms)
+✔ Show rejects errors and malformed status instead of marking transport delivery as confirmed (0.680627ms)
+✔ OSC sender bounds burst rate and concurrent requests (11.09538ms)
+✔ PDF worker is local-only while renderer network access stays disabled (2.032085ms)
+✔ desktop protocol and IPC policy reject remote origins and traversal (3.396411ms)
+✔ preload exposes fixed calls and strips privileged event argument (3.830056ms)
+✔ Mac Undo and Redo use the application history and text fallback remains restricted to its main frame (4.621188ms)
+✔ desktop shell isolates renderer, checks sender, closes stale sessions and blocks navigation (5.354223ms)
+✔ second app instance exits before opening a window (1.43877ms)
+✔ OSC IPC uses its own bounded transport and the same trusted main-frame checks (3.599758ms)
+✔ private IPv4 boundary matches iOS; invalid connect never replaces a live session (5.556058ms)
+✔ real sockets carry ordered initial/TCP bytes, UDP identity and meter frames directly (40.150463ms)
+✔ cancel pending connect by request ID; late completion and old disconnect cannot touch replacement (1.15347ms)
+✔ new connection rejects old pending connect and old sends, with no replay (1.231678ms)
+✔ disconnect before ready delivery cancels activation; a delayed UDP bind is still closed (1.898362ms)
+✔ strict base64, send byte boundaries and stale session IDs (11.683282ms)
+✔ TCP backpressure waits for callback and drain, preserving queue order (3.517224ms)
+✔ pending send count and byte caps reject excess without closing a healthy session (2.609795ms)
+✔ connect timeout, network failure and send timeout clean all resources exactly once (31.558627ms)
+✔ TCP callback failure rejects every pending send; invalid UDP size tears down the session (1.198828ms)
+✔ suspend rejects pending writes; reconnect is explicit, close is terminal (2.142371ms)
+✔ initial packets stay ordered, foreign peers are ignored, receive queue is bounded (1.378088ms)
+✔ asynchronous event delivery preserves order and failure tears down without unhandled rejection (0.955241ms)
+ℹ tests 28
+ℹ suites 0
+ℹ pass 28
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 291.305869

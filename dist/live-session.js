@@ -7,6 +7,9 @@
   const message=e=>e?.message||String(e);
   const writeSchema=meta=>JSON.stringify([meta.path,meta.revision,meta.type,!!meta.readOnly,meta.min,meta.max,meta.maxLength,meta.unit,Array.isArray(meta.items)?meta.items.map(item=>item.value):null]);
   const keyFor=ctx=>ctx.type==='fx'?`fx:${ctx.slot}`:`${ctx.id}:${ctx.block}`;
+  // The public protocol gives a numeric RTA source range, but no verified
+  // source-index-to-strip table. Accept only explicit symbolic firmware labels.
+  const rtaReference=value=>{if(typeof value!=='string')return null;const match=/^\/?(CH|CHANNEL|AUX|BUS|MAIN|MTX|MATRIX)[.\s/_-]*(\d+)$/i.exec(value.trim());if(!match)return null;const family=({channel:'ch',matrix:'mtx'})[match[1].toLowerCase()]||match[1].toLowerCase(),n=Number(match[2]);return n>=1&&n<=({ch:40,aux:8,bus:16,main:4,mtx:8})[family]?family+'-'+n:null;};
   const localDeskKeys=new Set(['macros','scenes','snippets','stripPresets','safes','pluginPresets','pluginClipboard','customControls','layers','activeLayer','history','showName','activeScene','meterSettings','_wing']);
 
   // The mixer is authoritative. Connecting only reads; a local show is never
@@ -19,9 +22,11 @@
       this.inflight=null;this.nodeLoads=new Map();this.processors=new Map();this.schemaLocks=new Set();this.reloadTimers=new Map();
       this.loaded=new Set();this.batch=new Map();this.applying=false;
       this.meters=null;this.meterInvalidations=new Map();this.syncDone=0;this.syncTotal=76;this.worker=null;
+      this.rtaGeneration=0;this.rtaActualRevision=0;this.rtaRequest=null;this.rtaFrame=null;this.rtaReportId=null;this.rtaVerifiedAt=0;this.rtaNeedsReport=true;this.rtaTimer=null;this.rtaError='';this.rtaLoading=false;
       this.unsubscribers=[driver.onValue((p,v)=>this.receive(p,v)),
         driver.onStatus((s,m)=>this.status(s,m)),
         (driver.onStripMeters||driver.onMeters).call(driver,f=>{if(this.networkActive()){this.meters=f;this.onUpdate('meters');}}),
+        driver.onRta?.(frame=>this.receiveRta(frame)),
         driver.onSchemaChange?.(change=>this.schemaChanged(change))].filter(Boolean);
     }
     active(){return this.mode!=='demo';}
@@ -58,6 +63,7 @@
       await this.driver.disconnect();
     }
     clear(){
+      ++this.rtaGeneration;clearTimeout(this.rtaTimer);this.rtaTimer=null;this.rtaRequest=null;this.rtaFrame=null;this.rtaReportId=null;this.rtaVerifiedAt=0;this.rtaNeedsReport=true;this.rtaError='';this.rtaLoading=false;
       this.writable=false;this.values.clear();this.metadata.clear();this.pending.clear();this.samples.clear();
       for(const token of this.nodeLoads.values())token.valid=false;
       this.nodeLoads.clear();this.processors.clear();this.schemaLocks.clear();this.loaded.clear();this.batch.clear();
@@ -81,8 +87,17 @@
     }
     receive(path,value){
       if(!this.networkActive())return;
+      const previous=this.values.get(path);
       if(/\/(gate|dyn)\/mdl$/.test(path)&&this.values.has(path)&&this.values.get(path)!==value)this.invalidateGainMeters(path.slice(0,-4));
       this.values.set(path,value);this.samples.set(path,(this.samples.get(path)||0)+1);
+      // RTA metadata belongs to the live analyser, not to the saved Sculpt
+      // show. Polling this small branch must not repaint the whole console.
+      if(path.startsWith('/cfg/rta/')){
+        if((path==='/cfg/rta/$src'||path==='/cfg/rta/$tap')&&!equal(previous,value)){
+          ++this.rtaActualRevision;this.rtaFrame=null;this.rtaNeedsReport=true;this.rtaVerifiedAt=0;
+          if(this.rtaRequest)this.onUpdate('rta');
+        }return;
+      }
       if(!this.pending.has(path)&&this.inflight?.path!==path)this.batch.set(path,value);
       if(!this.batchTimer)this.batchTimer=setTimeout(()=>this.flush(),24);
     }
@@ -169,6 +184,7 @@
     schemaChanged(change){
       if(!this.networkActive()||!change?.path)return;
       const base=change.path.endsWith('/mdl')?change.path.slice(0,-4):change.path;
+      if(overlaps(base,'/cfg/rta')){++this.rtaActualRevision;this.rtaFrame=null;this.rtaNeedsReport=true;this.rtaVerifiedAt=0;if(this.rtaRequest)this.onUpdate('rta');}
       this.invalidateGainMeters(base);
       this.clearProcessorParameters(base);
       const ownRefresh=change.model===undefined&&[...this.nodeLoads.values()].some(token=>token.refresh&&token.path===base&&token.epoch===this.epoch);
@@ -310,6 +326,91 @@
       if(spec.enabledPath&&typeof preset.enabled==='boolean')await this.write(spec.enabledPath,preset.enabled?1:0);
       if(spec.mixPath&&Number.isFinite(preset.mix))await this.write(spec.mixPath,preset.mix);
       await this.ensureProcessor(ctx,{force:true});
+    }
+    rtaIdentity(value=this.values.get('/cfg/rta/$src')){
+      const meta=this.metadata.get('/cfg/rta/$src'),item=meta?.items?.find(item=>equal(item.value,value));
+      // FXIN/FXOUT reuse the source number for an FX slot. SOLO and monitor
+      // taps are also not an EQ strip, even if a future enum has strip labels.
+      const stripTap=['IN','POST','FILT','PREEQ','POSTEQ','PREFDR','GATEK','DYNK','DYNXO','PRETAP'].includes(this.values.get('/cfg/rta/$tap'));
+      const id=stripTap?(rtaReference(value)||rtaReference(item?.label)):null;
+      return {id,label:id?(item?.label||String(value)):Number.isInteger(value)?'Sorgente WING #'+value:'Sorgente WING non identificata'};
+    }
+    rtaSources(){
+      const actual=this.metadata.get('/cfg/rta/$src')?.items||[],requested=this.metadata.get('/cfg/rta/rtasrc')?.items||[];
+      const known=new Set(actual.map(item=>rtaReference(item.value)||rtaReference(item.label)).filter(Boolean));
+      return requested.map(item=>({id:rtaReference(item.value)||rtaReference(item.label),label:item.label,value:item.value})).filter(item=>item.id&&known.has(item.id));
+    }
+    rtaMatches(){
+      if(!this.rtaRequest)return false;
+      return this.rtaRequest.followConsole||this.rtaIdentity().id===this.rtaRequest.id&&this.values.get('/cfg/rta/$tap')===this.rtaRequest.tap;
+    }
+    rtaSnapshot(){
+      const request=this.rtaRequest,sourceIndex=this.values.get('/cfg/rta/$src'),tap=this.values.get('/cfg/rta/$tap'),now=Date.now();
+      const identity=this.rtaIdentity(sourceIndex),sourceId=identity.id,matches=this.rtaMatches();
+      const age=this.rtaFrame?now-this.rtaFrame.receivedAt:null,verifiedAge=now-this.rtaVerifiedAt;
+      const fresh=matches&&!this.rtaNeedsReport&&verifiedAge>=0&&verifiedAge<2500&&age!==null&&age>=0&&age<1200;
+      let status=!this.active()?'offline':!this.connected()?'disconnected':!request?'inactive':this.rtaError?'unavailable':this.rtaLoading?'loading':!request.followConsole&&!sourceId?'unmapped':!matches?(this.writable?'occupied':'readonly'):fresh?'live':age!==null?'stale':'waiting';
+      return {status,requestedId:request?.id||null,requestedTap:request?.tap||null,sourceId,sourceIndex:Number.isInteger(sourceIndex)?sourceIndex:null,tap:typeof tap==='string'?tap:null,
+        sourceLabel:identity.label,mappingVerified:!!sourceId,followConsole:!!request?.followConsole,sources:this.rtaSources(),
+        error:this.rtaError,binsRaw:fresh?this.rtaFrame.binsRaw:null,receivedAt:fresh?this.rtaFrame.receivedAt:null,reportId:this.rtaReportId,age,scale:'relative'};
+    }
+    receiveRta(frame){
+      if(!this.connected()||!this.rtaRequest||this.rtaNeedsReport||!frame||frame.reportId!==this.rtaReportId)return;
+      if(!Number.isFinite(frame.receivedAt)||frame.receivedAt<this.rtaVerifiedAt||frame.receivedAt>Date.now()+50||Date.now()-frame.receivedAt>=1200)return;
+      if(!Array.isArray(frame.binsRaw)||frame.binsRaw.length!==120||frame.binsRaw.some(n=>!Number.isInteger(n)||n<-32768||n>32767))return;
+      if(!this.rtaMatches())return;
+      this.rtaFrame=frame;this.onUpdate('rta');
+    }
+    async setRtaRequest(request){
+      const followConsole=request?.followConsole===true,requestId=rtaReference(request?.id);
+      if(request&&(typeof request!=='object'||Array.isArray(request)||(!followConsole&&(!requestId||!['IN','FILT','PREEQ','POSTEQ','PREFDR','POST','GATEK','DYNK'].includes(request.tap)))))throw new Error('Sorgente o punto RTA non valido.');
+      const generation=++this.rtaGeneration,epoch=this.epoch;
+      clearTimeout(this.rtaTimer);this.rtaTimer=null;this.rtaFrame=null;this.rtaReportId=null;this.rtaVerifiedAt=0;this.rtaNeedsReport=true;this.rtaError='';
+      this.rtaRequest=request?(followConsole?{id:null,tap:null,followConsole:true}:{id:requestId,tap:request.tap,followConsole:false}):null;this.rtaLoading=!!request;this.onUpdate('rta');
+      const current=()=>generation===this.rtaGeneration&&epoch===this.epoch&&this.connected()&&!!this.rtaRequest;
+      if(typeof this.driver.subscribeRta!=='function'||typeof this.driver.onRta!=='function'){
+        this.rtaLoading=false;if(request&&this.connected())this.rtaError='Il trasporto installato non espone il flusso RTA.';this.onUpdate('rta');return;
+      }
+      try{
+        if(this.connected())await this.driver.subscribeRta(false);
+        if(generation!==this.rtaGeneration||epoch!==this.epoch)return;
+        if(!request||!current()){this.rtaLoading=false;this.onUpdate('rta');return;}
+        await this.loadNode('/cfg/rta');if(!current())return;
+        if(!this.metadata.has('/cfg/rta/$src')||!this.metadata.has('/cfg/rta/$tap'))throw new Error('Il firmware non espone sorgente e punto effettivi del RTA.');
+        // The single DSP analyser is shared with the desk. Request only its
+        // documented source/tap, once; never change screen settings or lock
+        // the console, and never repeatedly fight another client's selection.
+        const mapping=!followConsole&&this.rtaSources().find(item=>item.id===requestId);
+        if(this.writable&&mapping){
+          const writes=[['/cfg/rta/rtasrc',mapping.value],['/cfg/rta/rtatap',request.tap]].filter(([path,value])=>!equal(this.values.get(path),value));
+          for(const [path,value]of writes){const meta=this.metadata.get(path);if(!meta||meta.readOnly||meta.type===0)throw new Error('La sorgente RTA non è modificabile nel firmware collegato.');if(meta.items&&!meta.items.some(item=>equal(item.value,value)))throw new Error('Il punto RTA richiesto non è disponibile nel firmware collegato.');if(typeof value==='number'&&((meta.min!==undefined&&value<meta.min)||(meta.max!==undefined&&value>meta.max)))throw new Error('Indice RTA fuori dai limiti del firmware.');}
+          await this.settled();if(!current())return;
+          for(const [path,value]of writes){if(!current())return;if(!this.writable)break;const meta=this.metadata.get(path);await this.driver.set(path,value,{revision:meta.revision});if(!current())return;}
+        }
+        await this.refreshRta(generation,epoch);
+      }catch(error){if(current()){this.rtaError=message(error);this.rtaFrame=null;this.rtaLoading=false;this.onUpdate('rta');}}
+    }
+    async refreshRta(generation,epoch){
+      const current=()=>generation===this.rtaGeneration&&epoch===this.epoch&&this.connected()&&!!this.rtaRequest;
+      if(!current())return;
+      clearTimeout(this.rtaTimer);this.rtaTimer=null;
+      try{
+        if(!this.metadata.has('/cfg/rta/$src')||!this.metadata.has('/cfg/rta/$tap')){await this.loadNode('/cfg/rta');if(!current())return;}
+        const values=await this.driver.readTree('/cfg/rta');if(!current())return;
+        const source=values['/cfg/rta/$src'],tap=values['/cfg/rta/$tap'];
+        const sourceKnown=this.rtaIdentity(source).id;
+        if((!sourceKnown&&(!Number.isInteger(source)||source<1||source>76))||typeof tap!=='string')throw new Error('Sorgente effettiva RTA non identificata dal banco.');
+        for(const [path,value]of Object.entries(values))this.receive(path,value);
+        const matches=this.rtaMatches();
+        this.rtaVerifiedAt=Date.now();this.rtaError='';this.rtaLoading=false;
+        if(matches&&this.rtaNeedsReport){
+          const revision=this.rtaActualRevision;this.rtaFrame=null;const id=await this.driver.subscribeRta(true);if(!current())return;
+          if(!Number.isInteger(id)||id<1)throw new Error('Report RTA non valido.');
+          this.rtaReportId=id;this.rtaNeedsReport=revision!==this.rtaActualRevision;
+        }else if(!matches){this.rtaFrame=null;this.rtaReportId=null;this.rtaNeedsReport=true;await this.driver.subscribeRta(false);if(!current())return;}
+        this.onUpdate('rta');
+      }catch(error){if(!current())return;this.rtaError=message(error);this.rtaFrame=null;this.rtaReportId=null;this.rtaNeedsReport=true;this.rtaLoading=false;this.onUpdate('rta');}
+      if(current())this.rtaTimer=setTimeout(()=>{this.rtaTimer=null;void this.refreshRta(generation,epoch);},1000);
     }
     stripMeter(id){
       const receivedAt=this.meters?.receivedAt,age=Date.now()-receivedAt;

@@ -61,7 +61,7 @@ document.activeElement = document.body;
 document.querySelector = selector => document.body.querySelector(selector);
 document.getElementById = id => document.querySelector('#' + id);
 const context = { document, console, setTimeout, clearTimeout, performance, CustomEvent: class { constructor(type) { this.type = type; } } };
-context.window = context; context.dispatchEvent = () => {}; context.addEventListener = () => {};
+context.window = context; context.dispatchEvent = () => {}; context.addEventListener = () => {}; context.removeEventListener = () => {};
 vm.createContext(context);
 const run = file => vm.runInContext(fs.readFileSync(path.join(base, file), 'utf8'), context, { filename: file });
 run('model.js'); run('plugin-data.js');

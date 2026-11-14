@@ -262,7 +262,7 @@
   const strips=()=>C().listStrips();
   const stripChoices=()=>strips().map(s=>({value:s.id,label:label(s)}));
   const targetChoices=()=>strips().filter(s=>['BUS','MTX','MAIN'].includes(s.kind)).map(s=>({value:s.id,label:label(s)}));
-  const log=message=>D().change(d=>{d.history=d.history||[];d.history.unshift({time:Date.now(),message});d.history=d.history.slice(0,30);});
+  const log=message=>D().change(d=>{d.history=d.history||[];d.history.unshift({time:Date.now(),message});d.history=d.history.slice(0,30);},'history',{record:false,paths:[['desk','history']]});
   const toast=message=>U().toast(message);
   const changed=(fn,notice)=>{const result=D().change(fn);if(result!==false&&notice)toast(notice);return result;};
   function wireControl(control,path,from=value=>value){
@@ -326,12 +326,13 @@
     const modal=U().modal(title,content);
   }
   const LAYER_STORAGE='sculpt-wing-layers-v1';
-  let layerSignature='';
+  let layerSignature='',savedLayerSignature='';
   function syncLayer(){
     const d=D().get(),layer=d.layers.find(item=>item.id===d.activeLayer),rows=layer?D().layerRows(layer):null;
     const signature=JSON.stringify({id:layer?.id||null,name:layer?.name||'',rows});
     // Only local layout is persisted here. Live WING values are never saved.
-    try{root.localStorage?.setItem(LAYER_STORAGE,JSON.stringify({version:1,layers:d.layers,activeLayer:layer?.id||null}));}catch{}
+    const preference=JSON.stringify({version:1,layers:d.layers,activeLayer:layer?.id||null});
+    if(preference!==savedLayerSignature)try{root.localStorage?.setItem(LAYER_STORAGE,preference);savedLayerSignature=preference;}catch{}
     if(signature===layerSignature)return;
     layerSignature=signature;
     C().showLayer?.(rows,layer?.name||'LAYER');
@@ -496,10 +497,11 @@
     if(base<=-89)return -90;
     return clamp(base+5*Math.sin(time*2.6+index*.67)+2.6*Math.sin(time*7.2+index*1.1),-90,0);
   }
-  function renderMeters(container){
-    let timer=null,peaks={},bars=[],rtaBars=[],rtaPath=null,lastPeakRevision=D().get().meterSettings.peakRevision,oscReady=false,disposed=false,oscLoading=false;
-    const stop=()=>{if(timer)clearInterval(timer);timer=null;};
-    const paint=()=>{stop();bars=[];rtaBars=[];container.replaceChildren();const d=D().get(),settings=d.meterSettings;
+  function renderMeters(container,args){
+    if(args?.tab&&['levels','rta','osc'].includes(args.tab))selection.meters=args.tab;
+    let timer=null,peaks={},bars=[],rtaCleanup=null,lastPeakRevision=D().get().meterSettings.peakRevision,oscReady=false,disposed=false,oscLoading=false;
+    const stop=()=>{if(timer)clearInterval(timer);timer=null;rtaCleanup?.();rtaCleanup=null;};
+    const paint=()=>{stop();bars=[];container.replaceChildren();const d=D().get(),settings=d.meterSettings;
       container.append(tabs([{id:'levels',label:'Meter bridge'},{id:'rta',label:'RTA'},{id:'osc',label:'Oscillatori'}],selection.meters,id=>{selection.meters=id;paint();}));
       if(selection.meters==='levels'){
         const family=select('Banco meter',settings.family,['CH','AUX','BUS','MAIN','MTX','DCA','FX'],value=>{changed(s=>s.meterSettings.family=value);paint();});
@@ -511,13 +513,11 @@
           left.append(peak);stereo.append(left,right);meter.append(name,full,stereo,value,gr);bridge.append(meter);bars.push({strip:s,index,left,right,peak,value,gr});
         });container.append(bridge);
       }else if(selection.meters==='rta'){
-        if(live()){container.append(card('RTA WING',note('Lo streaming RTA non è attivo in questa versione. Non viene mostrato uno spettro simulato durante la connessione.'),wingButton('/cfg/rta')));return;}
-        container.append(row(select('Sorgente RTA',settings.source,stripChoices(),value=>changed(s=>s.meterSettings.source=value)),select('Decay RTA',settings.decay,['FAST','MED','SLOW'],value=>changed(s=>s.meterSettings.decay=value)),select('Range RTA',settings.range,[40,60,80,100],value=>changed(s=>s.meterSettings.range=Number(value))),toggle('Freeze RTA',settings.freeze,value=>changed(s=>s.meterSettings.freeze=value))));
-        const screen=h('div','sys-rta-screen'),title=row(h('span','sys-badge','SPECTRUM / DEMO'),h('span','sys-dim','20 Hz — 20 kHz'));
-        const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 800 270');svg.setAttribute('role','img');svg.setAttribute('aria-label','Analizzatore di spettro simulato');
-        for(let y=30;y<=240;y+=42){const line=document.createElementNS(svg.namespaceURI,'line');line.setAttribute('x1',0);line.setAttribute('x2',800);line.setAttribute('y1',y);line.setAttribute('y2',y);line.setAttribute('class','sys-rta-grid');svg.append(line);}
-        for(let i=0;i<48;i++){const rect=document.createElementNS(svg.namespaceURI,'rect');rect.setAttribute('x',i*16.6+2);rect.setAttribute('width',12);rect.setAttribute('y',240);rect.setAttribute('height',0);rect.setAttribute('class','sys-rta-bar');svg.append(rect);rtaBars.push(rect);}
-        rtaPath=document.createElementNS(svg.namespaceURI,'polyline');rtaPath.setAttribute('class','sys-rta-curve');svg.append(rtaPath);screen.append(title,svg,row(...['20','50','100','250','500','1k','2k','5k','10k','20k'].map(f=>h('span','sys-rta-label',f))));container.append(screen,note('Visualizzazione dimostrativa: nessun microfono o flusso audio viene analizzato.'));
+        const screen=card('RTA WING');container.append(screen);
+        if(window.SculptRTA)rtaCleanup=window.SculptRTA.mount(screen,{followConsole:true,tap:'PREEQ',selectSource:true,taps:['IN','PREEQ','POSTEQ','PREFDR','POST']});
+        else screen.append(note('Il componente RTA non è disponibile.'));
+        container.append(note('120 bande ricevute dalla WING, da 20,6 Hz a 19,9 kHz. Scala verticale relativa. «RTA del banco» segue la sorgente e il punto effettivi della console. Se il firmware fornisce soltanto un indice numerico, viene mostrato come «Sorgente WING #N», senza attribuirlo a un canale. Offline non viene generato alcun segnale.'),wingButton('/cfg/rta'));
+        return;
       }else{
         if(live()){
           if(!oscReady){container.append(note('Lettura degli oscillatori dalla WING…'));if(!oscLoading){oscLoading=true;L().loadScope('monitor').then(()=>{oscReady=true;if(!disposed)paint();}).catch(e=>{if(!disposed){container.append(note(e.message),wingButton('/io/in/OSC'));}}).finally(()=>{oscLoading=false;});}return;}
@@ -537,8 +537,6 @@
           const pct=clamp((value+60)/60*100,0,100);meter.left.style.setProperty('--sys-meter',pct+'%');meter.right.style.setProperty('--sys-meter',live()?clamp((right+60)/60*100,0,100)+'%':Math.max(0,pct-3+2*Math.sin(time*4+meter.index))+'%');
           const peakValue=live()?Math.max(value,right):value;peaks[meter.strip.id]=s.hold?Math.max(peaks[meter.strip.id]??-144,peakValue):peakValue;meter.peak.style.bottom=clamp((peaks[meter.strip.id]+60)/60*100,0,100)+'%';meter.value.textContent=peakValue<=-90?'−∞':peakValue.toFixed(1);if(!live())meter.gr.style.setProperty('--sys-gr',Math.max(0,8*Math.sin(time*1.3+meter.index))+'%');
         }
-        if(rtaBars.length&&!s.freeze){const source=C().getStrip(s.source),effective=source?D().effective(source.id):{level:-10,muted:false};const factor=effective.muted||effective.level<=-89?0:clamp((effective.level+60)/60,.1,1);const points=[];
-          rtaBars.forEach((bar,i)=>{const envelope=(.25+.38*Math.exp(-Math.pow((i-17)/16,2)))*factor;const slow=s.decay==='SLOW'?.3:s.decay==='FAST'?1.8:.8;const db=-68+envelope*70+5*Math.sin(time*slow*3+i*.45)+3*Math.sin(time*slow*6+i);const height=factor?clamp((1+db/s.range)*230,0,230):0;bar.setAttribute('y',String(240-height));bar.setAttribute('height',String(height));points.push((i*16.6+8)+','+(240-height));});rtaPath.setAttribute('points',points.join(' '));}
       };tick();if(selection.meters!=='osc')timer=setInterval(tick,100);
     };paint();return()=>{disposed=true;stop();};
   }

@@ -4,6 +4,7 @@
   if(!C||!D||!U||!MapAPI||!window.SculptLiveSession)return;
   const native=window.SculptNative,available=!!native?.available;
   const clone=v=>JSON.parse(JSON.stringify(v));
+  const rtaListeners=new Set();
   let demoSnapshot=null,lastToast=0,lastToastMessage='',explorerPath='/',explorerGeneration=0;
   const noDriver={onValue:()=>()=>{},onStatus:()=>()=>{},onMeters:()=>()=>{}};
   const toast=message=>{const now=Date.now();if(message===lastToastMessage&&now-lastToast<1800)return;lastToast=now;lastToastMessage=message;U.toast(message);};
@@ -16,6 +17,7 @@
   document.querySelector('.macro-rail')?.insertBefore(liveButton,document.getElementById('offline-button'));
 
   function update(kind){
+    if(kind==='rta'){const state=session.rtaSnapshot();for(const listener of rtaListeners)listener(state);return;}
     if(kind!=='meters'){
       const s=session.snapshot();document.documentElement.dataset.wingMode=s.mode;
       liveButton.dataset.mode=s.mode;liveButton.title=s.error||statusLabels[s.mode];
@@ -79,6 +81,8 @@
     isLive:()=>session.active(),isConnected:()=>session.connected(),isWritable:()=>session.writable,
     canPersist:()=>!session.active(),sessionToken:()=>session.epoch,snapshot:()=>session.snapshot(),meter:(id,tap)=>session.meter(id,tap),
     gainReduction:id=>session.gainReduction(id),
+    rtaState:()=>session.rtaSnapshot(),setRtaRequest:request=>session.setRtaRequest(request),
+    onRta(listener){rtaListeners.add(listener);return()=>rtaListeners.delete(listener);},
     processorState:ctx=>session.processorState(ctx),parameterDefinition,
     ensureProcessor:(ctx,options)=>session.ensureProcessor(ctx,options),triggerProcessor,
     applyProcessorPreset:(ctx,preset)=>session.processorPreset(ctx,preset).catch(e=>{toast(e.message);throw e;}),

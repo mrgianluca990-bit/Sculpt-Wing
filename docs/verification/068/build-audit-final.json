@@ -1,0 +1,255 @@
+{
+  "createdAt": "2026-11-14T01:30:58.914413+00:00",
+  "source": "/workspace/scratch/e33d8ee936dc/sculpt-wing-068",
+  "expectedVersion": "0.6.8",
+  "ok": true,
+  "issues": [],
+  "versions": {
+    "native": [
+      "0.6.8",
+      "0.6.8",
+      "0.6.8"
+    ],
+    "desktop": [
+      "0.6.8",
+      "0.6.8",
+      "0.6.8"
+    ],
+    "desktop/src/preload.cjs": "0.6.8",
+    "dist/index.html": "0.6.8",
+    "dist/shell.js": "0.6.8"
+  },
+  "cache": "sculpt-control-v24",
+  "htmlScripts": [
+    "native-bridge.js",
+    "plugin-data.js",
+    "plugin-panels.js",
+    "plugin-original-layouts.js",
+    "plugin-original-dynamics.js",
+    "plugin-original-eq.js",
+    "plugin-original-fx.js",
+    "plugin-original-channel.js",
+    "plugin-original-native.js",
+    "plugin-original-dynamics-extra.js",
+    "plugin-original-filters.js",
+    "model.js",
+    "history.js",
+    "app.js",
+    "desk.js",
+    "shell.js",
+    "pdf-reader.js",
+    "channel-list.js",
+    "channel-list-scene.js",
+    "channel-list-preview.js",
+    "rta.js",
+    "plugins.js",
+    "editor.js",
+    "io.js",
+    "osc.js",
+    "systems.js",
+    "wing-map.js",
+    "live-session.js",
+    "live.js",
+    "live-pages.js",
+    "dca-bank.js",
+    "row-layout.js",
+    "strip-pins.js",
+    "offline.js"
+  ],
+  "htmlStyles": [
+    "styles.css",
+    "editor.css",
+    "shell.css",
+    "plugins.css",
+    "rta.css",
+    "systems.css",
+    "osc.css",
+    "live.css",
+    "channel-list.css",
+    "row-layout.css",
+    "strip-pins.css"
+  ],
+  "cacheAssetCount": 47,
+  "bundleCopies": {
+    "native/dist": {
+      "present": true,
+      "checked": 57,
+      "missing": [],
+      "different": []
+    },
+    "desktop/app": {
+      "present": true,
+      "checked": 57,
+      "missing": [],
+      "different": []
+    },
+    "native/ios/App/App/public": {
+      "present": true,
+      "checked": 57,
+      "missing": [],
+      "different": []
+    }
+  },
+  "checks": {
+    "native: package and lock version": {
+      "ok": true,
+      "detail": [
+        "0.6.8",
+        "0.6.8",
+        "0.6.8"
+      ]
+    },
+    "desktop: package and lock version": {
+      "ok": true,
+      "detail": [
+        "0.6.8",
+        "0.6.8",
+        "0.6.8"
+      ]
+    },
+    "desktop/src/preload.cjs: displayed version": {
+      "ok": true,
+      "detail": "0.6.8"
+    },
+    "dist/index.html: displayed version": {
+      "ok": true,
+      "detail": "0.6.8"
+    },
+    "dist/shell.js: displayed version": {
+      "ok": true,
+      "detail": "0.6.8"
+    },
+    "HTML assets exist": {
+      "ok": true,
+      "detail": []
+    },
+    "Load order history.js before app.js": {
+      "ok": true
+    },
+    "Load order osc.js before systems.js": {
+      "ok": true
+    },
+    "Load order rta.js before plugins.js": {
+      "ok": true
+    },
+    "RTA stylesheet linked": {
+      "ok": true
+    },
+    "Offline cache identifiers match": {
+      "ok": true,
+      "detail": {
+        "serviceWorker": "sculpt-control-v24",
+        "offline": "sculpt-control-v24"
+      }
+    },
+    "Offline cache differs from 0.6.7": {
+      "ok": true,
+      "detail": "sculpt-control-v24"
+    },
+    "Offline asset table found": {
+      "ok": true
+    },
+    "RTA assets are cached": {
+      "ok": true
+    },
+    "Offline assets exist": {
+      "ok": true,
+      "detail": []
+    },
+    "Every HTML script/style is cached": {
+      "ok": true,
+      "detail": []
+    },
+    "macOS package targets arm64 ZIP": {
+      "ok": true,
+      "detail": [
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ]
+    },
+    "Workflow explicitly builds ARM64": {
+      "ok": true
+    },
+    "Workflow verifies final binary and signature": {
+      "ok": true
+    },
+    "Workflow builds frontend before packaging": {
+      "ok": true
+    },
+    "native/dist: source assets match": {
+      "ok": true,
+      "detail": {
+        "present": true,
+        "checked": 57,
+        "missing": [],
+        "different": []
+      }
+    },
+    "native/dist: native HTML markers": {
+      "ok": true
+    },
+    "native/dist: RTA included in HTML": {
+      "ok": true
+    },
+    "native/dist: HTML script/style order matches source": {
+      "ok": true
+    },
+    "native/dist: displayed version": {
+      "ok": true
+    },
+    "desktop/app: source assets match": {
+      "ok": true,
+      "detail": {
+        "present": true,
+        "checked": 57,
+        "missing": [],
+        "different": []
+      }
+    },
+    "desktop/app: native HTML markers": {
+      "ok": true
+    },
+    "desktop/app: RTA included in HTML": {
+      "ok": true
+    },
+    "desktop/app: HTML script/style order matches source": {
+      "ok": true
+    },
+    "desktop/app: displayed version": {
+      "ok": true
+    },
+    "native/ios/App/App/public: source assets match": {
+      "ok": true,
+      "detail": {
+        "present": true,
+        "checked": 57,
+        "missing": [],
+        "different": []
+      }
+    },
+    "native/ios/App/App/public: native HTML markers": {
+      "ok": true
+    },
+    "native/ios/App/App/public: RTA included in HTML": {
+      "ok": true
+    },
+    "native/ios/App/App/public: HTML script/style order matches source": {
+      "ok": true
+    },
+    "native/ios/App/App/public: displayed version": {
+      "ok": true
+    },
+    "Benchmark sources stayed unchanged during run": {
+      "ok": true
+    },
+    "Benchmark covers current 0.6.8 JavaScript": {
+      "ok": true,
+      "detail": []
+    }
+  },
+  "scope": "Read-only source/asset/version audit. No build executed; no macOS binary, launch or hardware result inferred."
+}

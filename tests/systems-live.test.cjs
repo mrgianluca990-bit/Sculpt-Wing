@@ -48,14 +48,15 @@ function uiFixture(){
     const initial={'/dca/1/name':'LIVE DCA','/dca/1/fdr':-7,'/cfg/mon/1/lim':-4,'/io/in/OSC/1/osc/f':777};
     for(const [p,v]of Object.entries(initial)){values.set(p,v);w.SculptWingMap.apply(state,p,v);}resolve();
   }}));}};
+  L.rtaState=()=>({status:'unavailable',error:'Il driver di prova non fornisce campioni RTA.'});L.setRtaRequest=async()=>{};run('rta.js');
   const button=(name,scope=w.document)=>[...scope.querySelectorAll('button')].find(b=>b.textContent===name);
   return {dom,w,state,C,L,status,values,pending,ticks,events,explorer,toasts,button,setMeter:m=>{meter=m;},emit:()=>{for(const cb of listeners)cb({type:'live-values'});},finish:async()=>{assert(pending.length);pending.shift().resolve();await settle();}};
 }
-test('connected meter bridge uses real stereo values and clears stale data without simulated GR/RTA',()=>{
+test('connected meter bridge uses real stereo values and clears stale data without simulated GR/RTA',async()=>{
   const f=uiFixture();f.w.SculptUI.open('meters');const first=f.w.document.querySelector('.sys-meter-strip');
   assert.equal(first.querySelector('.sys-meter-value').textContent,'-18.0');assert.equal(first.querySelectorAll('.sys-meter-bar')[0].style.getPropertyValue('--sys-meter'),'70%');assert.equal(first.querySelectorAll('.sys-meter-bar')[1].style.getPropertyValue('--sys-meter'),'55.00000000000001%');assert(first.querySelector('.sys-gr').hidden);
   f.setMeter(null);for(const tick of f.ticks.values())tick();assert.equal(first.querySelector('.sys-meter-value').textContent,'—');assert.equal(first.querySelector('.sys-meter-bar').style.getPropertyValue('--sys-meter'),'0%');
-  f.button('RTA').click();assert.equal(f.w.document.querySelector('.sys-rta-screen'),null);assert.match(f.w.document.querySelector('.desk-page-body').textContent,/streaming RTA non è attivo/);f.dom.window.close();
+  f.button('RTA').click();await settle();assert.equal(f.w.document.querySelector('.sys-rta-screen'),null);assert.equal(f.w.document.querySelector('.sculpt-rta-trace').getAttribute('d'),'');assert.match(f.w.document.querySelector('.sculpt-rta-status').textContent,/Non disponibile/);f.w.SculptUI.close();await settle();f.dom.window.close();
 });
 test('group pages await hydration and synchronize external values without replacing a focused field',async()=>{
   const f=uiFixture();f.w.SculptUI.open('groups');assert.equal(f.w.document.querySelector('.sys-dca-bank'),null);assert.equal(f.pending[0].scope,'groups');await f.finish();

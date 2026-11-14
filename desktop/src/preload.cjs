@@ -8,7 +8,7 @@ const call = (method, options) => ipcRenderer.invoke(`sculpt-wing:${method}`, op
 contextBridge.exposeInMainWorld('SculptDesktop', Object.freeze({
   available: true,
   platform: process.platform === 'darwin' ? 'macos' : process.platform === 'win32' ? 'windows' : 'linux',
-  version: '0.6.7',
+  version: '0.6.8',
   textHistory: direction => {
     if (!['undo', 'redo'].includes(direction)) return Promise.reject(new Error('Operazione di modifica non valida.'));
     return call('textHistory', { direction });

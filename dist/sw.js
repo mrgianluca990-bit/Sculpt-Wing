@@ -1,5 +1,5 @@
 /* Bump this version whenever the app shell or its assets change. */
-const CACHE_NAME = 'sculpt-control-v23';
+const CACHE_NAME = 'sculpt-control-v24';
 const CACHE_PREFIX = 'sculpt-control-';
 const LEGACY_CACHES = new Set(['sculpt-control-v1', 'sculpt-control-v2', 'sculpt-control-v3', 'sculpt-control-v4']);
 const BASE_URL = new URL('./', self.location.href);
@@ -21,6 +21,8 @@ const ASSETS = [
   ['shell.css', 'css'],
   ['plugins.js', 'js'],
   ['plugins.css', 'css'],
+  ['rta.js', 'js'],
+  ['rta.css', 'css'],
   ['plugin-panels.js', 'js'],
   ['plugin-original-layouts.js', 'js'],
   ['plugin-original-dynamics.js', 'js'],

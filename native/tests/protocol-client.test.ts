@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WingClient } from '../src/wing/client';
-import type { LinkStatus, MeterFrame, TransportPacket, TransportStatus, WingTransport, WingValue } from '../src/wing/types';
+import type { LinkStatus, MeterFrame, RtaFrame, TransportPacket, TransportStatus, WingTransport, WingValue } from '../src/wing/types';
 
 type Node = { id: number; parent: number; index: number; name: string; type: number; readOnly?: boolean; min?: number; max?: number };
 type Command = { channel: number; bytes: number[]; kind: 'definition' | 'get' | 'set' | 'other'; id?: number; value?: number };
@@ -278,5 +278,35 @@ describe('WingClient uses live protocol state', () => {
     expect(transport.commands.at(-1)).toMatchObject({ channel: 3, bytes: [0xd4, ...u32(currentReport)] });
     await client.disconnect(); const count = transport.commands.length;
     await vi.advanceTimersByTimeAsync(8000); expect(transport.commands).toHaveLength(count);
+  });
+
+  it('adds RTA to the existing UDP report, rotates IDs on source handoff, and stops it on release/suspension', async () => {
+    vi.useFakeTimers();
+    const { client, transport } = setup(); await client.connect('192.168.1.62');
+    const frames: RtaFrame[] = [], meters: MeterFrame[] = [];
+    client.onRta(frame => frames.push(frame)); client.onMeters(frame => meters.push(frame));
+    await client.subscribeStripMeters({ ch: [1] });
+    const packet = (reportId: number, rta = true) => {
+      const bytes = new Uint8Array(20 + (rta ? 240 : 0)), view = new DataView(bytes.buffer);
+      view.setUint32(0, reportId); view.setInt16(4, -12 * 256); view.setInt16(6, -14 * 256);
+      if (rta) for (let i = 0; i < 120; i++) view.setInt16(20 + i * 2, -18000 + i);
+      return bytes;
+    };
+    const first = await client.subscribeRta(true);
+    expect(transport.commands.at(-1)?.bytes.slice(-2)).toEqual([0xaa, 0xde]);
+    transport.emit(packet(first), 'udp'); expect(frames).toHaveLength(1); expect(meters.at(-1)?.channels[1]).toBe(-12);
+    const second = await client.subscribeRta(true); expect(second).not.toBe(first);
+    transport.emit(packet(first), 'udp'); expect(frames).toHaveLength(1);
+    transport.emit(packet(second), 'udp'); expect(frames).toHaveLength(2); expect(frames[1].binsRaw[119]).toBe(-17881);
+    await vi.advanceTimersByTimeAsync(2501);
+    expect(transport.commands.at(-1)).toMatchObject({ channel: 3, bytes: [0xd4, ...u32(second)] });
+    const plain = await client.subscribeRta(false); expect(plain).not.toBe(second);
+    expect(transport.commands.at(-1)?.bytes.slice(8)).not.toContain(0xaa);
+    transport.emit(packet(second), 'udp'); expect(frames).toHaveLength(2);
+    transport.emit(packet(plain, false), 'udp'); expect(meters.at(-1)?.channels[1]).toBe(-12);
+    await client.subscribeRta(true); transport.status('suspended');
+    const count = transport.commands.length;
+    await vi.advanceTimersByTimeAsync(8000); expect(transport.commands).toHaveLength(count);
+    transport.emit(packet(second), 'udp'); expect(frames).toHaveLength(2);
   });
 });

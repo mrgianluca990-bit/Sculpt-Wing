@@ -152,3 +152,17 @@ Un invio UDP riuscito conferma l’accettazione del datagramma da parte del sist
 ### Stato delle verifiche
 
 Le note della consegna sono in [docs/RELEASE_0.6.7_MAC_M1.md](docs/RELEASE_0.6.7_MAC_M1.md). Distinguere test automatici, frontend nel browser, UDP in loopback, compilazione GitHub ARM64, avvio sul Mac e prova con WING/Show reali. Alla preparazione di questa consegna, la build macOS su GitHub resta da eseguire e non è stato collaudato un banco WING fisico. Usare [docs/COLLAUDO_WING_SHOW_0.6.7.md](docs/COLLAUDO_WING_SHOW_0.6.7.md) per registrare il successivo collaudo pratico.
+
+
+## Aggiornamento 0.6.8 — editor continuo, precisione EQ, pan e RTA
+
+Richieste di Gianluca: mantenere lo stesso modulo cambiando canale; rendere l’app più scattante; aggiungere RTA dove serve; eliminare gli spostamenti imprecisi delle bande EQ; aggiungere pan ai fader con reset al centro al doppio clic.
+
+- Transizione editor unica: commit dell’eventuale campo del vecchio canale prima del cambio identità; cleanup del processore e delle letture obsolete; conservazione di tab e sottoviste compatibili. Le macro con modulo esplicito devono aprirlo direttamente.
+- Il drag EQ converte coordinate client tramite la matrice effettiva SVG. Il semplice afferramento non modifica i valori. Frequenza e gain dello stesso movimento vengono validati e applicati insieme; Shift cambia sensibilità senza saltare. Un gesto è un solo Undo.
+- Pan sulle 76 strip audio, compresi i canali ancorati e nei custom layer; niente pan inventato sui DCA. SOF segue la mandata CH/AUX e rispetta Pan link, metadati, disponibilità e permessi live. Doppio clic = centro.
+- Prestazioni provate con scenari riproducibili rispetto alla 0.6.7; riportare campioni, p50/p95, ambiente ed esclusioni. Nessuna promessa di FPS o latenza Mac basata su JSDOM.
+- RTA da pacchetti reali, mai da animazioni simulate. Nessuna nuova app ponte. Richiedere il flusso soltanto per la vista visibile; scartare report vecchi o non validi e sospendere su background/disconnessione. WING ha un RTA condiviso: identificare fonte/tap effettivi e rendere esplicite le limitazioni. Non attribuire un indice numerico a un canale usando una mappatura soltanto inferita. Scala relativa finché manca una calibrazione verificata sul banco.
+- Destinazione di distribuzione: Mac M1 / Apple Silicon ARM64. Separare build frontend/test locali, compilazione ARM64 su GitHub, avvio Mac fisico e collaudo con WING.
+
+Note della consegna: [docs/RELEASE_0.6.8_MAC_M1.md](docs/RELEASE_0.6.8_MAC_M1.md).

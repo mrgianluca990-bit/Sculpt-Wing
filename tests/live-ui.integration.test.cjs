@@ -59,7 +59,7 @@ test('real app connects through the native boundary, guards edits, reads back an
   driver.emit('meters',{receivedAt:Date.now(),reportId:1,strips:{ch:{1:{input:[-12,-18],output:[-24,-30],gateGainRaw:128,dynGainRaw:64}}}});
   assert.equal(w.SculptLive.gainReduction('ch-1').gate.fraction,.5);assert.equal(w.SculptLive.gainReduction('ch-1').comp.fraction,.25);assert.equal(w.SculptLive.gainReduction('ch-1').comp.db,null);
   assert.equal(w.SculptLive.meter('ch-1','input').left,-12);assert.equal(w.SculptLive.meter('ch-1','output').left,-24);
-  const fader=w.document.querySelector('[data-id="ch-1"] [role="slider"]');fader.dispatchEvent(new w.KeyboardEvent('keydown',{key:'ArrowUp',bubbles:true,cancelable:true}));
+  const fader=w.document.querySelector('[data-id="ch-1"] .fader[role="slider"]');fader.dispatchEvent(new w.KeyboardEvent('keydown',{key:'ArrowUp',bubbles:true,cancelable:true}));
   assert.equal(C.getStrip('ch-1').level,-13,'read-only edit rolls back through the real app commit');assert.equal(C.getStrip('ch-1'),stripRef,'rollback keeps strip references used by DOM handlers');
   const writesBeforeLocalMacro=driver.writes.length;
   assert.equal(D.change(d=>{d.macros[8].name='Patch rapido';d.macros[8].actions=[{id:'macro-review-open-io',type:'menu',target:'io'}];},'macro'),true);

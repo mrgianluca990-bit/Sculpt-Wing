@@ -48,7 +48,7 @@ async function fixture(t){
   t.after(()=>{driver.emit('status','disconnected');dom.window.close();});
   U.open('connection');w.document.querySelector('.live-connect-form').dispatchEvent(new w.Event('submit',{bubbles:true,cancelable:true}));await until(()=>L.isConnected(),'live sync');U.close();C.clearHistory();assert.equal(driver.writes.length,0);
   const arm=value=>{if(L.isWritable()===value)return;U.open('connection');w.document.querySelector('.live-arm').click();U.close();assert.equal(L.isWritable(),value);};
-  const up=(id='ch-1')=>w.document.querySelector(`[data-id="${id}"] [role="slider"]`).dispatchEvent(new w.KeyboardEvent('keydown',{key:'ArrowUp',bubbles:true,cancelable:true}));
+  const up=(id='ch-1')=>w.document.querySelector(`[data-id="${id}"] .fader[role="slider"]`).dispatchEvent(new w.KeyboardEvent('keydown',{key:'ArrowUp',bubbles:true,cancelable:true}));
   const move=async()=>{up();await L.settled();assert.equal(driver.values.get('/ch/1/fdr'),-12.5);assert.equal(C.getStrip('ch-1').level,-12.5);};
   return {w,C,D,L,U,driver,arm,up,move};
 }

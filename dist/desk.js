@@ -176,7 +176,7 @@
   const change=(fn,type='console',options={})=>C.transact(s=>{fn(s.desk);},type,options);
   let macroProfileSignature='',macroStorageWarning=false;
   function persistMacroProfile(event){
-    if(event&&['strip','send','parameter','processing','channel','source','routing','dca','live-values','selection','sof','layer','desk-ready'].includes(event.type))return;
+    if(event&&['strip','send','parameter','processing','channel','source','routing','dca','live-values','selection','sof','layer','desk-ready','history'].includes(event.type))return;
     const current=get(),value=JSON.stringify({version:1,macrosSeeded:current.macrosSeeded===true,macros:normalizeMacros(current.macros)});
     if(value===macroProfileSignature)return;
     try{const storage=root.localStorage;if(!storage)return;storage.setItem(MACRO_PROFILE_KEY,value);macroProfileSignature=value;macroStorageWarning=false;}
@@ -191,7 +191,23 @@
     change(d=>{const p=ctx.type==='fx'?d.fx[ctx.slot-1]:d.processing[ctx.id][ctx.block];p.model=id;p.params=K.defaults(ctx,id)||{};p.enabled=true;p.mix=100;},'processing');
     if(ctx.type==='fx'&&id==='NONE')assignFx(ctx.slot,null,'pre');return true;
   }
-  function setParam(ctx,key,value){const item=processor(ctx),def=item&&K.get(ctx,item.model),catalogParam=def?.parameters?.find(v=>v.key===key);if(!catalogParam)return false;const liveParam=root.SculptLive?.isLive()?root.SculptLive.parameterDefinition(ctx,key):null;if(root.SculptLive?.isLive()&&(!liveParam||liveParam.readOnly))return false;const p={...catalogParam,...(liveParam||{})};const next=valueFor(p,value);if(Object.is(item.params[key],next))return true;const path=ctx.type==='fx'?['desk','fx',Number(ctx.slot)-1]:['desk','processing',ctx.id,ctx.block];return change(()=>{item.params[key]=next;},'parameter',{id:ctx.id,paths:[path]})!==false;}
+  function setParams(ctx,values){
+    const item=processor(ctx),def=item&&K.get(ctx,item.model);if(!def||!plain(values))return false;
+    const changes={},isLive=root.SculptLive?.isLive();
+    // A two-axis EQ move is one mutation. Validate every value before applying
+    // either axis, so live validation and undo see the complete band movement.
+    for(const [key,value] of Object.entries(values)){
+      const catalogParam=def.parameters.find(p=>p.key===key);if(!catalogParam)return false;
+      const liveParam=isLive?root.SculptLive.parameterDefinition(ctx,key):null;
+      if(isLive&&(!liveParam||liveParam.readOnly))return false;
+      const next=valueFor({...catalogParam,...(liveParam||{})},value);
+      if(!Object.is(item.params[key],next))changes[key]=next;
+    }
+    if(!Object.keys(changes).length)return true;
+    const path=ctx.type==='fx'?['desk','fx',Number(ctx.slot)-1]:['desk','processing',ctx.id,ctx.block];
+    return change(()=>Object.assign(item.params,changes),'parameter',{id:ctx.id,paths:[path]})!==false;
+  }
+  function setParam(ctx,key,value){return setParams(ctx,{[key]:value});}
   function assignFx(slot,id,position='pre'){
     slot=Number(slot);const fx=get().fx[slot-1];if(!fx||id&&!knownId(id))return false;
     position=position==='post'?'post':'pre';if(id&&C.getStrip(id).kind==='AUX'&&position==='post')return false;
@@ -294,7 +310,7 @@
     },'recall');return true;
   }
   function reset(){const fresh=M.defaults();fresh.desk=defaults();C.restore(M.serialize(fresh));}
-  root.SculptDesk={get,change,subscribe:C.subscribe,defaults,normalize,normalizeMacros,layerRows,normalizeLayers,processor,setModel,setParam,
+  root.SculptDesk={get,change,subscribe:C.subscribe,defaults,normalize,normalizeMacros,layerRows,normalizeLayers,processor,setModel,setParam,setParams,
     setLayerRows(id,rows){const layer=get().layers.find(item=>item.id===id);if(!layer)return false;return change(()=>{layer.rows=layerRows({rows});layer.members=[...layer.rows.top,...layer.rows.bottom];},'layer-layout');},
     enableProcessor(ctx,on){const p=processor(ctx);if(p)change(()=>{p.enabled=!!on;},'processing');},
     setProcessorMix(ctx,value){const p=processor(ctx);if(p)change(()=>{p.mix=clamp(value,0,100);},'parameter');},

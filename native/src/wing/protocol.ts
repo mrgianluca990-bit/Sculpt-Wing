@@ -306,7 +306,13 @@ export function decodeMeterPacket(bytes: Uint8Array, selection: MeterSelection, 
 /** Canonical order is part of the UDP report contract. Indexes on wire are zero-based. */
 export const STRIP_FAMILIES: readonly StripFamily[] = ['ch', 'aux', 'bus', 'main', 'mtx'];
 const STRIP_LIMITS: Record<StripFamily, number> = { ch: 40, aux: 8, bus: 16, main: 4, mtx: 8 };
-export interface StripMeterReport { reportId: number; selection: StripMeterSelection; }
+export const RTA_BIN_COUNT = 120;
+/** WING Remote Protocols 3.1.2-a, Meter Data: semitones E0..D#10,
+ * A4 (440 Hz) at zero-based index 53. These are band centres, not FFT bins. */
+export const RTA_FREQUENCIES_HZ: readonly number[] = Object.freeze(
+  Array.from({ length: RTA_BIN_COUNT }, (_, index) => 440 * 2 ** ((index - 53) / 12))
+);
+export interface StripMeterReport { reportId: number; selection: StripMeterSelection; rta?: boolean; }
 
 export function validateStripMeterSelection(selection: StripMeterSelection): void {
   if (!selection || typeof selection !== 'object' || Array.isArray(selection)
@@ -325,11 +331,15 @@ export function encodeStripMeterRequest(port: number, report: StripMeterReport):
   validateStripMeterSelection(report.selection);
   if (!Number.isInteger(port) || port < 1 || port > 65535) fail('Invalid UDP meter port');
   if (!Number.isInteger(report.reportId) || report.reportId < 1 || report.reportId > 0xffffffff) fail('Invalid WING meter report ID');
+  if (report.rta !== undefined && typeof report.rta !== 'boolean') fail('Invalid WING RTA selection');
   const payload = [0xd3, port >>> 8, port & 255, 0xd4, ...uint32(report.reportId), 0xdc];
   STRIP_FAMILIES.forEach((family, i) => {
     const indexes = report.selection[family] ?? [];
     if (indexes.length) payload.push(0xa0 + i, ...indexes.map(n => n - 1));
   });
+  // Singleton, no index byte. At 76 strips + RTA the reply is 1460 bytes,
+  // below the 1472-byte IPv4 UDP payload of a 1500-byte Ethernet MTU.
+  if (report.rta) payload.push(0xaa);
   return encodeChannel(METER_CHANNEL, [...payload, 0xde]);
 }
 
@@ -339,7 +349,8 @@ export function encodeStripMeterRequest(port: number, report: StripMeterReport):
  */
 export function decodeStripMeterPacket(bytes: Uint8Array, report: StripMeterReport, receivedAt = Date.now()): StripMeterFrame | undefined {
   const count = STRIP_FAMILIES.reduce((n, family) => n + (report.selection[family]?.length ?? 0), 0);
-  if (bytes.length !== 4 + 16 * count) return undefined;
+  if (bytes.length !== 4 + 16 * count + (report.rta ? RTA_BIN_COUNT * 2 : 0)
+    || !Number.isFinite(receivedAt) || receivedAt < 0) return undefined;
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   if (view.getUint32(0) !== report.reportId) return undefined;
   const frame: StripMeterFrame = {
@@ -361,6 +372,12 @@ export function decodeStripMeterPacket(bytes: Uint8Array, report: StripMeterRepo
       scalarMaps[family][index] = Math.max(...(family === 'ch' || family === 'aux' ? input : output));
       p += 16;
     }
+  }
+  if (report.rta) {
+    // Keep all 120 signed words. Do not apply the unrelated strip-meter dB
+    // factor or the demo program's cosmetic power curve to these samples.
+    const binsRaw = Array.from({ length: RTA_BIN_COUNT }, (_, index) => view.getInt16(p + index * 2));
+    frame.rta = { reportId: report.reportId, receivedAt, binsRaw };
   }
   return frame;
 }

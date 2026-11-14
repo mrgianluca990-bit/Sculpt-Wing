@@ -12,6 +12,11 @@ export interface NodeMetadata extends NodeDefinition { path: string; unit: numbe
 export interface SchemaChange { path: string; revision: number; model?: WingValue; }
 export type StripFamily = 'ch' | 'aux' | 'bus' | 'main' | 'mtx';
 export type StripMeterSelection = Partial<Record<StripFamily, number[]>>;
+/** The console's single RTA, in its documented wire order. The raw scale is
+ * deliberately preserved: it must not be advertised as calibrated dBFS. */
+export interface RtaFrame {
+  reportId: number; receivedAt: number; binsRaw: number[];
+}
 export interface StripMeter {
   input: [number, number]; output: [number, number];
   gateKey: number; dynKey: number;
@@ -28,6 +33,7 @@ export interface MeterFrame {
 export interface StripMeterFrame extends MeterFrame {
   auxiliaries: Record<number, number>; mains: Record<number, number>; matrices: Record<number, number>;
   strips: Record<StripFamily, Record<number, StripMeter>>; reportId: number;
+  rta?: RtaFrame;
 }
 export interface TransportPacket { sessionId: string; transport: 'tcp' | 'udp'; data: Uint8Array; }
 export interface TransportStatus { sessionId: string; state: 'ready' | 'closed' | 'error' | 'suspended'; message?: string; }
@@ -58,6 +64,9 @@ export interface WingSchemaDriver extends WingDriver {
   list(path: string, options?: { refresh?: boolean }): Promise<NodeMetadata[]>;
   readTree(path: string, options?: { depth?: number }): Promise<Record<string, WingValue>>;
   subscribeStripMeters(selection: StripMeterSelection): Promise<void>;
+  /** RTA shares the existing meter report and UDP socket; returns its fresh ID. */
+  subscribeRta(enabled: boolean): Promise<number>;
   onStripMeters(listener: (frame: StripMeterFrame) => void): () => void;
+  onRta(listener: (frame: RtaFrame) => void): () => void;
   onSchemaChange(listener: (change: SchemaChange) => void): () => void;
 }

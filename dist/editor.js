@@ -36,8 +36,9 @@
   let sendDirection = 'out', sendGroup = 'BUS', sendFilter = '';
   let panel, tabList, headerName, headerKind, headerDot, headerSof, headerSolo, headerRename;
   let renameFocusId = null;
-  let footerStatus, previousFocus, unsubscribe, unsubscribeLive, rendering = false;
+  let footerStatus, previousFocus, unsubscribe, unsubscribeLive, rendering = false, navigating = false, panelVersion = 0;
   let sourceControl, dockHost, coveredChildren = [];
+  const rowHosts = new Map();
   let liveGate = { key: '', phase: 'idle', error: '', token: 0 }, observedLiveMode = '';
   let bindings = [], cleanups = [], structure = '';
 
@@ -51,7 +52,10 @@
     const node = el('button', className, text);
     node.type = 'button';
     if (ariaLabel) node.setAttribute('aria-label', ariaLabel);
-    if (action) node.addEventListener('click', action);
+    if (action) {
+      const active = rendering ? controlActive() : () => true;
+      node.addEventListener('click', event => { if (active()) action(event); });
+    }
     return node;
   }
   function note(text) { return el('p', 'editor-note', text); }
@@ -68,6 +72,10 @@
     return box;
   }
   function bind(update) { bindings.push(update); update(); }
+  function controlActive() {
+    const id = currentId, version = panelVersion;
+    return () => !!dialog?.open && id === currentId && version === panelVersion;
+  }
   function patch(changes) { C().updateStrip(currentId, changes); }
   function patchChannel(changes) { D().patchChannel(currentId, changes); }
   function patchObject(key, changes) { patchChannel({ [key]: { ...(channel()?.[key] || {}), ...changes } }); }
@@ -95,11 +103,13 @@
   }
 
   function textField(caption, get, set, options = {}) {
+    const active = controlActive();
     const input = el('input', 'editor-text');
     input.type = options.type || 'text'; input.maxLength = options.maxLength || 80;
     input.setAttribute('aria-label', options.ariaLabel || caption);
     if (options.placeholder) input.placeholder = options.placeholder;
     const commit = () => {
+      if (!active()) return;
       if (input.disabled) { input.value = String(get() ?? ''); return; }
       const value = input.value.trim();
       if (options.allowEmpty || value) set(value);
@@ -118,10 +128,11 @@
   }
 
   function selectField(caption, get, options, set, config = {}) {
+    const active = controlActive();
     const select = el('select', 'editor-select'); select.setAttribute('aria-label', config.ariaLabel || caption);
     const choices = options.map(value => typeof value === 'object' ? value : { value: String(value), label: String(value) });
     choices.forEach(value => { const option = el('option', '', value.label); option.value = String(value.value); select.append(option); });
-    select.addEventListener('change', () => { set(select.value); if (config.rerender) renderPanel(false); });
+    select.addEventListener('change', () => { if (!active()) return; set(select.value); if (config.rerender && active()) renderPanel(false); });
     bind(() => {
       const value = String(get() ?? choices[0]?.value ?? '');
       if (document.activeElement !== select || select.value !== value) select.value = value;
@@ -131,6 +142,7 @@
   }
 
   function parameter({ caption, get, set, min, max, step = 1, unit = '', log = false, compact = false, vertical = false, format, disabled }) {
+    const active = controlActive();
     const wrap = el('div', `editor-parameter${vertical ? ' editor-parameter-vertical' : ' editor-parameter-rotary'}${compact ? ' editor-parameter-compact' : ''}`);
     const heading = el('div', 'editor-parameter-heading'), display = el('output', 'editor-parameter-value');
     const displayValue = value => format ? format(value) : `${dec(value, step < 1 ? (step < .1 ? 2 : 1) : 0)}${unit ? ` ${unit}` : ''}`;
@@ -155,8 +167,9 @@
     const toPosition = value => log ? Math.log(clamp(value, min, max) / min) / Math.log(max / min) : (clamp(value, min, max) - min) / (max - min);
     const fromPosition = position => log ? min * (max / min) ** clamp(position, 0, 1) : min + clamp(position, 0, 1) * (max - min);
     const normalize = value => Number((Math.round((clamp(value, min, max) - min) / step) * step + min).toFixed(4));
-    const writable = () => !disabled?.() && !(window.SculptLive?.isLive?.() && (!window.SculptLive.isConnected?.() || !window.SculptLive.isWritable?.()));
+    const writable = () => active() && !disabled?.() && !(window.SculptLive?.isLive?.() && (!window.SculptLive.isConnected?.() || !window.SculptLive.isWritable?.()));
     const update = () => {
+      if (!active()) return;
       const value = Number(get()); if (!Number.isFinite(value)) return;
       const position = toPosition(value), enabled = writable();
       if (knob) {
@@ -214,6 +227,7 @@
     if (caption === 'Fader') knob.addEventListener('dblclick', () => commitValue(0));
     }
     const commit = () => {
+      if (!active()) return;
       if (input.value.trim() && Number.isFinite(input.valueAsNumber)) commitValue(input.valueAsNumber);
       input.value = String(get()); update();
     };
@@ -286,6 +300,7 @@
     return value ? `${GROUP_NAMES[value.group] || value.group} ${value.index || ''}${value.name ? ` · ${value.name}` : ''}`.trim() : 'Non assegnata';
   }
   function sourcePicker(caption, key) {
+    const active = controlActive();
     const wrap = el('div', 'editor-source-picker');
     const allSources = D().sources();
     const groups = [...new Set(allSources.map(source => source.group))];
@@ -306,10 +321,11 @@
       groupSelect.value = group || ''; portSelect.value = current?.id || '';
     };
     groupSelect.addEventListener('change', () => {
+      if (!active()) return;
       const first = allSources.find(source => source.group === groupSelect.value);
-      if (first) { patchChannel({ [key]: first.id }); renderPanel(false); }
+      if (first) { patchChannel({ [key]: first.id }); if (active()) renderPanel(false); }
     });
-    portSelect.addEventListener('change', () => { patchChannel({ [key]: portSelect.value }); renderPanel(false); });
+    portSelect.addEventListener('change', () => { if (!active()) return; patchChannel({ [key]: portSelect.value }); if (active()) renderPanel(false); });
     wrap.append(field(caption, groupSelect), field('Porta / segnale', portSelect)); bind(update); return wrap;
   }
 
@@ -613,7 +629,6 @@
   }
 
   function renderDynamics() {
-    if (!isChannel()) dynamicsBlock = 'dyn';
     if (isChannel()) {
       const nav = el('div', 'editor-subtabs'); nav.setAttribute('aria-label', 'Punto di elaborazione');
       [['gate', 'Gate'], ['dyn', 'Dynamics']].forEach(([block, caption]) => {
@@ -630,10 +645,15 @@
     const strip = sourceStrip();
     return [...new Set(C().listStrips().filter(other => direction === 'out' ? C().canSend(strip.id, other.id) : C().canSend(other.id, strip.id)).map(other => other.kind))];
   }
-  function renderSends() {
+  function sendView() {
     const strip = sourceStrip(), outGroups = allowedGroups('out'), inGroups = allowedGroups('in');
     if (!outGroups.length) sendDirection = 'in';
     if (!inGroups.length) sendDirection = 'out';
+    const groups = sendDirection === 'out' ? outGroups : inGroups;
+    if (!groups.includes(sendGroup)) sendGroup = groups[0] || '';
+    return { strip, outGroups, inGroups, groups };
+  }
+  function renderSends({ strip, outGroups, inGroups, groups }) {
     if (outGroups.length && inGroups.length) {
       const direction = el('div', 'editor-subtabs');
       [['out', 'Invia a'], ['in', 'Riceve da']].forEach(([value, text]) => {
@@ -641,8 +661,6 @@
         choice.setAttribute('aria-pressed', String(value === sendDirection)); direction.append(choice);
       }); panel.append(direction);
     }
-    const groups = allowedGroups(sendDirection);
-    if (!groups.includes(sendGroup)) sendGroup = groups[0];
     if (!sendGroup) { panel.append(module('Mandate', note('Nessun percorso disponibile per questa famiglia.'))); return; }
     const groupBar = el('div', 'editor-send-groups'); groupBar.setAttribute('aria-label', sendDirection === 'out' ? 'Destinazioni delle mandate' : 'Sorgenti delle mandate');
     groups.forEach(group => {
@@ -740,15 +758,17 @@
     const live = window.SculptLive;
     if (!live?.isLive?.()) return '';
     const ch = channel();
-    return JSON.stringify([currentId, activeTab, activeTab === 'dynamics' ? dynamicsBlock : '', activeTab === 'sends' ? sendDirection : '',
+    return JSON.stringify([live.sessionToken?.() ?? null, currentId, activeTab, activeTab === 'dynamics' ? dynamicsBlock : '', activeTab === 'sends' ? sendDirection : '',
       activeTab === 'channel' ? [ch?.source, ch?.altSource, ch?.useAlt, D()?.get().io?.globalAlt] : null]);
   }
   function resetLiveGate() { liveGate = { key: '', phase: 'idle', error: '', token: liveGate.token + 1 }; }
   function beginLiveRead(key) {
     const live = window.SculptLive, id = currentId, tab = activeTab, block = dynamicsBlock, direction = sendDirection;
+    const session = live.sessionToken?.();
     const token = liveGate.token + 1;
     liveGate = { key, phase: 'loading', error: '', token };
-    const valid = () => liveGate.token === token && dialog?.open && currentId === id && live?.isConnected?.();
+    const valid = () => liveGate.token === token && dialog?.open && currentId === id && window.SculptLive === live &&
+      session === live.sessionToken?.() && live?.isConnected?.();
     Promise.resolve().then(async () => {
       if (!valid()) return;
       if (tab === 'eq') await live.ensureProcessor({ type: 'strip', id, block: 'eq' });
@@ -795,7 +815,7 @@
     panel.append(box); return false;
   }
   function liveStateChanged() {
-    if (!dialog?.open) return;
+    if (!dialog?.open || navigating || rendering) return;
     const live = window.SculptLive, mode = live?.isLive?.() ? live.snapshot?.().mode || 'live' : 'demo';
     if (mode !== observedLiveMode) { observedLiveMode = mode; resetLiveGate(); renderPanel(false); return; }
     sync();
@@ -806,11 +826,12 @@
     return JSON.stringify([currentId, activeTab, activeTab === 'channel' ? [ch?.source, ch?.altSource, ch?.useAlt, ch?.sourceAuto, D()?.get().io?.globalAlt] : null,
       activeTab === 'processing' ? [ch?.preFx, ch?.postFx, ch?.delayUnit, ch?.order] : null,
       activeTab === 'groups' ? ['x', 'y'].map(key => D()?.get().automix[key]?.channels?.includes(currentId)) : null,
-      activeTab === 'dynamics' ? [dynamicsBlock, D()?.processor({ type: 'strip', id: currentId, block: dynamicsBlock })?.model === 'CMB'] : null]);
+      activeTab === 'dynamics' ? [dynamicsBlock, D()?.processor({ type: 'strip', id: currentId, block: dynamicsBlock })?.model === 'CMB'] : null,
+      activeTab === 'sends' ? [sendDirection, sendGroup] : null]);
   }
 
   function sync() {
-    if (!dialog?.open || !sourceStrip()) return;
+    if (!dialog?.open || navigating || rendering || !sourceStrip()) return;
     dockEditor();
     const strip = sourceStrip();
     const live = window.SculptLive, liveState = live?.isLive() ? live.snapshot() : null;
@@ -823,19 +844,29 @@
     headerSof.setAttribute('aria-pressed', String(C().getSof() === currentId));
     headerSof.classList.toggle('editor-active', C().getSof() === currentId);
     headerSof.setAttribute('aria-label', `${C().getSof() === currentId ? 'Disattiva' : 'Attiva'} SOF per ${label(strip)}`);
-    if (!rendering && (structure !== structuralKey() || window.SculptLive?.isConnected?.() && liveGate.key !== livePanelKey())) { renderPanel(false); return; }
+    if (structure !== structuralKey() || window.SculptLive?.isConnected?.() && liveGate.key !== livePanelKey()) { renderPanel(false); return; }
     for (const update of bindings) update();
     const effective = D()?.effective(currentId);
     footerStatus.textContent = liveState ? (liveState.mode !== 'live' ? 'WING non collegata' : `${live.hasStripValue(currentId) ? db(strip.level) + ' dB' : 'Lettura…'} · ${liveState.pending ? 'scritture in attesa: ' + liveState.pending : liveState.writable ? 'controllo WING' : 'sola lettura'}`) : `${effective?.muted ? 'MUTE · ' : ''}${db(effective?.level ?? strip.level)} dB · salvato sul dispositivo`;
   }
 
-  function disposePanel() { for (const cleanup of cleanups) cleanup(); cleanups = []; }
+  function disposePanel() {
+    // Invalidate queued events from detached controls before selecting another
+    // channel. A late change/blur must never resolve the new currentId.
+    panelVersion++;
+    const previous = cleanups; cleanups = []; bindings = [];
+    for (const cleanup of previous) cleanup();
+  }
   function renderPanel(resetScroll = true) {
-    if (!panel || !sourceStrip() || rendering) return;
+    if (!panel || !sourceStrip() || rendering || navigating) return;
     rendering = true;
     const scrollTop = resetScroll ? 0 : panel.scrollTop, scrollLeft = resetScroll ? 0 : panel.scrollLeft;
     if (panel.contains(document.activeElement) && document.activeElement.matches('input,select')) document.activeElement.blur();
     disposePanel(); bindings = []; panel.replaceChildren();
+    // Resolve family-specific fallbacks before live hydration. Otherwise a Gate
+    // carried from CH to BUS would request a processor that cannot exist.
+    if (activeTab === 'dynamics' && !isChannel()) dynamicsBlock = 'dyn';
+    const sends = activeTab === 'sends' ? sendView() : null;
     panel.id = `editor-panel-${activeTab}`; panel.setAttribute('aria-labelledby', `editor-tab-${activeTab}`);
     tabList.querySelectorAll('[role="tab"]').forEach(tab => { const on = tab.dataset.tab === activeTab; tab.setAttribute('aria-selected', String(on)); tab.tabIndex = on ? 0 : -1; });
     const ready = readyLivePanel();
@@ -844,14 +875,17 @@
     else if (activeTab === 'processing') renderProcessing();
     else if (activeTab === 'eq') renderProcessor('eq');
     else if (activeTab === 'dynamics') renderDynamics();
-    else if (activeTab === 'sends') renderSends();
+    else if (activeTab === 'sends') renderSends(sends);
     else if (activeTab === 'groups') renderGroups();
     panel.scrollTop = scrollTop; panel.scrollLeft = scrollLeft; structure = structuralKey(); rendering = false; sync(); focusName();
   }
   function switchTab(id) {
     if (!TABS.some(([key]) => key === id)) return;
     if (id !== 'channel') renameFocusId = null;
-    activeTab = id; renderPanel();
+    const changed = activeTab !== id;
+    activeTab = id;
+    if (changed || structure !== structuralKey()) renderPanel();
+    else { sync(); focusName(); }
     tabList.querySelector(`[data-tab="${id}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
   function adjacent(delta) {
@@ -882,10 +916,11 @@
     const source = sourceRow();
     const rowName = source?.classList.contains('outputs') ? 'outputs' : source?.classList.contains('inputs') ? 'inputs' : isInput() ? 'inputs' : 'outputs';
     const targetName = rowName === 'inputs' ? 'outputs' : 'inputs';
-    const target = document.querySelector(`.mixer-row.${targetName}`);
-    dialog.dataset.sourceRow = rowName;
-    dialog.dataset.dockRow = targetName;
-    dialog.dataset.channelId = currentId;
+    let target = rowHosts.get(targetName);
+    if (!target?.isConnected) { target = document.querySelector(`.mixer-row.${targetName}`); rowHosts.set(targetName, target); }
+    if (dialog.dataset.sourceRow !== rowName) dialog.dataset.sourceRow = rowName;
+    if (dialog.dataset.dockRow !== targetName) dialog.dataset.dockRow = targetName;
+    if (dialog.dataset.channelId !== currentId) dialog.dataset.channelId = currentId;
     if (target === dockHost) return;
     releaseDock();
     dialog.classList.toggle('editor-docked', !!target);
@@ -938,30 +973,55 @@
     document.body.append(dialog);
   }
 
-  function open(id, keepTab = false, origin = null) {
-    if (!C()?.getStrip(id) || !D()) return false;
+  function showChannel(id, { keepTab = false, origin = null, tab, block } = {}) {
+    if (!C()?.getStrip(id) || !D() || navigating) return false;
     if (!dialog) createDialog();
-    if (currentId !== id && panel?.contains(document.activeElement) && document.activeElement.matches('input,select')) document.activeElement.blur();
-    const clicked = stripElement(id, origin || document.activeElement);
-    sourceControl = clicked?.querySelector('.strip-label') || null;
-    if (sourceControl) previousFocus = sourceControl;
-    else if (!dialog.open) previousFocus = document.activeElement;
-    if (currentId !== id && !keepTab) { activeTab = 'channel'; dynamicsBlock = 'dyn'; sendDirection = 'out'; sendGroup = 'BUS'; }
-    if (currentId !== id) renameFocusId = null;
-    currentId = id; ensureExtras(); C().selectStrip(id);
-    dockEditor();
-    if (!dialog.open) { if (typeof dialog.show === 'function') dialog.show(); else dialog.open = true; }
+    const wasOpen = !!dialog.open, changedId = currentId !== id;
+    const previousView = [activeTab, dynamicsBlock, sendDirection, sendGroup];
+    const nextView = changedId && !keepTab ? ['channel', 'dyn', 'out', 'BUS'] : [...previousView];
+    if (tab !== undefined) nextView[0] = tab;
+    if (tab === 'dynamics') nextView[1] = block || 'dyn';
+    if (nextView[0] === 'dynamics' && C().getStrip(id).kind !== 'CH') nextView[1] = 'dyn';
+    const changedView = previousView.some((value, index) => value !== nextView[index]);
+    const rebuild = !wasOpen || changedId || changedView;
+    navigating = true;
+    try {
+      // Commit while all global accessors still refer to the old channel. The
+      // commit can notify subscribers; sync must wait for this whole transition.
+      if (panel?.contains(document.activeElement) && document.activeElement.matches('input,select')) document.activeElement.blur();
+      if (rebuild) { resetLiveGate(); disposePanel(); }
+      const clicked = stripElement(id, origin || document.activeElement);
+      sourceControl = clicked?.querySelector('.strip-label') || null;
+      if (sourceControl) previousFocus = sourceControl;
+      else if (!wasOpen) previousFocus = document.activeElement;
+      if (changedId || nextView[0] !== 'channel') renameFocusId = null;
+      currentId = id;
+      [activeTab, dynamicsBlock, sendDirection, sendGroup] = nextView;
+      ensureExtras(); C().selectStrip(id);
+      dockEditor();
+      if (!dialog.open) { if (typeof dialog.show === 'function') dialog.show(); else dialog.open = true; }
+      observedLiveMode = window.SculptLive?.isLive?.() ? window.SculptLive.snapshot?.().mode || 'live' : 'demo';
+    } finally { navigating = false; }
     document.addEventListener?.('keydown', escapeEditor);
-    observedLiveMode = window.SculptLive?.isLive?.() ? window.SculptLive.snapshot?.().mode || 'live' : 'demo';
-    renderPanel(); if (!unsubscribe) unsubscribe = C().subscribe(sync);
+    if (rebuild) renderPanel(!wasOpen || changedView); else sync();
+    if (!unsubscribe) unsubscribe = C().subscribe(sync);
     if (!unsubscribeLive && window.SculptLive?.subscribe) unsubscribeLive = window.SculptLive.subscribe(liveStateChanged);
+    if (tab !== undefined) tabList.querySelector(`[data-tab="${activeTab}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     dialog.querySelector('.editor-close').focus(); return true;
+  }
+  function open(id, keepTab = false, origin = null) {
+    // A strip click is navigation while the editor is open. Only an explicit
+    // section request (for example a macro) replaces the current module.
+    return showChannel(id, { keepTab: keepTab || !!dialog?.open, origin });
   }
   function close() {
     if (!dialog?.open) return;
-    if (dialog.contains(document.activeElement) && document.activeElement.matches('input,select')) document.activeElement.blur();
-    renameFocusId = null;
-    unsubscribe?.(); unsubscribe = null; unsubscribeLive?.(); unsubscribeLive = null; resetLiveGate(); disposePanel(); dialog.close();
+    navigating = true;
+    try {
+      if (dialog.contains(document.activeElement) && document.activeElement.matches('input,select')) document.activeElement.blur();
+      renameFocusId = null;
+      unsubscribe?.(); unsubscribe = null; unsubscribeLive?.(); unsubscribeLive = null; resetLiveGate(); disposePanel(); dialog.close();
+    } finally { navigating = false; }
     document.removeEventListener?.('keydown', escapeEditor);
     releaseDock();
     if (dialog.parentElement !== document.body) document.body.append(dialog);
@@ -972,10 +1032,7 @@
     const block = options?.block;
     if (tab === 'dynamics' && block !== undefined && (!['gate', 'dyn'].includes(block) || !D().processor({ type: 'strip', id, block }))) return false;
     window.SculptUI?.close();
-    if (!open(id, false, options?.origin)) return false;
-    if (tab === 'dynamics' && block) dynamicsBlock = block;
-    switchTab(tab);
-    return true;
+    return showChannel(id, { keepTab: !!dialog?.open, origin: options?.origin, tab, block });
   }
   window.SculptEditor = Object.freeze({ open, openSection, close, sections: () => TABS.map(([id, name]) => ({ id, name })), isOpen: () => !!dialog?.open });
 })();

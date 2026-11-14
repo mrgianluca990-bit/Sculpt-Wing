@@ -36,3 +36,13 @@
 .dca-level-form{display:flex;gap:10px;flex-wrap:wrap;align-items:end}.dca-level-form>.desk-field{flex:1;min-width:140px}
 @media(max-height:620px){.dca-bank-button{height:23px;font-size:8px}.dca-strip .dca-members-button{height:17px;font-size:7px;margin-bottom:3px}}
 @media(max-width:600px){.dca-members{grid-template-columns:repeat(2,minmax(0,1fr))}.dca-config{min-width:0}.dca-bank-button{min-width:34px;padding:0 5px;font-size:8px}}
+
+/* A compact rotary stays visible above each audio fader, including pinned strips. */
+.strip-pan{display:flex;align-items:center;justify-content:center;gap:5px;height:28px;min-height:28px;margin:0 0 3px;border:1px solid #39333b;border-radius:4px;background:#151318;touch-action:none;cursor:ew-resize;outline-offset:-1px}
+.strip-pan-dial{position:relative;display:block;width:20px;height:20px;flex:none;border:1px solid #635762;border-radius:50%;background:radial-gradient(circle at 35% 28%,#5a535c,#29262d 70%);box-shadow:0 1px 2px #0009}
+.strip-pan-dial i{position:absolute;inset:2px;transform:rotate(var(--pan-angle,0deg));pointer-events:none}
+.strip-pan-dial i:before{content:"";position:absolute;left:calc(50% - 1px);top:0;width:2px;height:5px;border-radius:1px;background:#e0d4da}
+.strip-pan-value{display:flex;flex-direction:column;align-items:center;min-width:25px;line-height:1.15;pointer-events:none}.strip-pan-value small{font-size:6px;letter-spacing:.7px;color:#9b8f98}.strip-pan-value output{font:9px ui-monospace,SFMono-Regular,Menlo,monospace;font-variant-numeric:tabular-nums;color:#d8ccd3}
+.strip-pan.dragging{border-color:#a16e80;background:#2c202b}.strip-pan[aria-disabled=true]{cursor:default;opacity:.5}.strip-pan[aria-disabled=true] .strip-pan-value small{letter-spacing:.1px}
+.strip-pan[data-known=false] .strip-pan-dial i{visibility:hidden}
+@media(max-height:620px){.strip-pan{height:24px;min-height:24px;margin-bottom:2px}.strip-pan-dial{height:18px;width:18px}.strip-pan-value output{font-size:8px}}

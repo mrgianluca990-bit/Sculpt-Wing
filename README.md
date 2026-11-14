@@ -1,8 +1,8 @@
-# Sculpt Wing 0.6.7
+# Sculpt Wing 0.6.8
 
 Controller WING. La distribuzione attuale è **Mac M1 / Apple Silicon ARM64**; il repository conserva anche i precedenti progetti per altre piattaforme.
 
-La **0.6.7** integra i **16 DCA nella riga superiore**, ancorabili come le altre strip. Riorganizza WING EQ e Dynamics e compatta le mandate verticali, eliminando la manopola che duplicava il fader. Aggiunge la cronologia **Cmd+Z / Maiusc+Cmd+Z**, riduce salvataggi e aggiornamenti dell’interfaccia e introduce **OSC diretto dall’app**, con comandi di Sculpt Show già predisposti e assegnabili alle macro. [Note e verifiche 0.6.7](docs/RELEASE_0.6.7_MAC_M1.md) · [OSC e Sculpt Show](docs/OSC_SCULPT_SHOW.md) · [Collaudo sul banco e con Show](docs/COLLAUDO_WING_SHOW_0.6.7.md).
+La **0.6.8** mantiene aperto lo stesso modulo quando cambi canale, corregge la precisione del trascinamento delle bande EQ e aggiunge il **pan alle strip**, con doppio clic per tornare al centro. Riduce le ricostruzioni dell’editor, il lavoro delle macro di navigazione e gli aggiornamenti delle curve. Include il trasporto **RTA reale WING**, con sorgente e tap effettivi e disponibilità dichiarata. [Note e verifiche 0.6.8](docs/RELEASE_0.6.8_MAC_M1.md) · [RTA WING](docs/RTA_WING.md) · [Collaudo 0.6.8](docs/COLLAUDO_0.6.8.md).
 
 Restano l’importazione della channel list, i gruppi di strumenti modificabili, i nomi automatici **Batteria MON / Batteria IEM**, le due mandate principali facoltative, le **16 macro**, le righe ridimensionabili e i canali ancorati. I parametri importati sono modificabili nell’anteprima e il routing dei canali viene conservato.
 
@@ -12,11 +12,11 @@ Questo pacchetto contiene i sorgenti pronti per il repository **sculpt wing**. S
 
 Il workflow reale è **`.github/workflows/build-desktop.yml`**, incluso anche se Finder nasconde le cartelle che iniziano con un punto. In GitHub compare come **Build Sculpt Wing - Mac M1** e parte con un push su `main` o `master`, oppure da **Actions → Build Sculpt Wing - Mac M1 → Run workflow**.
 
-Dopo i test produce l’artifact **Sculpt-Wing-Mac-M1**, contenente `Sculpt-Wing-0.6.7-mac-arm64.zip`. Non occorre installare Node sul proprio computer per usare GitHub Actions. Runner, firma e verifiche della consegna sono descritti nelle [note 0.6.7](docs/RELEASE_0.6.7_MAC_M1.md).
+Dopo i test produce l’artifact **Sculpt-Wing-Mac-M1**, contenente `Sculpt-Wing-0.6.8-mac-arm64.zip`. Non occorre installare Node sul proprio computer per usare GitHub Actions. Runner, firma e verifiche della consegna sono descritti nelle [note 0.6.8](docs/RELEASE_0.6.8_MAC_M1.md).
 
 ## Cosa aprire
 
-- **Interfaccia nel browser:** `dist/index.html`, servita via HTTP/HTTPS. La versione pubblicata è https://sculpt-control-offline.mrgianluca990.chatgpt.site . Safari e Chrome eseguono la demo offline.
+- **Interfaccia nel browser:** `dist/index.html`, servita via HTTP/HTTPS. La pubblicazione della demo web è separata da questo aggiornamento Mac. Safari e Chrome eseguono la demo offline.
 - **Progetto iPhone/iPad:** `native/ios/App/App.xcodeproj`, dopo la preparazione con `npm ci` e `npm run ios:sync` nella cartella `native`. Vedi [native/README.md](native/README.md).
 - **App desktop:** `desktop/`, con shell Electron e trasporto TCP/UDP diretto. Vedi `desktop/README.md`.
 - **Guida iOS per i sorgenti GitHub:** `native/README.md`; i documenti 0.5 descrivono la precedente consegna.
@@ -32,7 +32,9 @@ Due file compatte: **16 BUS + 8 MTX + 4 MAIN + 16 DCA** sopra, **40 CH + 8 AUX**
 
 **Cmd+Z** annulla e **Maiusc+Cmd+Z** ripristina le modifiche registrate. Un trascinamento equivale a una sola operazione. Nei campi di testo resta l’annullamento della digitazione. In live l’operazione passa dalle stesse verifiche e riletture del mixer; un valore cambiato esternamente non viene sovrascritto da una cronologia obsoleta. Il cambio di algoritmo live richiede il ripristino tramite preset. I comandi OSC già inviati non sono annullabili.
 
-**Analizzatori:** WING EQ mostra la curva calcolata dei filtri. La versione corrente non riceve uno spettro audio RTA dalla WING; la pagina e il grafico lo indicano esplicitamente. Le curve Dynamics rappresentano i parametri, non una misura audio. I meter d’ingresso e GR usano invece i dati disponibili del banco in live; in demo sono simulati.
+**Editor e pan:** con l’editor aperto, un clic su un altro canale mantiene EQ, Dinamica, Mandate o la sezione selezionata, comprese le sottoviste compatibili. Le macro che richiamano un modulo esplicito aprono quel modulo direttamente. Il pan è sopra il fader di ogni strip audio: trascinamento orizzontale o verticale, Maiusc per precisione, doppio clic per il centro. In SOF controlla il pan della mandata CH/AUX; quando è attivo Pan link mostra LINK e segue il pan del canale. I DCA non hanno pan audio.
+
+**Analizzatori:** la pagina Meter/RTA riceve le 120 bande dello spettro WING. L’analizzatore è globale e condiviso con la console. Fonte e tap vengono riletti; quando il firmware espone solo un indice numerico, viene mostrato «Sorgente WING #N» senza inventare il canale corrispondente. L’overlay EQ richiede un’identità della sorgente verificabile. La scala è relativa, non un valore dBFS/SPL calibrato; senza banco lo spettro resta vuoto. La curva EQ calcolata e le curve Dynamics continuano a rappresentare i parametri. I meter d’ingresso e GR usano i dati ricevuti in live; in demo sono esplicitamente simulati. Dettagli e limiti: [RTA WING](docs/RTA_WING.md).
 
 **OSC / Show:** apri la relativa pagina dal menu del banco. Il profilo Sculpt Show propone `127.0.0.1:53000` per le due app sullo stesso Mac; IP e porta sono modificabili. “Verifica Sculpt Show” richiede lo stato senza avviare cue. GO, Stop All, pausa, ripresa, fade e navigazione possono essere aggiunti alle macro; sono disponibili anche comandi per UUID e messaggi OSC personalizzati. L’invio è integrato nella shell desktop, indipendente dalla connessione WING. La demo browser permette la configurazione ma non può inviare UDP. Vedi la [guida OSC](docs/OSC_SCULPT_SHOW.md) per la versione Show compatibile e le risposte di verifica.
 
@@ -72,4 +74,4 @@ Il pacchetto contiene codice sorgente, test, documentazione e risorse. **Non con
 
 Il bundle desktop include la stessa cartella `dist/` e lo stesso driver WING di iOS. La connessione parte in lettura; la modifica dei parametri richiede **Attiva controllo**. I pacchetti del mixer vengono isolati per sessione e i comandi pendenti sono annullati alla disconnessione o alla sospensione.
 
-Il workflow corrente compila soltanto Mac M1 / Apple Silicon ARM64. La nuova app macOS deve essere prodotta dal workflow dopo il caricamento di questo aggiornamento. Le prove effettuate sono elencate in [RELEASE_0.6.7_MAC_M1.md](docs/RELEASE_0.6.7_MAC_M1.md); il codice sorgente non equivale a un collaudo su WING reale.
+Il workflow corrente compila soltanto Mac M1 / Apple Silicon ARM64. La nuova app macOS deve essere prodotta dal workflow dopo il caricamento di questo aggiornamento. Le prove effettuate sono elencate in [RELEASE_0.6.8_MAC_M1.md](docs/RELEASE_0.6.8_MAC_M1.md); il codice sorgente non equivale a un collaudo su WING reale.

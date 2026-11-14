@@ -1,239 +1,64 @@
-SCULPT WING 0.6.7 — DCA, EDITOR, UNDO E OSC SHOW · MAC M1
+SCULPT WING 0.6.8 — EDITOR, EQ, PAN E RTA · MAC M1
 
-Questo ZIP contiene i file modificati per aggiornare il repository esistente
-mrgianluca990-bit/Sculpt-Wing. Conserva gli altri file già presenti.
-Dopo il caricamento, GitHub Actions prepara Sculpt Wing.app per Mac M1 /
-Apple Silicon arm64. Questa consegna è un aggiornamento dei sorgenti:
-il nuovo binario 0.6.7 deve essere compilato dal workflow del repository.
-La base verificata è la versione 0.6.6 già caricata su main, commit
-465b4f01f86f0a758c970d45780a3982db972213.
-Questo aggiornamento contiene i file cambiati rispetto alla 0.6.6.
-Sovrascrivi i file corrispondenti e conserva gli altri file del repository.
+Questo ZIP aggiorna i sorgenti del repository Sculpt-Wing 0.6.7 già caricato.
+Il pacchetto Mac ARM64 viene creato dal workflow GitHub dopo il caricamento.
 
-NOVITÀ 0.6.7
-- I 16 DCA fanno parte della riga superiore con BUS, MTX e MAIN.
-  Il pulsante DCA scorre fino ai gruppi; puoi ancorarli a sinistra o destra
-  e tenerli visibili mentre scorri le altre uscite. I Custom Layer mantengono
-  i DCA nella riga superiore.
-- WING EQ: grafico più leggibile, selezione delle bande e tre manopole
-  per la banda scelta. WING Dynamics: curve e controlli raggruppati.
-  Le curve rappresentano i parametri: non è ancora disponibile un vero RTA
-  audio della WING. La demo lo dichiara anche nella pagina Meter / RTA.
-- Mandate verticali più compatte; rimane il fader con campo numerico.
-  È stata rimossa la manopola che duplicava il livello. Pan e dettagli
-  indipendenti rimangono disponibili.
-- Cmd+Z annulla; Maiusc+Cmd+Z ripristina. Ogni trascinamento conta come
-  una sola operazione. Nei campi di testo resta l'annullamento del testo.
-  In live sono richiesti Controllo, dati aggiornati e conferma del banco;
-  una modifica remota successiva impedisce di sovrascrivere il valore.
-  Per ripristinare un cambio di algoritmo live usa un preset.
-- Ridotti i salvataggi durante i gesti, i ridisegni delle strip non coinvolte
-  e il lavoro dei meter quando la schermata non è visibile.
-- OSC / Sculpt Show: invio UDP direttamente dall'app Mac. Il profilo Show
-  è pronto su 127.0.0.1:53000, modificabile. Sono predisposti GO, Stop All,
-  pausa, ripresa, fade, navigazione, cue/liste per UUID e trigger per alias.
-  Ogni comando si può aggiungere alle macro; puoi anche costruire messaggi
-  OSC personalizzati. Verifica Sculpt Show chiede soltanto lo stato.
-  In Show RC3 abilita OSC Control e applica le impostazioni. L'invio di un
-  pacchetto non certifica l'esecuzione della cue. OSC non si annulla con
-  Cmd+Z. Il browser prepara le assegnazioni, l'app Mac invia UDP.
+NOVITÀ
 
-Guide: docs/OSC_SCULPT_SHOW.md e docs/COLLAUDO_WING_SHOW_0.6.7.md.
-Risultati e limiti delle prove: docs/RELEASE_0.6.7_MAC_M1.md.
+• Cambiando canale con l’editor aperto rimane lo stesso modulo: EQ, Dinamica,
+  Mandate e le altre sezioni. Sono conservate le sottoviste compatibili.
+• Apertura e cambio canale ricostruiscono il pannello una sola volta.
+  Il log delle macro non provoca un aggiornamento globale di tutte le strip.
+• Le bande WING EQ seguono il puntatore anche quando il grafico è ridimensionato.
+  Afferrare il punto non cambia i valori. Maiusc dà una regolazione più fine.
+• Pan sopra il fader di ogni strip audio. Trascina in orizzontale o in verticale;
+  doppio clic = centro C. Il gesto si annulla con Cmd+Z.
+• In SOF, pan della mandata CH/AUX. LINK indica che segue il pan del canale:
+  disattiva Pan link nell’editor Mandate per una regolazione indipendente.
+• RTA da dati reali WING nella pagina Meter / RTA. Spettro a 120 bande, sorgente
+  e tap effettivi, scala relativa. Senza banco il grafico resta vuoto.
+• L’RTA WING è globale: un indice numerico privo di mappatura verificabile viene
+  mostrato come Sorgente WING #N. Non viene attribuito arbitrariamente al canale.
+  L’overlay EQ richiede una sorgente verificabile; altrimenti usa RTA banco.
 
-GRUPPI DEGLI STRUMENTI E NOMI MONITOR
-Apri la nuova scheda STRUMENTI nell’anteprima del PDF, oppure premi
-Modifica gruppo nell’intestazione di uno strumento. Puoi rinominare il
-gruppo, scegliere più canali e creare un nuovo gruppo, spostarli in uno
-esistente oppure renderli indipendenti. Se sposti tutti i membri, unisci
-i gruppi; se ne scegli solo alcuni, puoi dividere uno strumento in due.
-Le caselle di questa scheda non cambiano la selezione Usa per l’importazione.
+CARICARE SU GITHUB
 
-Principale 1 = MON (monitor da palco). Principale 2 = IEM.
-Un IEM riconosciuto nel PDF viene proposto direttamente nel secondo slot.
-Un MON e un IEM abbinati senza ambiguità possono essere assegnati insieme.
-Il nome del gruppo genera il nome del relativo BUS: Batteria MON e
-Batteria IEM. Rinominando lo strumento, i nomi automatici si aggiornano.
-Il suffisso MON/IEM resta sempre visibile anche con nomi lunghi.
-Puoi correggere il nome in MANDATE. Se un BUS è condiviso, scegli da
-quale strumento/ruolo deve prendere il nome. I principali restano
-facoltativi; per il solo IEM usa il secondo e lascia il primo su Nessuno.
+1. Estrai Sculpt-Wing-0.6.8-Aggiornamento-Mac-M1.zip.
+2. Apri mrgianluca990-bit/Sculpt-Wing, ramo main.
+3. Add file → Upload files: carica il CONTENUTO estratto mantenendo le cartelle
+   dist, native, desktop, docs, tests e i file alla radice. Conserva gli altri
+   file del repository; questo ZIP contiene soltanto aggiornamenti e aggiunte.
+4. Commit changes. Il workflow Build Sculpt Wing - Mac M1 parte automaticamente.
+5. Actions → esecuzione completata → artifact Sculpt-Wing-Mac-M1.
+6. Estrai lo ZIP di GitHub e poi Sculpt-Wing-0.6.8-mac-arm64.zip.
+7. Chiudi la vecchia app e sostituiscila con Sculpt Wing.app in Applicazioni.
 
-Quando crei un gruppo, scegli il canale di riferimento per i principali.
-Quando sposti canali in un gruppo, adottano i principali della destinazione.
-Le assegnazioni sono mostrate prima dell’azione. Separare canali mantiene
-le loro mandate. Il routing è sempre conservato. Le modifiche entrano
-nel progetto solo dopo Applica scena.
+La cartella .github può essere nascosta dal Finder: Cmd + Shift + . la mostra.
+Il workflow deve stare in .github/workflows/build-desktop.yml. È incluso nello
+ZIP per ripristinarlo se necessario; non va aggiunto un livello di cartella.
 
-SEDICI MACRO ASSEGNABILI
-Gli otto pulsanti nuovi M9–M16 partono vuoti. Premi Assegna per scegliere
-cosa devono fare. Puoi aprire menu, pagine, sezioni dell’editor, banco DCA,
-SOF e Custom Layer, oppure eseguire comandi del mixer e dei processori.
-Per i parametri WING specifici usa la struttura letta dal banco collegato.
-Una macro può contenere più azioni. I pulsanti già configurati si eseguono
-con un clic; tasto destro, F2 o Maiusc+Invio apre la modifica.
-Nomi e assegnazioni rimangono salvati anche se li modifichi durante il live.
-I menu funzionano in sola lettura; i comandi audio richiedono Controllo.
-Guida: docs/MACROS.md.
+USO
 
-NOVITÀ DEL MIXER GIÀ INCLUSE
-- DCA: premi DCA in alto a destra nella riga superiore del mixer.
-  La riga scorre fino ai 16 DCA. Premi il nome o il pulsante dei membri per
-  rinominare il gruppo e assegnare i canali. Fader, MUTE e SOLO lavorano
-  sugli stessi gruppi già disponibili in Menu del banco -> DCA / Mute Groups.
-  Premi BUS, MTX o MAIN per scorrere alle altre uscite; gli ancorati restano.
-- Editor: i valori numerici modificabili hanno una manopola e un campo
-  per digitare il valore. Trascina la manopola su/giù; Maiusc durante il
-  trascinamento permette una regolazione fine. La disposizione usa moduli
-  affiancati lungo la riga, con scorrimento locale per gli altri controlli.
-  Il livello delle mandate usa soltanto il fader verticale e il campo numerico.
-- Fader: il trascinamento parte soltanto dalla testa. Un doppio clic sul
-  fader lo porta a 0 dB. In SOF il comando porta a 0 dB la mandata mostrata;
-  il livello principale del canale resta quello impostato. Vale anche per
-  i fader del banco DCA.
-- Meter degli ingressi CH/AUX: mostrano il livello d’ingresso, prima del
-  fader e del mute, anche quando il canale cambia riga nel Custom Layer.
-- GR: accanto al meter di ogni ingresso ci sono due piccole barre,
-  G per il gate e C per il compressore. In live usano i dati ricevuti dalla
-  WING. Quando un dato non è disponibile la barra è tratteggiata e attenuata;
-  non viene mostrato uno zero inventato. In demo il movimento è simulato.
+• Editor: clic sul nome di un canale. Rinomina porta al campo Nome; vuoto =
+  nome standard. L’editor occupa la riga opposta.
+• Fader: afferra la testa; doppio clic = 0 dB. Pan: doppio clic = centro C.
+• DCA: nella riga superiore, ancorabili. Non hanno un pan audio.
+• Cmd+Z annulla; Maiusc+Cmd+Z ripristina. Un gesto equivale a una operazione.
+• WING: collegamento in lettura, poi Attiva controllo per modificare i valori.
+• Meter / RTA: controlla la sorgente effettiva prima di interpretare lo spettro.
+• Import PDF: modifica e controlla l’anteprima prima di applicare la channel list.
+• OSC / Sculpt Show: configurazione e invio direttamente dalla shell desktop.
 
-IMPORTARE IL PDF DI PRODUCER
-1. Apri Menu del banco -> Importa channel list e scegli il PDF.
-   Puoi anche iniziare senza PDF con Aggiungi canale vuoto.
-2. In CANALI controlla destinazioni, nomi, colori, mute e fader.
-   Le righe sono riunite per strumento: assegna i principali una sola volta
-   nell’intestazione del gruppo. Tutti i suoi canali seguono l’assegnazione.
-3. In STRUMENTI correggi i gruppi e i loro nomi, scegliendo più canali insieme.
-   Controlla Principale 1 MON e Principale 2 IEM, entrambi facoltativi.
-4. In MANDATE controlla i monitor assegnati e i loro nomi automatici.
-   Scegli Tutto lo strumento per modificare un invio su tutti i canali
-   collegati, oppure Solo questo canale.
-5. In RIMANENTI scegli se conservare gli altri ingressi o inizializzarne
-   nome, colore, mute e fader. Puoi escluderli e correggerli singolarmente.
-6. Premi Applica scena: dopo un’applicazione riuscita la finestra si chiude
-   e compare la conferma sul mixer. In caso di errore rimane aperta.
-7. Per annullare, riapri Menu del banco -> Importa channel list e premi
-   Annulla importazione, senza ricaricare il PDF. È disponibile nella
-   sessione corrente, purché i valori interessati non siano cambiati dopo.
+GUIDE
 
-Cambiare un principale o un BUS conserva la posizione della schermata:
-scorrimento verticale, orizzontale e lista dei monitor. Ogni scheda ricorda
-la propria posizione. L’elenco dei monitor, le scelte dei principali e le
-righe delle mandate seguono l’ordine numerico BUS 1, 2, 3... 10... 16.
-Aggiungi monitor propone il BUS libero con il numero più basso.
+README.md — panoramica dell’app e comandi di sviluppo.
+CARICA_SU_GITHUB.md — caricamento e download della compilazione Mac M1.
+docs/RELEASE_0.6.8_MAC_M1.md — modifiche, misure e risultati delle prove.
+docs/RTA_WING.md — uso dell’RTA, sorgente globale e limiti di calibrazione.
+docs/COLLAUDO_0.6.8.md — prova con il Mac e la WING reali.
+docs/CHANNEL_LIST_IMPORT.md — importazione e anteprima channel list.
+docs/OSC_SCULPT_SHOW.md — OSC e comandi per Show.
 
-PRINCIPALI FACOLTATIVI E STRUMENTI COLLEGATI
-Ogni strumento può avere nessuno, uno o due monitor principali: per esempio
-un monitor da palco e un IEM. Principale 1 e Principale 2 accettano Nessuno;
-il secondo può essere assegnato anche lasciando vuoto il primo. I BUS dei
-due principali devono essere diversi.
-
-Strumento collegato permette di unire una riga a un gruppo esistente.
-Rendi indipendente separa quel canale conservandone le proposte attuali.
-I nomi dei singoli ingressi restano modificabili separatamente. Questo
-collegamento nell’anteprima non crea link stereo o modifiche al patch WING.
-
-Il pulsante Mandate del gruppo apre la modifica di tutto lo strumento;
-quello della singola riga apre la modifica individuale. Valori diversi
-segnala le differenze tra i membri. Una modifica di gruppo aggiorna solo
-il parametro scelto: per esempio PRE/POST senza uniformare i livelli.
-Le assegnazioni dei principali restano sempre condivise dal gruppo.
-Vengono applicate soltanto le righe selezionate per l’importazione.
-
-VALORI INIZIALI, TUTTI MODIFICABILI NELL’ANTEPRIMA
-- Canali importati: mute attivo e fader a −∞.
-- Ciascuno dei due principali, se assegnato: mandata attiva, −5 dB PRE.
-- Altri monitor assegnati: mandata attiva, −8 dB POST.
-- Segue mute: attivo.
-- Canali rimanenti: lasciati come sono.
-
-CANALI VUOTI
-Aggiungi canale vuoto riserva il primo CH/AUX libero nella proposta.
-La destinazione è modificabile; gli altri canali non vengono spostati.
-La riga è già selezionata: nome CH n/AUX n, grigio, mute attivo, fader −∞,
-nessun principale e mandate ai monitor dell’anteprima disattivate a −∞.
-Puoi modificarla, collegarla a uno strumento, escluderla o rimuoverla.
-Non viene creato un monitor automaticamente per la riga vuota.
-
-Sono disponibili 16 BUS. Puoi applicare nome e colore anche ai BUS oppure
-conservarne l’identità. Fader, mute e routing delle uscite BUS si conservano.
-Rimuovendo tutti i monitor puoi comunque applicare i canali validi: in quel
-caso le mandate esistenti del progetto restano conservate.
-
-La palette richiesta è: batteria rosso, basso verde, chitarre blu,
-tastiere bianco, voci rosa, fiati giallo, archi arancio.
-
-NOME STANDARD DEL CANALE
-Per ripristinare il nome standard, cancella il nome nell’editor e premi
-Invio oppure esci dal campo: CH 1, AUX 1, BUS 1, MTX 1 o MAIN 1.
-Durante la digitazione puoi lasciare il campo vuoto e scrivere un nome nuovo.
-
-COLORE DELLA STRIP
-Il colore assegnato compare anche come sfumatura tenue lungo l’intera
-strip, inclusi i canali ancorati. Si aggiorna insieme al colore del canale.
-
-ALTEZZA DELLE RIGHE E CANALI ANCORATI
-Il divisore tra le due righe si trascina per ingrandire la parte superiore
-o inferiore. Le frecce permettono di regolarlo anche da tastiera; doppio
-clic sul divisore ripristina 50 / 50. L’editor segue l’altezza della riga
-che lo ospita. L’app conserva la proporzione scelta.
-
-Ogni strip ha il comando per ancorarla a sinistra o a destra della sua
-riga. Puoi fissare più canali: rimangono visibili mentre il centro scorre.
-Lo stesso menu permette di liberarli. La preferenza segue la posizione
-reale del canale anche nel Custom Layer. Se gli ancorati sono numerosi,
-le loro aree scorrono separatamente e il centro rimane utilizzabile.
-Altezza e ancoraggi vengono ricordati come preferenze di visualizzazione;
-non modificano livelli, mandate, DCA, assegnazioni o routing audio.
-
-EDITOR NELLA RIGA OPPOSTA
-L’editor aperto dalla strip occupa la riga opposta del mixer: canale nella
-riga inferiore -> editor superiore; strip superiore -> editor inferiore.
-Nel Custom Layer conta la riga in cui la strip è realmente posizionata.
-La riga del canale aperto rimane visibile.
-
-ROUTING CONSERVATO
-L’importazione conserva patch, sorgenti alternative, insert, gain, phantom,
-processing e punti di prelievo del canale. Le mandate verso MAIN/MTX e verso
-BUS esclusi dall’elenco monitor restano conservate.
-Inizializza riguarda soltanto nome, colore, mute e fader dei rimanenti;
-le loro mandate e il processing esistenti restano conservati.
-
-Il PDF di Producer non stampa l’abbinamento esplicito strumento-monitor.
-Wing propone gli abbinamenti dai nomi. Se manca un abbinamento univoco,
-puoi lasciare Nessuno oppure scegliere i monitor nell’anteprima.
-Le uscite AUX e le coppie L/R del documento non modificano il patch WING.
-Se un tap condiviso AFL/POST impedisce un vero PRE, l’anteprima lo segnala
-e blocca la proposta incompatibile senza cambiare quel punto di prelievo.
-
-La lettura è locale. Sono supportati PDF con testo selezionabile e liste
-incollate; le scansioni richiedono OCR, ancora non incluso. Applica scena
-prepara il progetto Sculpt offline e non genera uno snapshot nativo WING.
-Applicazione e annullamento sono bloccati durante una sessione live.
-Questa consegna non attesta un collaudo sul mixer fisico.
-
-CARICAMENTO SU GITHUB E APP MAC
-1. Estrai Sculpt-Wing-0.6.7-Aggiornamento-Mac-M1.zip sul Mac.
-2. Apri https://github.com/mrgianluca990-bit/Sculpt-Wing, ramo main,
-   quindi Add file -> Upload files.
-3. Carica i file estratti mantenendo i loro percorsi: dist, native, desktop,
-   docs, tests e i file nella cartella principale. Non caricare la cartella
-   esterna che contiene l’aggiornamento. Conserva gli altri file del repo.
-4. Il workflow Mac M1 è già configurato nel repository e non richiede una
-   sostituzione separata. La copia .github/workflows/build-desktop.yml è
-   inclusa anche nell’aggiornamento: ripristinala nello stesso percorso
-   qualora manchi. Cmd + Shift + . nel Finder mostra la cartella .github.
-5. Premi Commit changes su main. In Actions attendi il verde di
-   Build Sculpt Wing - Mac M1.
-6. Scarica l’artifact Sculpt-Wing-Mac-M1 e apri lo ZIP contenuto:
-   Sculpt-Wing-0.6.7-mac-arm64.zip. Dentro trovi Sculpt Wing.app.
-7. Chiudi la vecchia app e sostituiscila con la nuova in Applicazioni.
-
-Restano fader dalla sola testa, scorrimento con trascinamento, Custom Layer
-a due righe e i pannelli dei processori già completati.
-
-DETTAGLI E VERIFICHE
-Vedi docs/CHANNEL_LIST_IMPORT.md e docs/RELEASE_0.6.7_MAC_M1.md.
-I risultati della preparazione non sostituiscono la nuova compilazione
-macOS né un test di avvio dell’app 0.6.7 sul Mac M1.
+Le prove locali coprono codice, frontend, protocollo e trasporti simulati o in
+loopback. Non è stata eseguita la nuova app su Mac M1 fisico né collegata una
+WING reale. La compilazione ARM64 viene eseguita da GitHub dopo il caricamento.
