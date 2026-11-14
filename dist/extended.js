@@ -6,9 +6,12 @@
   if (!C || !D || !rows.inputs || !rows.outputs || window.SculptMixerView) return;
 
   const STORAGE_KEY = 'sculpt-wing-mixer-view-v1';
-  const WING_SLOTS = [['filter', 'Filtri'], ['gate', 'Gate'], ['eq', 'EQ'], ['dyn', 'Dyn'], ['pre', 'Pre'], ['post', 'Post']];
+  const WING_SLOTS = [['home', 'Home'], ['input', 'Pre'], ['gate', 'Gate'], ['eq', 'EQ'], ['dyn', 'Comp'], ['pre', 'Insert'], ['post', 'Insert'], ['sends', 'Send'], ['master', 'Master']];
+  const DEVICE_ROLES = { home: 'home', input: 'pre', gate: 'gate', eq: 'eq', dyn: 'comp', pre: 'insert', post: 'insert', sends: 'send', master: 'master' };
   const strips = new Map(), scrollPositions = new Map();
+  const preparations = new Map();
   let mode = 'compact', bank = 'inputs', savedMode = 'compact';
+  let reorder = null, chainObserver = null, markedDrop = null;
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
     if (saved?.version === 1) {
@@ -58,6 +61,11 @@
   const editorOverlay = el('section', 'extended-editor-host');
   editorOverlay.setAttribute('aria-label', 'Editor sopra i fader');
   consoleNode.append(editorOverlay);
+  const reorderStatus = el('p', 'extended-reorder-status');
+  reorderStatus.id = 'extended-reorder-help'; reorderStatus.setAttribute('role', 'status'); reorderStatus.setAttribute('aria-live', 'polite');
+  const tapPalette = el('section', 'extended-tap-palette'); tapPalette.hidden = true;
+  tapPalette.setAttribute('aria-label', 'Punto di prelievo delle mandate PRE');
+  consoleNode.append(reorderStatus, tapPalette);
 
   function rememberScroll() {
     for (const node of consoleNode.querySelectorAll('.fader-scroll, .strip-pin-rail')) {
@@ -106,15 +114,15 @@
   function setMode(next) {
     if (!['compact', 'extended'].includes(next)) return false;
     if (next === mode) return true;
-    rememberScroll(); const previousMode = mode; mode = next;
-    syncControls(); if (mode === 'extended') refresh();
+    cancelReorder(); rememberScroll(); const previousMode = mode; mode = next;
+    syncControls(); if (mode === 'extended') { refresh(); prepareChain(strips.get(C.getState().selected)); }
     restoreScroll(previousMode); persist(); notifyView();
     return true;
   }
   function setBank(next) {
     if (!rows[next]) return false;
     if (bank === next) return true;
-    rememberScroll(); bank = next; syncControls(); restoreScroll(mode); persist(); notifyView();
+    cancelReorder(); rememberScroll(); bank = next; syncControls(); restoreScroll(mode); persist(); notifyView();
     return true;
   }
 
@@ -124,7 +132,7 @@
     const value = el('span', 'extended-slot-name', '—');
     const lamp = el('i', 'extended-slot-lamp'); lamp.setAttribute('aria-hidden', 'true');
     node.append(label, value, lamp);
-    return { node, value, signature: '' };
+    return { node, value, label, signature: '' };
   }
   function updateSlot(slot, state) {
     const signature = JSON.stringify(state);
@@ -137,7 +145,11 @@
     slot.node.setAttribute('aria-label', state.title);
   }
   function openWing(id, block, origin) {
+    cancelReorder();
+    if (window.SculptEditor?.openDevice) return window.SculptEditor.openDevice(id, block, { origin });
     const ch = D.channel(id), path = window.SculptWingMap?.stripPath(id);
+    if (block === 'home' || block === 'master') return window.SculptEditor?.openSection(id, 'channel', { origin });
+    if (block === 'sends') return window.SculptEditor?.openSection(id, 'sends', { origin });
     if (block === 'eq') return window.SculptEditor?.openSection(id, 'eq', { origin });
     if (block === 'gate' || block === 'dyn') return window.SculptEditor?.openSection(id, 'dynamics', { block, origin });
     if (block === 'pre' || block === 'post') {
@@ -147,7 +159,7 @@
       }
     }
     const opened = window.SculptEditor?.openSection(id, 'processing', { origin });
-    if (opened) document.getElementById(block === 'filter' ? 'editor-filter-section' : 'editor-insert-section')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    if (opened) document.getElementById(block === 'input' ? 'editor-filter-section' : 'editor-insert-section')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     return opened;
   }
   function openVst(id, index) {
@@ -158,14 +170,208 @@
     if (window.SculptVst?.openRack) return window.SculptVst.openRack(id);
     return openVst(id, 0);
   }
+  function chainSnapshot(record) {
+    return !record?.dca ? window.SculptChannelChain?.snapshot?.(record.id) : null;
+  }
+  function prepareChain(record, feedback = false) {
+    if (!record || record.dca || mode !== 'extended' || !window.SculptChannelChain?.prepare) return Promise.resolve(null);
+    const state = chainSnapshot(record);
+    if (state?.ready || state?.family !== 'CH' && state?.orderKnown) return Promise.resolve(state);
+    if (preparations.has(record.id)) return preparations.get(record.id);
+    const pending = Promise.resolve().then(() => window.SculptChannelChain.prepare(record.id)).then(snapshot => {
+      if (mode === 'extended') refresh(record.id);
+      return snapshot;
+    }).catch(error => {
+      if (feedback) { status(error.message || 'Impossibile leggere l’ordine WING.', true); C.toast?.(error.message); }
+      return null;
+    }).finally(() => preparations.delete(record.id));
+    preparations.set(record.id, pending); return pending;
+  }
+  function status(message, visible = false) {
+    if (reorderStatus.textContent !== message) reorderStatus.textContent = message;
+    reorderStatus.dataset.visible = String(visible);
+  }
+  function clearDrops() {
+    if (markedDrop) { delete markedDrop.dataset.drop; markedDrop = null; }
+    if (reorder) reorder.targetId = null;
+  }
+  function cancelReorder(message = '', focus = false) {
+    const active = reorder; reorder = null;
+    if (active?.pending && message.includes('annullato')) message = 'Spostamento in verifica.';
+    active?.unsubscribe?.();
+    if (active) { delete active.record.wing.dataset.reordering; delete active.record.wingSlots.get(active.key)?.item.dataset.dragging; }
+    clearDrops(); tapPalette.hidden = true; tapPalette.replaceChildren();
+    status(message, false);
+    if (focus && active?.record.wingSlots.get(active.key)?.handle.isConnected) active.record.wingSlots.get(active.key).handle.focus({ preventScroll: true });
+  }
+  function validReorder(active = reorder) {
+    if (!active || active !== reorder || mode !== 'extended' || !active.record.rack.isConnected || active.record.article.hidden || active.record.article.closest('.extended-row-hidden')) return false;
+    const current = chainSnapshot(active.record);
+    if (!current || current.epoch !== active.epoch || current.live !== active.live || !current.items.some(item => item.id === active.key && item.movable)) return false;
+    try { return window.SculptChannelChain.targets(active.token).some(target => target.enabled); }
+    catch (_) { return false; }
+  }
+  function showTarget(target) {
+    if (reorder?.targetId === target?.id && markedDrop?.isConnected) return;
+    clearDrops();
+    if (!reorder || !target?.enabled) return;
+    reorder.targetId = target.id;
+    if (target.kind === 'proc') {
+      const item = reorder.record.wingSlots.get(target.targetKey)?.item;
+      if (item) { item.dataset.drop = target.position; markedDrop = item; }
+    } else {
+      const choice = [...tapPalette.querySelectorAll('.extended-tap-choice')].find(node => node.dataset.target === target.id);
+      if (choice) { choice.dataset.drop = 'true'; markedDrop = choice; }
+    }
+    status(`${target.label}. Invio per confermare · Esc per annullare.`, true);
+  }
+  function renderTapPalette(active) {
+    const heading = el('div', 'extended-tap-title');
+    heading.append(el('span', '', 'Punto PRE delle mandate'), button('×', '', () => cancelReorder('Spostamento annullato.', true)));
+    heading.lastElementChild.setAttribute('aria-label', 'Annulla lo spostamento');
+    const choices = el('div', 'extended-tap-options');
+    for (const target of active.targets) {
+      const choice = button(target.label, 'extended-tap-choice', () => commitReorder(target.id));
+      choice.dataset.target = target.id; choice.disabled = !target.enabled;
+      choice.setAttribute('aria-pressed', String(!!target.current)); choice.title = target.reason || target.label;
+      choice.addEventListener('dragover', event => { if (reorder !== active || active.pending || !target.enabled) return; event.preventDefault(); event.stopPropagation(); showTarget(target); if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'; });
+      choice.addEventListener('drop', event => { if (reorder !== active || active.pending || !target.enabled) return; event.preventDefault(); event.stopPropagation(); commitReorder(target.id); });
+      choice.addEventListener('keydown', event => {
+        const options = [...choices.querySelectorAll('button:not(:disabled)')], at = options.indexOf(choice);
+        const delta = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: 2, ArrowUp: -2 }[event.key];
+        if (delta === undefined) return; event.preventDefault(); event.stopPropagation(); options[(at + delta + options.length) % options.length]?.focus();
+      });
+      choices.append(choice);
+    }
+    tapPalette.replaceChildren(heading, choices); tapPalette.hidden = false;
+    if (active.kind === 'keyboard') (choices.querySelector('[aria-pressed=true]:not(:disabled)') || choices.querySelector('button:not(:disabled)'))?.focus();
+  }
+  function beginReorder(record, key, kind) {
+    cancelReorder();
+    if (mode !== 'extended') return false;
+    const api = window.SculptChannelChain;
+    try {
+      if (!api?.begin) throw new Error('Ordine WING non disponibile.');
+      const snapshot = chainSnapshot(record), token = api.begin(record.id, key), targets = api.targets(token);
+      if (!targets.some(target => target.enabled)) throw new Error(snapshot.items.find(item => item.id === key)?.reason || 'Nessuna posizione disponibile.');
+      const active = { record, key, kind, token, targets, epoch: snapshot.epoch, live: snapshot.live, pending: false, targetId: null };
+      reorder = active; record.wing.dataset.reordering = 'true'; record.wingSlots.get(key).item.dataset.dragging = 'true';
+      status(kind === 'keyboard' ? 'Frecce su/giù: scegli la posizione · Invio: conferma · Esc: annulla.' : 'Trascina su una posizione disponibile · Esc per annullare.', true);
+      if (targets.some(target => target.kind === 'tap')) renderTapPalette(active);
+      else if (kind === 'keyboard') showTarget(targets.find(target => target.enabled && !target.current) || targets.find(target => target.enabled));
+      const unsubscribe = api.bind?.(record.id, () => {
+        if (reorder !== active) return;
+        refresh(record.id);
+        if (!active.pending && !validReorder(active)) cancelReorder('Spostamento annullato: disponibilità WING cambiata.');
+      });
+      if (reorder === active) active.unsubscribe = unsubscribe; else unsubscribe?.();
+      return reorder === active;
+    } catch (error) { status(error.message || 'Spostamento non disponibile.', true); prepareChain(record, true); return false; }
+  }
+  async function commitReorder(targetId) {
+    const active = reorder, target = active?.targets.find(item => item.id === targetId);
+    if (!active || active.pending || !target?.enabled) return;
+    if (!validReorder(active)) { cancelReorder('Spostamento annullato: sessione o disponibilità WING cambiata.'); return; }
+    if (target.current) { cancelReorder('La posizione selezionata è già attiva.', true); return; }
+    active.pending = true; clearDrops();
+    for (const choice of tapPalette.querySelectorAll('button')) choice.disabled = true;
+    status(active.live ? 'Verifica e conferma dell’ordine dalla WING…' : 'Aggiornamento dell’ordine…', true);
+    try {
+      const result = await window.SculptChannelChain.commit(active.token, target.id);
+      if (result?.error) throw new Error(result.error);
+      refresh(active.record.id);
+      if (reorder === active) cancelReorder(active.live ? 'Ordine confermato dalla WING.' : 'Ordine aggiornato.', active.kind === 'keyboard');
+    } catch (error) {
+      refresh(active.record.id);
+      if (reorder === active) cancelReorder(error.message || 'Spostamento non applicato.', active.kind === 'keyboard');
+      C.toast?.(error.message || 'Spostamento non applicato.');
+    }
+  }
+  function targetAt(record, key, event) {
+    if (!reorder || reorder.record !== record || reorder.kind !== 'pointer' || reorder.pending) return null;
+    const item = record.wingSlots.get(key)?.item, rect = item?.getBoundingClientRect();
+    const position = rect && event.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+    return reorder.targets.find(target => target.enabled && target.kind === 'proc' && target.targetKey === key && target.position === position);
+  }
+  function attachReorder(record, key, slot) {
+    const handle = button('', 'extended-device-drag', () => {
+      if (reorder?.record === record && reorder.key === key) cancelReorder('Spostamento annullato.', true);
+      else beginReorder(record, key, 'keyboard');
+    });
+    handle.setAttribute('aria-label', `Sposta ${key === 'pre' ? 'Insert 1' : key === 'post' ? 'Insert 2' : slot.label.textContent} · ${stripLabel(record.id)}`);
+    handle.setAttribute('aria-describedby', reorderStatus.id); handle.setAttribute('aria-keyshortcuts', 'Space Enter ArrowUp ArrowDown Escape');
+    handle.draggable = false; handle.disabled = true; slot.handle = handle; slot.item.prepend(handle);
+    handle.addEventListener('dragstart', event => {
+      event.stopPropagation();
+      if (!beginReorder(record, key, 'pointer')) { event.preventDefault(); return; }
+      if (event.dataTransfer) { event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('application/x-sculpt-wing-device', JSON.stringify({ id: record.id, key })); event.dataTransfer.setDragImage?.(slot.item, 15, 10); }
+    });
+    handle.addEventListener('dragend', () => { if (reorder?.record === record && reorder.key === key && !reorder.pending) cancelReorder('Spostamento annullato.'); });
+    handle.addEventListener('keydown', event => {
+      if (![' ', 'Enter', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return;
+      const active = reorder;
+      if (!active || active.record !== record || active.key !== key) {
+        if (event.key === ' ' || event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); beginReorder(record, key, 'keyboard'); }
+        return;
+      }
+      event.preventDefault(); event.stopPropagation(); if (active.pending) return;
+      if (event.key === ' ' || event.key === 'Enter') { if (active.targetId) commitReorder(active.targetId); return; }
+      const targets = active.targets.filter(target => target.enabled), at = targets.findIndex(target => target.id === active.targetId);
+      const next = event.key === 'Home' ? 0 : event.key === 'End' ? targets.length - 1 : (at + (event.key === 'ArrowUp' ? -1 : 1) + targets.length) % targets.length;
+      showTarget(targets[next]);
+    });
+    slot.item.addEventListener('dragover', event => {
+      const target = targetAt(record, key, event); if (!target) { if (reorder?.record === record) clearDrops(); return; }
+      event.preventDefault(); event.stopPropagation(); showTarget(target); if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+    });
+    slot.item.addEventListener('drop', event => { const target = targetAt(record, key, event); if (!target) return; event.preventDefault(); event.stopPropagation(); commitReorder(target.id); });
+    slot.item.addEventListener('dragleave', event => { if (markedDrop === slot.item && !slot.item.contains(event.relatedTarget)) clearDrops(); });
+  }
+  function syncChain(record, snapshot) {
+    const items = snapshot?.items || WING_SLOTS.map(([id, label]) => ({ id, label, movable: false }));
+    const order = items.map(item => item.id).join(',');
+    if (record.order !== order) {
+      const focused = record.wing.contains(document.activeElement) ? document.activeElement : null;
+      let cursor = record.wing.querySelector('.extended-rack-heading').nextElementSibling;
+      for (const item of items) {
+        const node = record.wingSlots.get(item.id)?.item; if (!node) continue;
+        if (node !== cursor) record.wing.insertBefore(node, cursor);
+        cursor = node.nextElementSibling;
+      }
+      record.order = order; if (focused?.isConnected) focused.focus({ preventScroll: true });
+    }
+    const orderKnown = String(snapshot?.orderKnown === true);
+    if (record.wing.dataset.orderKnown !== orderKnown) record.wing.dataset.orderKnown = orderKnown;
+    const busy = String(!!snapshot?.busy); if (record.wing.getAttribute('aria-busy') !== busy) record.wing.setAttribute('aria-busy', busy);
+    const orderText = snapshot?.error ? 'Errore' : snapshot?.busy ? 'Conferma…' : snapshot?.live && !snapshot.orderKnown ? 'Ordine —' : '';
+    const orderTitle = snapshot?.error || (snapshot?.live && !snapshot.orderKnown ? 'Ordine WING da leggere; le caselle mostrano soltanto le pagine disponibili.' : 'Ordine confermato');
+    if (record.orderStatus.textContent !== orderText) record.orderStatus.textContent = orderText;
+    if (record.orderStatus.title !== orderTitle) record.orderStatus.title = orderTitle;
+    for (const item of items) {
+      const slot = record.wingSlots.get(item.id); if (!slot) continue;
+      const movable = !!item.movable && !snapshot?.busy, title = movable ? 'Trascina per spostare · Spazio e frecce per la tastiera' : item.reason || 'Posizione fissa nel percorso WING';
+      if (slot.item.dataset.reorderable !== String(movable)) slot.item.dataset.reorderable = String(movable);
+      if (slot.handle.disabled === movable) slot.handle.disabled = !movable;
+      if (slot.handle.draggable !== movable) slot.handle.draggable = movable;
+      if (slot.handle.title !== title) slot.handle.title = title;
+      const state = wingState(record.id, item.id);
+      if (item.available === false) { state.disabled = true; state.state = 'unavailable'; state.text = '—'; state.title = `${item.label} · ${stripLabel(record.id)} · ${item.reason || 'Non disponibile su questa famiglia'}`; }
+      else {
+        if (item.id === 'sends' && snapshot?.family === 'CH') { state.text = snapshot.tapKnown ? 'TAP ' + snapshot.tap : '—'; state.state = snapshot.tapKnown ? 'utility' : 'unknown'; }
+        if (item.badge) state.title += ' · ' + item.badge;
+      }
+      updateSlot(slot, state);
+    }
+  }
   function createRack(article) {
     const id = article.dataset.id, dca = id.startsWith('dca-');
     const rack = el('div', 'extended-rack'); rack.setAttribute('aria-label', `Processori · ${stripLabel(id)}`);
     rack.addEventListener('click', event => event.stopPropagation());
     const wing = el('section', 'extended-wing');
-    const wingHeading = el('div', 'extended-rack-heading'); wingHeading.append(el('span', '', dca ? 'GRUPPO' : 'WING'));
+    const wingHeading = el('div', 'extended-rack-heading'), orderStatus = el('span', 'extended-order-status');
+    wingHeading.append(el('span', '', dca ? 'GRUPPO' : 'WING'), orderStatus);
     wing.append(wingHeading); rack.append(wing);
-    const record = { id, article, rack, wingSlots: new Map(), vstSlots: [], rackButton: null, dca, group: null };
+    const record = { id, article, rack, wing, orderStatus, wingSlots: new Map(), vstSlots: [], rackButton: null, dca, group: null };
     if (dca) {
       const group = button('Membri', 'extended-group-button', () => article.querySelector('.dca-members-button')?.click());
       group.setAttribute('aria-label', `Modifica i membri di ${stripLabel(id)}`);
@@ -175,7 +381,10 @@
     } else {
       for (const [block, caption] of WING_SLOTS) {
         const slot = slotNode(block, caption, event => openWing(id, block, event.currentTarget));
-        record.wingSlots.set(block, slot); wing.append(slot.node);
+        if (block === 'pre' || block === 'post') slot.label.dataset.index = block === 'pre' ? '1' : '2';
+        const item = el('div', 'extended-device'); item.dataset.module = block; item.dataset.deviceRole = DEVICE_ROLES[block];
+        slot.item = item; item.append(slot.node);
+        record.wingSlots.set(block, slot); wing.append(item); attachReorder(record, block, slot);
       }
       const vst = el('section', 'extended-vst');
       const vstHeading = el('div', 'extended-rack-heading');
@@ -191,22 +400,31 @@
     }
     const label = article.querySelector('.strip-label');
     if (label) label.after(rack); else article.prepend(rack);
+    rack.dataset.channelId = id;
+    rack.addEventListener('pointerenter', () => prepareChain(record));
+    rack.addEventListener('focusin', () => prepareChain(record));
+    chainObserver?.observe(rack);
     strips.set(id, record); return record;
   }
   function wingState(id, block) {
     const strip = C.getStrip(id), ch = D.channel(id), label = stripLabel(id);
     const path = window.SculptWingMap?.stripPath(id), caption = WING_SLOTS.find(([key]) => key === block)?.[1];
-    const supported = strip && (!['filter', 'gate'].includes(block) || strip.kind === 'CH') && (block !== 'post' || strip.kind !== 'AUX');
+    const supported = strip && (block !== 'gate' || strip.kind === 'CH') && (block !== 'post' || strip.kind !== 'AUX') && (block !== 'sends' || strip.kind !== 'MTX');
     if (!supported) return { text: '—', state: 'unavailable', disabled: true, title: `${caption} non previsto su ${strip?.kind || 'questo canale'}` };
+    if (block === 'home') return { text: 'Canale', state: 'utility', title: `Home · ${label} · identità e assegnazioni` };
+    if (block === 'input') return { text: strip.kind === 'CH' ? 'In · filtri' : ['CH', 'AUX'].includes(strip.kind) ? 'Ingresso' : 'Trim · delay', state: 'utility', title: `Pre · ${label} · ingresso e pre-elaborazione` };
+    if (block === 'sends') return { text: 'Mandate', state: 'utility', title: `Send · ${label} · mandate e destinazioni` };
+    if (block === 'master') return { text: 'Livello · pan', state: 'utility', title: `Master · ${label} · fader, pan e mute` };
     if (block === 'pre' || block === 'post') {
-      if (!known(`${path}/${block}ins/ins`)) return { text: '—', state: 'unknown', title: `${caption} insert · ${label} · assegnazione da leggere dalla WING` };
+      const insertName = `Insert ${block === 'pre' ? 1 : 2}`;
+      if (!known(`${path}/${block}ins/ins`)) return { text: '—', state: 'unknown', title: `${insertName} · ${label} · assegnazione da leggere dalla WING` };
       const assigned = ch?.[`${block}Fx`], ctx = { type: 'fx', slot: assigned }, processor = assigned ? D.processor(ctx) : null;
       const modelKnown = assigned && known(`/fx/${assigned}/mdl`);
       const title = assigned ? `FX ${assigned}${modelKnown ? ' · ' + processorName(ctx, processor?.model) : ''}` : 'Nessun insert assegnato';
       const onKnown = known(`${path}/${block}ins/on`), on = ch?.[`${block}FxOn`] !== false;
       return { text: assigned ? (modelKnown ? processorName(ctx, processor?.model) : `FX ${assigned}`) : 'Nessuno',
         state: !assigned ? 'empty' : !onKnown ? 'unknown' : on ? 'active' : 'bypass',
-        title: `${caption} insert · ${label} · ${title}${assigned && onKnown && !on ? ' · bypass' : ''}` };
+        title: `${insertName} · ${label} · ${title}${assigned && onKnown && !on ? ' · bypass' : ''}` };
     }
     const ctx = { type: 'strip', id, block }, processor = D.processor(ctx), spec = window.SculptWingMap?.processorSpec?.(ctx);
     if (!processor || !known(spec?.modelPath)) return { text: '—', state: 'unknown', title: `${caption} · ${label} · processore da leggere dalla WING` };
@@ -230,7 +448,7 @@
     const records = id && strips.has(id) ? [strips.get(id)] : [...strips.values()];
     for (const record of records) {
       if (record.dca) continue;
-      for (const [block, slot] of record.wingSlots) updateSlot(slot, wingState(record.id, block));
+      syncChain(record, chainSnapshot(record));
       refreshVst(record);
     }
   }
@@ -243,6 +461,10 @@
     event.preventDefault(); event.stopPropagation(); setMode(mode === 'compact' ? 'extended' : 'compact');
   }
 
+  if (typeof IntersectionObserver === 'function') chainObserver = new IntersectionObserver(entries => {
+    if (mode !== 'extended') return;
+    for (const entry of entries) if (entry.isIntersecting) prepareChain(strips.get(entry.target.dataset.channelId));
+  }, { root: consoleNode });
   for (const article of consoleNode.querySelectorAll('.strip[data-id]')) createRack(article);
   window.SculptMixerView = Object.freeze({
     mode: () => mode, bank: () => bank, setMode, setBank,
@@ -252,20 +474,31 @@
   });
   C.subscribe(event => {
     if (event.type === 'selection' && mode === 'extended') {
+      if (reorder && reorder.record.id !== event.id) cancelReorder('Spostamento annullato: canale cambiato.');
       const row = strips.get(event.id)?.article.closest('.mixer-row');
       if (row) setBank(row.classList.contains('outputs') ? 'outputs' : 'inputs');
+      prepareChain(strips.get(event.id));
     }
-    if (event.type === 'layer') { syncControls(); syncEditorGeometry(); }
+    if (event.type === 'layer') { cancelReorder('Spostamento annullato: layer cambiato.'); syncControls(); syncEditorGeometry(); }
     // Fader, pan and send gestures never rebuild racks or their controls. Only
     // processing, routing, identity and live readbacks can change slot labels.
     if (mode === 'extended' && !['selection', 'send', 'sof', 'parameter', 'history', 'macros'].includes(event.type)) refresh(event.id);
   });
   window.addEventListener('sculpt-vst-state', () => { for (const record of strips.values()) refreshVst(record); });
-  window.addEventListener('sculpt-live-state', () => { if (mode === 'extended') refresh(); });
+  window.addEventListener('sculpt-live-state', () => { if (mode === 'extended') refresh(); if (reorder && !reorder.pending && !validReorder()) cancelReorder('Spostamento annullato: sessione WING cambiata.'); });
   window.addEventListener('sculpt-strip-pins', syncEditorGeometry);
   window.addEventListener('sculpt-dca-bank', event => { if (mode === 'extended' && event.detail?.open) setBank('outputs'); });
   window.addEventListener('resize', syncEditorGeometry);
   document.addEventListener('keydown', keyboard, true);
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || !reorder) return;
+    event.preventDefault(); event.stopImmediatePropagation(); cancelReorder('Spostamento annullato.', true);
+  }, true);
+  document.addEventListener('pointerdown', event => {
+    if (!reorder || reorder.pending || tapPalette.contains(event.target) || reorder.record.wingSlots.get(reorder.key)?.handle.contains(event.target)) return;
+    cancelReorder('Spostamento annullato.');
+  }, true);
+  window.addEventListener('blur', () => cancelReorder('Spostamento annullato.'));
   if (window.SculptDesktop?.available && window.SculptDesktop.addListener) {
     window.SculptDesktop.addListener('mixerView', action => {
       if (action === 'toggle' || action?.action === 'toggle') window.SculptMixerView.toggle();

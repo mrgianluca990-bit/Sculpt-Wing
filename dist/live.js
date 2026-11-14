@@ -162,7 +162,7 @@
 
   function renderConnection(container){
     const intro=U.el('div','live-intro'),mark=U.el('div','live-icon','W');
-    const titles=U.el('div');titles.append(U.el('p','desk-eyebrow','SCULPT WING · 0.7.1'),U.el('h2','',available?'Collega il tuo banco.':'Un’interfaccia, due modalità.'));
+    const titles=U.el('div');titles.append(U.el('p','desk-eyebrow','SCULPT WING · 0.7.2'),U.el('h2','',available?'Collega il tuo banco.':'Un’interfaccia, due modalità.'));
     intro.append(mark,titles);container.append(intro);
     const state=U.el('div','live-connection-state');state.setAttribute('role','status');
     const ip=U.el('input','desk-input live-ip');ip.type='text';ip.inputMode='decimal';ip.autocomplete='off';ip.spellcheck=false;ip.setAttribute('aria-label','Indirizzo IP della WING');
@@ -182,7 +182,7 @@
     }
     container.append(U.card('PRIMO COLLEGAMENTO',U.el('p','desk-note','Collega WING e dispositivo alla stessa rete, inserisci l’IP mostrato dal banco e consenti l’accesso alla rete locale. Dopo la verifica e la lettura dei valori WING, Controllo si attiva automaticamente. Puoi passare a Sola lettura con l’interruttore.'),U.el('p','desk-note','Le modifiche vengono rilette dal banco. Se il collegamento si interrompe, l’avviso rimane visibile e Ricollega ripete la verifica e la lettura. I comandi in attesa vengono annullati; i valori della demo non vengono caricati sul mixer.')));
     const diagnostic=U.button('Esporta diagnostica',()=>{
-      const data={format:'sculpt-control-diagnostics',version:'0.7.1',createdAt:new Date().toISOString(),platform:native?.platform||'web',state:session.snapshot(),nodes:[...session.metadata.values()].map(n=>({path:n.path,type:n.type,min:n.min,max:n.max,revision:n.revision,readOnly:n.readOnly})),coverage:MapAPI.coverage||null};
+      const data={format:'sculpt-control-diagnostics',version:'0.7.2',createdAt:new Date().toISOString(),platform:native?.platform||'web',state:session.snapshot(),nodes:[...session.metadata.values()].map(n=>({path:n.path,type:n.type,min:n.min,max:n.max,revision:n.revision,readOnly:n.readOnly})),coverage:MapAPI.coverage||null};
       U.download('Sculpt-Wing-diagnostica.json',JSON.stringify(data,null,2));
     });container.append(diagnostic);
     const sync=s=>{

@@ -40,7 +40,11 @@
   const deviceNodes = new Map();
   const expandedDevices = new Set(['eq']);
   let activeDevice = 'eq', refreshingDevices = false;
-  let returnToDevices = false;
+  let deviceControlScope = null, deviceDrag = null, deviceTapPalette = null, deviceDragHelp = null;
+  const DEVICE_IDS = ['home', 'input', 'gate', 'eq', 'dyn', 'pre', 'post', 'sends', 'master'];
+  const DEVICE_LABELS = { home: 'Home', input: 'Pre', gate: 'Gate', eq: 'EQ', dyn: 'Comp', pre: 'Insert', post: 'Insert', sends: 'Send', master: 'Master' };
+  let deviceSendId = '', deviceReadSerial = 0;
+  const delayReads = new Map();
   const compactEditor = () => window.SculptMixerView?.mode?.() !== 'extended';
   let renameFocusId = null, liveNameDialog = null;
   let footerStatus, previousFocus, unsubscribe, unsubscribeLive, rendering = false, navigating = false, panelVersion = 0;
@@ -80,8 +84,8 @@
   }
   function bind(update) { bindings.push(update); update(); }
   function controlActive() {
-    const id = currentId, version = panelVersion, session = window.SculptLive?.sessionToken?.();
-    return () => !!dialog?.open && id === currentId && version === panelVersion && session === window.SculptLive?.sessionToken?.();
+    const id = currentId, version = panelVersion, session = window.SculptLive?.sessionToken?.(), scope = deviceControlScope;
+    return () => !!dialog?.open && id === currentId && version === panelVersion && session === window.SculptLive?.sessionToken?.() && (!scope || scope.active);
   }
   function patch(changes) { C().updateStrip(currentId, changes); }
   function patchChannel(changes) { D().patchChannel(currentId, changes); }
@@ -139,7 +143,7 @@
     const select = el('select', 'editor-select'); select.setAttribute('aria-label', config.ariaLabel || caption);
     const choices = options.map(value => typeof value === 'object' ? value : { value: String(value), label: String(value) });
     choices.forEach(value => { const option = el('option', '', value.label); option.value = String(value.value); select.append(option); });
-    select.addEventListener('change', () => { if (!active()) return; set(select.value); if (config.rerender && active()) renderPanel(false); });
+    select.addEventListener('change', () => { if (!active() || select.disabled) return; set(select.value); if (config.rerender && active()) renderPanel(false); });
     bind(() => {
       const value = String(get() ?? choices[0]?.value ?? '');
       if (document.activeElement !== select || select.value !== value) select.value = value;
@@ -308,6 +312,9 @@
   }
   function sourcePicker(caption, key) {
     const active = controlActive();
+    const base = window.SculptWingMap?.stripPath(currentId), leaves = key === 'altSource' ? ['altgrp', 'altin'] : ['grp', 'in'];
+    const paths = leaves.map(leaf => base + '/in/conn/' + leaf);
+    const known = () => paths.every(wireKnown), editable = () => paths.every(wireEditable);
     const wrap = el('div', 'editor-source-picker');
     const allSources = D().sources();
     const groups = [...new Set(allSources.map(source => source.group))];
@@ -316,6 +323,10 @@
     const portSelect = el('select', 'editor-select'); portSelect.setAttribute('aria-label', caption);
     let shownGroup;
     const update = () => {
+      groupSelect.disabled = portSelect.disabled = !editable();
+      wrap.dataset.known = String(known());
+      if (!known()) { groupSelect.selectedIndex = -1; portSelect.replaceChildren(); shownGroup = undefined; wrap.title = 'Assegnazione da leggere dalla WING'; return; }
+      wrap.title = '';
       const current = D().source(channel()?.[key]);
       const group = current?.group || groups[0];
       if (shownGroup !== group) {
@@ -328,11 +339,11 @@
       groupSelect.value = group || ''; portSelect.value = current?.id || '';
     };
     groupSelect.addEventListener('change', () => {
-      if (!active()) return;
+      if (!active() || !editable()) return;
       const first = allSources.find(source => source.group === groupSelect.value);
       if (first) { patchChannel({ [key]: first.id }); if (active()) renderPanel(false); }
     });
-    portSelect.addEventListener('change', () => { if (!active()) return; patchChannel({ [key]: portSelect.value }); if (active()) renderPanel(false); });
+    portSelect.addEventListener('change', () => { if (!active() || !editable()) return; patchChannel({ [key]: portSelect.value }); if (active()) renderPanel(false); });
     wrap.append(field(caption, groupSelect), field('Porta / segnale', portSelect)); bind(update); return wrap;
   }
 
@@ -479,9 +490,10 @@
       selectField('Icona', () => channel().icon || 'none', [
         ['none', '● Nessuna'], ['voice', 'Voce'], ['guitar', 'Chitarra'], ['bass', 'Basso'], ['drums', 'Batteria'],
         ['keys', 'Tastiere'], ['strings', 'Archi'], ['brass', 'Fiati'], ['playback', 'Playback'], ['monitor', 'Monitor'], ['fx', 'FX']
-      ].map(([value, label]) => ({ value, label })), value => patchChannel({ icon: value })),
+      ].map(([value, label]) => ({ value, label })), value => patchChannel({ icon: value }), { disabled: () => !!window.SculptLive?.isLive?.() }),
       textField('Tag', () => Array.isArray(channel().tags) ? channel().tags.join(', ') : channel().tags || '', value => patchChannel({ tags: value.split(',').map(item => item.trim()).filter(Boolean).slice(0, 8).join(', ') }), { allowEmpty: true }),
     ));
+    if (window.SculptLive?.isLive?.()) identity.append(note('La scelta delle icone è disponibile in Demo.'));
     identity.append(note('Fino a 8 tag, separati da virgole.'));
     return identity;
   }
@@ -565,10 +577,22 @@
 
   function renderOutputAssignments() {
     const box = module('Uscite assegnate');
-    const ids = (D().outputs ? D().outputs() : Object.values(D().get().outputs || {})).filter(output => output.source === currentId || output.source === `${sourceStrip().kind}:${sourceStrip().number}` || output.source === `${sourceStrip().kind}.${sourceStrip().number}`);
     const tags = el('div', 'editor-tags');
-    if (!ids.length) tags.append(el('span', 'editor-tag', 'Nessuna uscita fisica assegnata'));
-    ids.forEach(output => tags.append(el('span', 'editor-tag', `${GROUP_NAMES[output.group] || output.group} ${output.index}`)));
+    let signature;
+    bind(() => {
+      const outputs = D().outputs ? D().outputs() : Object.values(D().get().outputs || {}), live = !!window.SculptLive?.isLive?.();
+      const known = outputs.filter(output => !live || ['grp', 'in'].every(leaf => wireKnown('/io/out/' + output.group + '/' + output.index + '/' + leaf)));
+      const ids = known.filter(output => output.source === currentId || output.source === `${sourceStrip().kind}:${sourceStrip().number}` || output.source === `${sourceStrip().kind}.${sourceStrip().number}`);
+      const partial = live && known.length < outputs.length;
+      const next = [live, known.length, outputs.length, ...ids.map(output => output.id || output.group + ':' + output.index)].join('|');
+      if (signature === next) return; signature = next; tags.replaceChildren();
+      if (live && !known.length) tags.append(el('span', 'editor-tag', 'Patch uscite da leggere'));
+      else {
+        if (!ids.length) tags.append(el('span', 'editor-tag', partial ? 'Nessuna assegnazione tra le uscite lette' : 'Nessuna uscita fisica assegnata'));
+        ids.forEach(output => tags.append(el('span', 'editor-tag', `${GROUP_NAMES[output.group] || output.group} ${output.index}`)));
+        if (partial) tags.append(el('span', 'editor-tag', 'Lettura parziale · apri patch I/O'));
+      }
+    });
     box.append(tags, button('Apri patch I/O', () => { close(); window.SculptUI?.open('io', { tab: 'outputs', source: currentId }); }, 'editor-link-button'));
     panel.append(box);
   }
@@ -582,6 +606,296 @@
     return host;
   }
 
+  function wireKnown(path) {
+    const live = window.SculptLive;
+    return !live?.isLive?.() || !!(path && live.isConnected?.() && live.hasValue?.(path) && live.metadata?.(path));
+  }
+  function wireEditable(path) {
+    const live = window.SculptLive;
+    return wireKnown(path) && (!live?.isLive?.() || live.isWritable?.() && !live.metadata(path).readOnly);
+  }
+  function wireParameter(options, path) {
+    const live = window.SculptLive, meta = live?.isLive?.() ? live.metadata?.(path) : null;
+    const originalSet = options.set;
+    const node = parameter({ ...options, min: meta?.min ?? options.min, max: meta?.max ?? options.max,
+      set: value => { if (wireEditable(path) && (!options.known || options.known())) originalSet(value); }, disabled: () => !wireEditable(path) || !!options.disabled?.() || !!options.known && !options.known() });
+    bind(() => {
+      const known = wireKnown(path) && (!options.known || options.known());
+      node.dataset.known = String(known);
+      if (known) return;
+      const input = node.querySelector('input[type="number"]'), output = node.querySelector('output'), knob = node.querySelector('[role="slider"]');
+      if (input) { input.value = ''; input.placeholder = '—'; }
+      if (output) output.textContent = '—';
+      if (knob) { knob.removeAttribute('aria-valuenow'); knob.setAttribute('aria-valuetext', 'Valore da leggere'); }
+    });
+    return node;
+  }
+  function wireToggle(label, get, set, path, options = {}) {
+    const node = toggle(label, () => wireKnown(path) && get(), value => { if (wireEditable(path)) set(value); }, { ...options, disabled: () => !wireEditable(path) || !!options.disabled?.() });
+    bind(() => { node.dataset.known = String(wireKnown(path)); node.title = wireKnown(path) ? options.title || label : 'Valore da leggere dalla WING'; });
+    return node;
+  }
+  function wireSelect(label, get, choices, set, path, options = {}) {
+    const node = selectField(label, () => wireKnown(path) ? get() : '', choices, value => { if (wireEditable(path)) set(value); }, { ...options, disabled: () => !wireEditable(path) || !!options.disabled?.() });
+    const select = node.querySelector('select');
+    bind(() => { if (!wireKnown(path)) select.selectedIndex = -1; });
+    return node;
+  }
+  function delayPaths(id = currentId) {
+    const input = ['CH', 'AUX'].includes(C().getStrip(id)?.kind), base = window.SculptWingMap?.stripPath(id) + (input ? '/in/set' : '/dly');
+    return { base, value: base + '/dly', mode: base + (input ? '/dlymode' : '/mode'), on: base + (input ? '/dlyon' : '/on') };
+  }
+  const DELAY_UNITS = { MS: { unit: 'ms', label: 'Millisecondi', step: .1 }, M: { unit: 'm', label: 'Metri', step: .1 }, FT: { unit: 'ft', label: 'Piedi', step: .5 }, SMP: { unit: 'smp', label: 'Campioni', step: 1 } };
+  function delaySchemaKey(id = currentId) {
+    const live = window.SculptLive, paths = delayPaths(id), meta = live?.metadata?.(paths.value);
+    return JSON.stringify([live?.value?.(paths.mode), meta?.revision, meta?.type, meta?.unit, meta?.min, meta?.max, meta?.readOnly]);
+  }
+  function delayDisplayKey() {
+    const record = delayReads.get(currentId);
+    return window.SculptLive?.isLive?.() ? [delaySchemaKey(), record?.phase, record?.serial].join(':') : channel()?.delayUnit || 'MS';
+  }
+  function refreshDelayUI(id) {
+    if (!dialog?.open || currentId !== id) return;
+    if (activeTab === 'devices') refreshDeviceChain();
+    else if (activeTab === 'processing') renderPanel(false);
+  }
+  function startDelayRead(id, requestedMode) {
+    const live = window.SculptLive, paths = delayPaths(id), epoch = live.sessionToken?.();
+    const record = { phase: 'loading', error: '', epoch, mode: '', serial: ++deviceReadSerial, schema: '', promise: null };
+    delayReads.set(id, record);
+    const valid = () => delayReads.get(id) === record && live.isConnected?.() && live.sessionToken?.() === epoch;
+    const assert = () => { if (!valid()) throw new Error('La sessione WING è cambiata.'); };
+    const readMode = async () => {
+      const values = await live.readValues(paths.mode); assert();
+      if (!Object.hasOwn(values || {}, paths.mode) || !Object.hasOwn(DELAY_UNITS, values[paths.mode])) throw new Error('Unità delay non confermata dalla WING.');
+      return values[paths.mode];
+    };
+    record.promise = Promise.resolve().then(async () => {
+      if (!live.readNode || !live.readValues) throw new Error('Lettura del delay non disponibile.');
+      await live.settled?.(); assert();
+      if (requestedMode !== undefined) {
+        if (!dialog?.open || currentId !== id || !live.isWritable?.() || !wireEditable(paths.mode)) throw new Error('Cambio unità annullato. Riapri il delay del canale.');
+        const failures = live.snapshot?.().failureVersion || 0;
+        if (D().patchChannel(id, { delayUnit: requestedMode }) === false) throw new Error('La WING non ha accettato l’unità delay.');
+        await live.settled?.(); assert();
+        if ((live.snapshot?.().failureVersion || 0) !== failures || live.value?.(paths.mode) !== requestedMode) throw new Error('La WING non ha confermato l’unità delay.');
+      }
+      // Join any older read first: a forced call may otherwise coalesce into
+      // an in-flight cached read. Force the branch, never just the delay leaf.
+      await live.readNode(paths.base); assert();
+      const before = await readMode();
+      if (requestedMode !== undefined && before !== requestedMode) throw new Error('L’unità delay è cambiata sul banco. Rileggi il controllo.');
+      await live.readNode(paths.base, { force: true }); assert();
+      const schema = delaySchemaKey(id), meta = live.metadata?.(paths.value);
+      if (!meta || ![1, 2, 4].includes(meta.type) || !Number.isFinite(meta.min) || !Number.isFinite(meta.max) || meta.max <= meta.min) throw new Error('Definizione del delay non disponibile.');
+      const values = await live.readValues(paths.base, { depth: 0 }); assert();
+      if (!Object.hasOwn(values || {}, paths.mode) || !Object.hasOwn(values || {}, paths.value) || !Number.isFinite(values[paths.value])) throw new Error('Lettura incompleta del delay.');
+      const after = await readMode();
+      if (before !== values[paths.mode] || before !== after || schema !== delaySchemaKey(id)) throw new Error('Unità o definizione delay cambiate durante la lettura. Riprova.');
+      record.phase = 'ready'; record.mode = after; record.schema = schema; record.error = '';
+    }).catch(error => {
+      if (valid()) { record.phase = 'error'; record.error = error?.message || String(error); record.schema = delaySchemaKey(id); }
+    }).finally(() => { if (valid()) refreshDelayUI(id); });
+    return record;
+  }
+  function ensureDelayRead() {
+    const live = window.SculptLive;
+    if (!live?.isLive?.() || !live.isConnected?.()) return null;
+    const record = delayReads.get(currentId);
+    if (record?.epoch === live.sessionToken?.() && (record.phase === 'loading' || record.schema === delaySchemaKey())) return record;
+    return startDelayRead(currentId);
+  }
+  function renderDelay(destination, compact = false) {
+    const live = window.SculptLive, online = !!live?.isLive?.(), paths = delayPaths(), record = ensureDelayRead();
+    const mode = online ? record?.phase === 'ready' ? record.mode : '' : channel().delayUnit || 'MS';
+    const definition = DELAY_UNITS[mode], unit = definition?.unit || '', schema = delaySchemaKey();
+    const ready = () => !online || record?.phase === 'ready' && record.schema === delaySchemaKey() && schema === record.schema && wireKnown(paths.mode);
+    const factor = mode === 'M' ? .343 : mode === 'FT' ? 1.1253 : mode === 'SMP' ? (D().get().setup.sampleRate || 48000) / 1000 : 1;
+    const box = module(isInput() ? 'Delay d’ingresso' : 'Delay di uscita');
+    const choices = Object.entries(DELAY_UNITS).map(([value, config]) => ({ value, label: config.label }));
+    box.append(wireToggle('DELAY ON', () => !!channel().delayOn, value => patchChannel({ delayOn: value }), paths.on, { ariaLabel: 'Delay attivo' }),
+      wireSelect('Unità delay', () => online ? live.value?.(paths.mode) : channel().delayUnit || 'MS', choices, value => {
+        if (!ready()) return;
+        if (!online) { patchChannel({ delayUnit: value }); refreshDelayUI(currentId); return; }
+        if (value === live.value?.(paths.mode)) return;
+        startDelayRead(currentId, value); refreshDelayUI(currentId);
+      }, paths.mode, { disabled: () => !ready() }));
+    box.append(wireParameter({ caption: 'Delay', get: () => (channel().delay || 0) * (online ? 1 : factor), set: value => patchChannel({ delay: online ? value : Number((value / factor).toFixed(3)) }),
+      min: 0, max: 500 * (online ? 1 : factor), step: definition?.step || .1, unit, compact, known: ready }, paths.value));
+    if (online && record?.phase !== 'ready') {
+      box.append(note(record?.phase === 'error' ? record.error : 'Lettura dell’unità e del valore delay…'));
+      if (record?.phase === 'error') box.append(button('Rileggi delay', () => { startDelayRead(currentId); refreshDelayUI(currentId); }, 'editor-small-button'));
+    }
+    destination.append(box);
+  }
+  function deviceSnapshot() {
+    if (window.SculptChannelChain) return window.SculptChannelChain.snapshot(currentId);
+    // A missing optional script may expose the pages, but never enables a move.
+    const family = sourceStrip()?.kind;
+    return { order: DEVICE_IDS, items: DEVICE_IDS.map(id => ({ id, label: DEVICE_LABELS[id], available: !(id === 'gate' && family !== 'CH' || id === 'post' && family === 'AUX' || id === 'sends' && family === 'MTX'), movable: false, reason: 'Ordine WING non disponibile', badge: '' })) };
+  }
+  function devicePeers(mainOnly = false) {
+    return C().listStrips().filter(peer => C().canSend(currentId, peer.id) && (mainOnly ? peer.kind === 'MAIN' : peer.kind !== 'MAIN'));
+  }
+  function selectedDeviceSend() {
+    const peers = devicePeers(), sof = C().getSof?.();
+    if (!peers.some(peer => peer.id === deviceSendId)) deviceSendId = peers.find(peer => peer.id === sof)?.id || peers[0]?.id || '';
+    return deviceSendId;
+  }
+  function activeSourceKnown() {
+    const live = window.SculptLive;
+    if (!live?.isLive?.()) return true;
+    const base = window.SculptWingMap?.stripPath(currentId);
+    if (!['altsrc', 'srcauto'].every(leaf => wireKnown(base + '/in/set/' + leaf))) return false;
+    if (channel()?.sourceAuto && !wireKnown('/io/altsw')) return false;
+    return (usesAlt() ? ['altgrp', 'altin'] : ['grp', 'in']).every(leaf => wireKnown(base + '/in/conn/' + leaf));
+  }
+  function renderDeviceHome(destination, expanded) {
+    const strip = sourceStrip(), base = window.SculptWingMap?.stripPath(currentId), summary = el('div', 'editor-device-summary');
+    bind(() => { summary.textContent = fullLabel(sourceStrip()); summary.style.setProperty('--device-channel-color', sourceStrip().color); });
+    destination.append(summary, button('Rinomina', renameChannel, 'editor-small-button', 'Rinomina canale da Home'));
+    const source = el('p', 'editor-note');
+    bind(() => { source.textContent = isInput() ? activeSourceKnown() ? sourceName(activeSource()) : 'Sorgente in lettura…' : 'Somma ' + sourceStrip().kind; });
+    destination.append(source);
+    if (!expanded) {
+      const actions = el('div', 'editor-button-row');
+      actions.append(wireToggle('SOLO', () => channel().solo, value => D().setSolo(currentId, value), base + '/$solo', { className: 'editor-solo' }),
+        button('Identità / gruppi', () => { expandedDevices.add('home'); refreshDeviceChain(); }, 'editor-link-button'));
+      destination.append(actions); return;
+    }
+    destination.append(renderIdentity());
+    const monitor = module('Ascolto', wireSelect('Monitor solo', () => channel().monitor || 'A', ['A', 'B', 'A+B'], value => patchChannel({ monitor: value }), base + '/mon'));
+    if (isInput()) monitor.append(wireToggle('Solo safe', () => !!channel().soloSafe, value => patchChannel({ soloSafe: value }), base + '/solosafe'));
+    destination.append(monitor, button('DCA / gruppi', () => switchTab('groups'), 'editor-link-button'),
+      button('Preset del canale', () => { close(); window.SculptUI?.open('scenes', { tab: 'presets', target: strip.id }); }, 'editor-link-button'));
+  }
+  function renderDevicePre(destination, expanded) {
+    const base = window.SculptWingMap?.stripPath(currentId), values = el('div', 'editor-device-main-parameters');
+    if (isInput()) {
+      const src = activeSourceKnown() ? activeSource() : null, sourcePath = src && window.SculptWingMap?.sourcePath(src.id);
+      const hasHeadamp = src && src.group !== 'OFF' && src.preamp !== false && (src.preamp === true || ['LCL', 'A', 'B', 'C', 'SC'].includes(src.group));
+      if (hasHeadamp) {
+        values.append(wireParameter({ caption: 'Gain preamp', get: () => activeSource()?.gain, set: value => D().patchSource(src.id, { gain: value }), min: src.gainMin ?? -3, max: src.gainMax ?? 45.5, step: src.gainStep ?? .5, unit: 'dB', compact: true }, sourcePath + '/g'));
+      }
+      values.append(wireParameter({ caption: 'Trim', get: () => sourceStrip().trim, set: value => patch({ trim: value }), min: -18, max: 18, step: .1, unit: 'dB', compact: true }, base + '/in/set/trim'));
+      destination.append(values);
+      const actions = el('div', 'editor-button-row');
+      actions.append(wireToggle('Ø', () => sourceStrip().polarity, value => patch({ polarity: value }), base + '/in/set/inv', { ariaLabel: 'Inverti polarità del canale' }));
+      if (hasHeadamp && sourcePath) actions.append(wireToggle('+48 V', () => !!activeSource()?.phantom, value => D().patchSource(src.id, { phantom: value }), sourcePath + '/vph', { className: 'editor-phantom', ariaLabel: 'Alimentazione phantom 48 volt' }));
+      destination.append(actions);
+      if (isChannel()) renderDeviceCuts(destination, expanded);
+      if (expanded) {
+        const routing = module('Sorgente di ingresso');
+        routing.append(el('p', 'editor-note', activeSourceKnown() ? sourceName(src) : 'Sorgente in lettura…'), wireToggle('ALT', usesAlt, value => patchChannel({ useAlt: value, ...(!value && D().get().io?.globalAlt ? { sourceAuto: false } : {}) }), base + '/in/set/altsrc', { disabled: () => !activeSourceKnown() || !!D().get().io?.globalAlt && !wireEditable(base + '/in/set/srcauto') }),
+          wireToggle('AUTO', () => !!channel().sourceAuto, value => patchChannel({ sourceAuto: value }), base + '/in/set/srcauto'),
+          sourcePicker('Sorgente Main', 'source'), sourcePicker('Sorgente Alt', 'altSource'));
+        if (src && sourcePath) routing.append(wireSelect('Formato sorgente', () => activeSource()?.mode, [{ value: 'M', label: 'Mono' }, { value: 'ST', label: 'Stereo' }, { value: 'M/S', label: 'Mid / Side' }], value => D().patchSource(src.id, { mode: value }), sourcePath + '/mode'),
+          wireToggle('Ø sorgente', () => !!activeSource()?.polarity, value => D().patchSource(src.id, { polarity: value }), sourcePath + '/pol'),
+          wireToggle('Mute sorgente', () => !!activeSource()?.mute, value => D().patchSource(src.id, { mute: value }), sourcePath + '/mute'));
+        destination.append(routing, wireParameter({ caption: 'Balance ingresso', get: () => channel().balance, set: value => patchChannel({ balance: value }), min: -9, max: 9, step: .1, unit: 'dB' }, base + '/in/set/bal'));
+        if (isChannel()) renderProcessor('filter', destination);
+      }
+    } else {
+      destination.append(wireParameter({ caption: 'Trim', get: () => sourceStrip().trim, set: value => patch({ trim: value }), min: -18, max: 18, step: .1, unit: 'dB', compact: !expanded }, base + '/in/set/trim'),
+        wireToggle('Ø', () => sourceStrip().polarity, value => patch({ polarity: value }), base + '/in/set/inv', { ariaLabel: 'Inverti polarità del canale' }),
+        wireSelect('Formato', () => channel().mode || 'ST', [{ value: 'ST', label: 'Stereo' }, { value: 'M', label: 'Mono' }], value => patchChannel({ mode: value }), base + '/busmono'));
+      if (expanded) destination.append(wireParameter({ caption: 'Balance ingresso', get: () => channel().balance, set: value => patchChannel({ balance: value }), min: -9, max: 9, step: .1, unit: 'dB' }, base + '/in/set/bal'));
+    }
+    if (expanded || !isInput()) renderDelay(destination, !expanded);
+  }
+  function renderDeviceSendControls(destination, targetId, compact = true) {
+    const sourceId = currentId, target = C().getStrip(targetId), base = window.SculptWingMap?.sendBasePath(sourceId, targetId);
+    if (!target || !base) return;
+    const get = () => C().getSend(sourceId, targetId), set = changes => C().setSend(sourceId, targetId, changes);
+    const full = isInput() && target.kind !== 'MAIN';
+    const box = el('div', 'editor-device-send-controls');
+    box.append(wireToggle('ON', () => get().on, value => set({ on: value }), base + '/on', { ariaLabel: 'Mandata a ' + label(target) + ' attiva' }),
+      wireParameter({ caption: 'Livello → ' + label(target), get: () => get().level, set: value => set({ level: value }), min: -90, max: 10, step: .1, unit: 'dB', compact, format: value => db(value) + ' dB' }, base + '/lvl'),
+      wireSelect('Punto → ' + label(target), () => get().mode || (get().pre ? 'PRE' : 'POST'), full ? ['PRE', 'POST', 'GRP'] : ['PRE', 'POST'], value => set({ mode: value, pre: value === 'PRE' }), base + (full ? '/mode' : '/pre')));
+    if (!compact && full) box.append(wireToggle('Pan link', () => get().panLink, value => set({ panLink: value }), base + '/plink'),
+      wireParameter({ caption: 'Pan → ' + label(target), get: () => get().pan, set: value => set({ pan: value }), min: -100, max: 100, step: 1, disabled: () => !!get().panLink }, base + '/pan'),
+      wireToggle('Segue mute', () => get().followMute !== false, value => set({ followMute: value }), base + '/pon'));
+    destination.append(box);
+  }
+  function renderDeviceSend(destination, expanded) {
+    const peers = devicePeers(), selected = selectedDeviceSend();
+    if (!peers.length) { destination.append(note('Nessuna mandata disponibile per questa famiglia.')); return; }
+    destination.append(selectField('Destinazione', () => selectedDeviceSend(), peers.map(peer => ({ value: peer.id, label: fullLabel(peer) })), value => { deviceSendId = value; refreshDeviceChain(); }));
+    renderDeviceSendControls(destination, selected, !expanded);
+    if (isChannel()) {
+      const chain = window.SculptChannelChain;
+      const selector = selectField('TAP mandate PRE', () => chain?.snapshot(currentId).tap || '', TAP_INPUT, value => moveDeviceTap(value), { disabled: () => !chain?.snapshot(currentId).items.find(item => item.id === 'sends')?.movable });
+      destination.append(selector, note('Il TAP è comune alle mandate PRE del canale.'));
+      if (expanded) renderDevicePreSendEQ(destination);
+    }
+    if (expanded) {
+      const destinations = el('div', 'editor-device-send-overview');
+      for (const peer of peers) {
+        const buttonNode = button(label(peer), () => { deviceSendId = peer.id; refreshDeviceChain(); }, 'editor-small-button', 'Seleziona mandata ' + fullLabel(peer));
+        bind(() => buttonNode.setAttribute('aria-pressed', String(selectedDeviceSend() === peer.id))); destinations.append(buttonNode);
+      }
+      destination.append(destinations);
+    }
+  }
+  function renderDevicePreSendEQ(destination) {
+    const base = window.SculptWingMap?.stripPath(currentId), read = () => channel().sendEQ;
+    const setBand = (index, key, value) => { const data = clone(read()); data.bands[index][key] = value; patchChannel({ sendEQ: data }); };
+    const wrap = disclosure('EQ delle mandate PRE');
+    wrap.append(wireParameter({ caption: 'Width mandate PRE', get: () => channel().tapWidth, set: value => patchChannel({ tapWidth: value }), min: -150, max: 150, step: 5, unit: '%' }, base + '/tapwid'),
+      wireToggle('PRE SEND EQ', () => !!read().enabled, value => patchObject('sendEQ', { enabled: value }), base + '/peq/on'));
+    for (let i = 0; i < 3; i++) {
+      const band = module('Banda ' + (i + 1));
+      band.append(wireParameter({ caption: 'PRE EQ ' + (i + 1) + ' frequenza', get: () => read().bands[i].freq, set: value => setBand(i, 'freq', value), min: 20, max: 20000, step: 1, log: true, unit: 'Hz' }, base + '/peq/' + (i + 1) + 'f'),
+        wireParameter({ caption: 'PRE EQ ' + (i + 1) + ' gain', get: () => read().bands[i].gain, set: value => setBand(i, 'gain', value), min: -15, max: 15, step: .1, unit: 'dB' }, base + '/peq/' + (i + 1) + 'g'),
+        wireParameter({ caption: 'PRE EQ ' + (i + 1) + ' Q', get: () => read().bands[i].q, set: value => setBand(i, 'q', value), min: .44, max: 10, step: .01, log: true }, base + '/peq/' + (i + 1) + 'q'));
+      wrap.append(band);
+    }
+    destination.append(wrap);
+  }
+  function renderDeviceMaster(destination, expanded) {
+    const base = window.SculptWingMap?.stripPath(currentId), parameters = el('div', 'editor-device-main-parameters');
+    parameters.append(wireParameter({ caption: 'Fader', get: () => sourceStrip().level, set: value => patch({ level: value }), min: -90, max: 10, step: .1, unit: 'dB', compact: !expanded, format: value => db(value) + ' dB' }, base + '/fdr'),
+      wireParameter({ caption: 'Pan', get: () => sourceStrip().pan, set: value => patch({ pan: value }), min: -100, max: 100, step: 1, compact: !expanded, format: value => value === 0 ? 'C' : Math.abs(value) + (value < 0 ? ' L' : ' R') }, base + '/pan'));
+    destination.append(parameters);
+    const actions = el('div', 'editor-button-row');
+    actions.append(wireToggle('MUTE', () => sourceStrip().mute, value => patch({ mute: value }), base + '/mute', { className: 'editor-mute', ariaLabel: 'Mute del canale' }),
+      wireToggle('SOLO', () => channel().solo, value => D().setSolo(currentId, value), base + '/$solo', { className: 'editor-solo' }));
+    destination.append(actions);
+    if (expanded) {
+      destination.append(wireParameter({ caption: 'Width', get: () => channel().width, set: value => patchChannel({ width: value }), min: -150, max: 150, step: 5, unit: '%' }, base + '/wid'));
+      for (const target of devicePeers(true)) { const box = module(label(target)); renderDeviceSendControls(box, target.id, true); destination.append(box); }
+      if (!isInput()) { const previous = panel; panel = destination; try { renderOutputAssignments(); } finally { panel = previous; } }
+    }
+  }
+  function deviceReadPaths(key, expanded) {
+    const base = window.SculptWingMap?.stripPath(currentId); if (!base) return [];
+    if (key === 'home') return [base];
+    if (key === 'input') {
+      const paths = isInput() ? [base + '/in/conn', base + '/in/set', ...(channel()?.sourceAuto ? ['/io/altsw'] : [])] : [base, base + '/in/set', base + '/dly'];
+      if (isChannel()) paths.push(base + '/flt');
+      const source = isInput() && activeSourceKnown() && activeSource(), sourcePath = source && window.SculptWingMap?.sourcePath(source.id);
+      if (sourcePath) paths.push(sourcePath); return paths;
+    }
+    if (key === 'master') return [base, ...(expanded ? devicePeers(true).map(peer => window.SculptWingMap?.sendBasePath(currentId, peer.id)) : [])];
+    if (key === 'sends') return [window.SculptWingMap?.sendBasePath(currentId, selectedDeviceSend()), ...(isChannel() ? [base + '/ptap', ...(expanded ? [base + '/peq', base + '/tapwid'] : [])] : [])].filter(Boolean);
+    if (key === 'pre' || key === 'post') return [base + '/' + key + 'ins'];
+    if (expanded && (key === 'gate' || key === 'dyn')) return [base + '/' + (key === 'gate' ? 'gatesc' : 'dynsc'), ...(key === 'dyn' && sourceStrip().kind !== 'AUX' ? [base + '/dynxo'] : [])];
+    return [];
+  }
+  function ensureDeviceRead(entry, key, expanded) {
+    const live = window.SculptLive;
+    if (!live?.isLive?.() || !live.isConnected?.() || !live.readNode) return;
+    const paths = deviceReadPaths(key, expanded), id = currentId, epoch = live.sessionToken?.(), readKey = [id, epoch, ...paths].join('|');
+    if (!paths.length || entry.readKey === readKey) return;
+    entry.readKey = readKey; entry.readPhase = 'loading'; entry.readError = '';
+    const token = ++deviceReadSerial; entry.readToken = token;
+    const valid = () => dialog?.open && id === currentId && deviceNodes.get(key) === entry && entry.readToken === token && live.sessionToken?.() === epoch && live.isConnected?.();
+    Promise.resolve().then(async () => {
+      for (const path of paths) { if (!valid()) return; await live.readNode(path); }
+      if (valid()) { entry.readPhase = 'ready'; refreshDeviceChain(); }
+    }).catch(error => { if (valid()) { entry.readPhase = 'error'; entry.readError = error?.message || String(error); refreshDeviceChain(); } });
+  }
+
   function orderValue() {
     const raw = channel().order;
     if (Array.isArray(raw) && raw.length) return raw.filter(value => Object.hasOwn(ORDER_LABELS, value));
@@ -592,34 +906,35 @@
     return activeDevice;
   }
   function openDevice(key) {
+    if (deviceSnapshot().items.find(item => item.id === key)?.available === false) return;
     activeDevice = key;
     if (expandedDevices.has(key)) expandedDevices.delete(key); else expandedDevices.add(key);
     refreshDeviceChain();
     deviceNodes.get(key)?.item.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
   }
-  function deviceState(key) {
-    const names = { channel: 'Canale', processing: 'Percorso', sends: 'Mandate', groups: 'Gruppi', filter: 'Filtro', gate: 'Gate', eq: 'EQ', dyn: 'Dynamics', pre: 'Insert 1', post: 'Insert 2' };
-    const live = window.SculptLive, online = !!live?.isLive?.(), id = currentId;
-    const known = path => !online || !!(path && live.isConnected?.() && live.hasValue?.(path) && live.metadata?.(path));
-    const writable = path => !online || !!(known(path) && live.isWritable?.() && !live.metadata(path).readOnly);
-    const base = window.SculptWingMap?.stripPath(id);
-    if (['channel', 'processing', 'sends', 'groups'].includes(key)) return { name: names[key], utility: true, model: { channel: 'I/O · ingresso', processing: 'Ordine · delay', sends: 'BUS · MAIN · MTX', groups: 'DCA · mute' }[key] };
+  function deviceState(key, descriptor) {
+    const live = window.SculptLive, online = !!live?.isLive?.(), id = currentId, base = window.SculptWingMap?.stripPath(id);
+    const title = DEVICE_LABELS[key], detail = descriptor || deviceSnapshot().items.find(item => item.id === key);
+    if (detail?.available === false) return { name: title, accessibleName: title, model: 'Non disponibile su ' + sourceStrip().kind, state: 'unavailable', available: false, utility: true };
+    if (['home', 'input', 'sends', 'master'].includes(key)) {
+      const models = { home: 'Identità · stato', input: isInput() ? 'Ingresso · filtri' : 'Ingresso · formato', sends: detail?.badge || 'Mandate', master: 'Fader · pan · mute' };
+      return { name: title, accessibleName: title, utility: true, available: true, model: models[key], state: 'active' };
+    }
     if (key === 'pre' || key === 'post') {
       const slot = channel()?.[key + 'Fx'], proc = slot ? D().processor({ type: 'fx', slot }) : null;
-      const assigned = known(base + '/' + key + 'ins/ins'), powerPath = base + '/' + key + 'ins/on';
-      const modelKnown = slot && known('/fx/' + slot + '/mdl');
-      return { name: names[key], model: !assigned ? 'Da leggere' : !slot ? 'Nessuno' : modelKnown ? window.SculptCatalog?.get({ type: 'fx', slot }, proc?.model)?.name || proc?.model || 'FX ' + slot : 'FX ' + slot,
-        state: !assigned ? 'unknown' : !slot ? 'empty' : !known(powerPath) ? 'unknown' : channel()[key + 'FxOn'] === false ? 'bypass' : 'active',
-        on: assigned && known(powerPath) && channel()[key + 'FxOn'] !== false, canBypass: assigned && !!slot && writable(powerPath),
+      const assigned = wireKnown(base + '/' + key + 'ins/ins'), powerPath = base + '/' + key + 'ins/on';
+      const modelKnown = slot && wireKnown('/fx/' + slot + '/mdl'), number = key === 'pre' ? 1 : 2;
+      const name = !assigned ? 'Da leggere' : !slot ? 'Nessuno' : modelKnown ? window.SculptCatalog?.get({ type: 'fx', slot }, proc?.model)?.name || proc?.model || 'FX ' + slot : 'FX ' + slot;
+      return { name: title, accessibleName: 'Insert ' + number, available: true, model: number + ' · ' + name + (key === 'post' ? ' · post-fader' : ''),
+        state: !assigned ? 'unknown' : !slot ? 'empty' : !wireKnown(powerPath) ? 'unknown' : channel()[key + 'FxOn'] === false ? 'bypass' : 'active',
+        on: assigned && wireKnown(powerPath) && channel()[key + 'FxOn'] !== false, canBypass: assigned && !!slot && wireEditable(powerPath),
         toggle: () => D().patchChannel(id, { [key + 'FxOn']: channel()[key + 'FxOn'] === false }) };
     }
-    const ctx = { type: 'strip', id, block: key }, proc = D().processor(ctx);
-    const spec = window.SculptWingMap?.processorSpec?.(ctx, proc?.model);
-    const modelKnown = !online || known(spec?.modelPath), powerKnown = !online || known(spec?.enabledPath);
-    return { name: names[key], model: !modelKnown ? 'Da leggere' : window.SculptCatalog?.get(ctx, proc?.model)?.name || proc?.model || '—',
+    const ctx = { type: 'strip', id, block: key }, proc = D().processor(ctx), spec = window.SculptWingMap?.processorSpec?.(ctx, proc?.model);
+    const modelKnown = !online || wireKnown(spec?.modelPath), powerKnown = !online || wireKnown(spec?.enabledPath);
+    return { name: title, accessibleName: title, available: true, model: !modelKnown ? 'Da leggere' : (window.SculptCatalog?.get(ctx, proc?.model)?.name || proc?.model || '—') + (detail?.badge ? ' · ' + detail.badge : ''),
       state: !modelKnown || !powerKnown ? 'unknown' : proc?.enabled === false ? 'bypass' : 'active',
-      on: powerKnown && proc?.enabled !== false, canBypass: !!proc && writable(spec?.enabledPath),
-      powerLabel: key === 'filter' ? 'Filtro tilt attivo; low cut e high cut hanno controlli dedicati' : names[key] + ' attivo',
+      on: powerKnown && proc?.enabled !== false, canBypass: !!proc && wireEditable(spec?.enabledPath),
       toggle: () => D().enableProcessor(ctx, !D().processor(ctx)?.enabled) };
   }
   function renderDeviceCuts(destination, expanded) {
@@ -641,90 +956,197 @@
       cuts.append(group);
     }
   }
+  function setDeviceStatus(text) {
+    if (deviceDragHelp) deviceDragHelp.textContent = text;
+  }
+  function clearDeviceMove() {
+    deviceDrag = null;
+    deviceTapPalette?.remove(); deviceTapPalette = null;
+    if (deviceChain) deviceChain.dataset.reordering = 'false';
+    for (const entry of deviceNodes.values()) { entry.item.dataset.dragging = 'false'; delete entry.item.dataset.drop; entry.drag.setAttribute('aria-pressed', 'false'); }
+  }
+  async function commitDeviceMove(targetId) {
+    const gesture = deviceDrag; if (!gesture) return false;
+    clearDeviceMove(); setDeviceStatus('Conferma dello spostamento…');
+    try {
+      await window.SculptChannelChain.commit(gesture.token, targetId);
+      if (dialog?.open && currentId === gesture.id) { refreshDeviceChain(); setDeviceStatus('Spostamento confermato.'); }
+      return true;
+    } catch (error) {
+      if (dialog?.open && currentId === gesture.id) { refreshDeviceChain(); setDeviceStatus(error?.message || String(error)); toast(error?.message || String(error)); }
+      return false;
+    }
+  }
+  async function moveDeviceTap(value) {
+    if (!startDeviceMove('sends', null, false)) return;
+    await commitDeviceMove('tap:' + value);
+  }
+  function startDeviceMove(key, event, showPalette = true) {
+    const chain = window.SculptChannelChain;
+    if (!chain) return false;
+    clearDeviceMove();
+    try {
+      const token = chain.begin(currentId, key), targets = chain.targets(token);
+      deviceDrag = { id: currentId, key, token, targets };
+      deviceChain.dataset.reordering = 'true';
+      const entry = deviceNodes.get(key); if (entry) { entry.item.dataset.dragging = 'true'; entry.drag.setAttribute('aria-pressed', 'true'); }
+      if (event?.dataTransfer) { event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('application/x-sculpt-wing-device', key); event.dataTransfer.setData('text/plain', DEVICE_LABELS[key]); }
+      setDeviceStatus(key === 'sends' ? 'Scegli il punto di prelievo delle mandate PRE. PFL precede il fader; AFL lo segue.' : 'Trascina fra Gate, EQ, Comp e Insert 1 oppure scegli una destinazione. Esc annulla.');
+      if (showPalette) {
+        deviceTapPalette = el('div', 'editor-device-tap-palette'); deviceTapPalette.setAttribute('role', 'group'); deviceTapPalette.setAttribute('aria-label', key === 'sends' ? 'Punti TAP WING' : 'Sposta ' + (entry?.name.textContent || key));
+        const heading = el('div', 'editor-device-tap-title'), choices = el('div', 'editor-device-tap-options');
+        heading.append(el('strong', '', key === 'sends' ? 'TAP delle mandate PRE' : 'Sposta ' + (entry?.name.textContent || key)), button('×', clearDeviceMove, '', 'Annulla spostamento'));
+        for (const target of targets) {
+          const choice = button(target.label, () => commitDeviceMove(target.id), 'editor-device-tap-choice');
+          choice.dataset.target = target.id; choice.disabled = target.enabled === false; choice.title = target.reason || target.label;
+          choice.setAttribute('aria-pressed', String(key === 'sends' && chain.snapshot(currentId).tap === target.value));
+          choice.addEventListener('dragover', ev => { if (!deviceDrag || choice.disabled) return; ev.preventDefault(); if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'move'; choice.dataset.drop = 'true'; });
+          choice.addEventListener('dragleave', () => { delete choice.dataset.drop; });
+          choice.addEventListener('drop', ev => { if (!deviceDrag || choice.disabled) return; ev.preventDefault(); ev.stopPropagation(); commitDeviceMove(target.id); });
+          choices.append(choice);
+        }
+        deviceTapPalette.append(heading, choices); panel.append(deviceTapPalette);
+        if (!event) choices.querySelector('button:not(:disabled)')?.focus();
+      }
+      return true;
+    } catch (error) { event?.preventDefault(); setDeviceStatus(error?.message || String(error)); return false; }
+  }
+  function deviceDropTarget(key, event) {
+    if (!deviceDrag || deviceDrag.key === 'sends' || deviceDrag.id !== currentId) return null;
+    const node = deviceNodes.get(key)?.item, box = node?.getBoundingClientRect();
+    if (!box) return null;
+    const position = event.clientX < box.left + box.width / 2 ? 'before' : 'after';
+    return deviceDrag.targets.find(target => target.kind === 'proc' && target.targetKey === key && target.position === position && target.enabled !== false) || null;
+  }
+  function renderDeviceInsertAssignment(destination, key) {
+    const base = window.SculptWingMap?.stripPath(currentId), current = currentId;
+    const choices = [{ value: '', label: 'Nessuno' }, ...D().get().fx.map(fx => ({ value: String(fx.slot), label: 'FX ' + fx.slot + (wireKnown('/fx/' + fx.slot + '/mdl') ? ' · ' + (window.SculptCatalog?.get({ type: 'fx', slot: fx.slot }, fx.model)?.name || fx.model) : '') }))];
+    destination.append(wireSelect('Assegna Insert ' + (key === 'pre' ? '1' : '2'), () => channel()?.[key + 'Fx'] || '', choices, value => {
+      const old = channel()?.[key + 'Fx'];
+      if (value) D().assignFx(Number(value), current, key); else if (old) D().assignFx(old, null, key);
+    }, base + '/' + key + 'ins/ins'));
+    if (key === 'post' && isChannel()) destination.append(button('Automix / gruppi', () => switchTab('groups'), 'editor-link-button'));
+  }
+  function renderDeviceContents(entry, key, data, expanded) {
+    entry.cleanup?.(); entry.cleanup = null; entry.content.replaceChildren(); entry.updates = [];
+    const scope = { active: true }, localCleanups = [], previousBindings = bindings, previousCleanups = cleanups, previousScope = deviceControlScope, wasRendering = rendering;
+    bindings = entry.updates; cleanups = localCleanups; deviceControlScope = scope; rendering = true;
+    try {
+      if (data.available === false) entry.content.append(note(data.model));
+      else if (key === 'home') renderDeviceHome(entry.content, expanded);
+      else if (key === 'input') renderDevicePre(entry.content, expanded);
+      else if (key === 'sends') renderDeviceSend(entry.content, expanded);
+      else if (key === 'master') renderDeviceMaster(entry.content, expanded);
+      else {
+        const insert = key === 'pre' || key === 'post', slot = insert ? channel()?.[key + 'Fx'] : null;
+        if (insert) renderDeviceInsertAssignment(entry.content, key);
+        if (insert && (!slot || data.state === 'unknown')) entry.content.append(note(data.state === 'unknown' ? 'Assegnazione da leggere dalla WING.' : 'Nessun FX assegnato a questo insert.'));
+        else {
+          const ctx = insert ? { type: 'fx', slot } : { type: 'strip', id: currentId, block: key }, host = el('div', expanded ? 'editor-plugin-host editor-device-full' : 'editor-device-principal');
+          entry.content.append(host);
+          const dispose = expanded ? window.SculptFX?.renderProcessor(host, ctx, { rotaryBank: true }) : window.SculptFX?.renderPrincipal?.(host, ctx);
+          if (typeof dispose === 'function') localCleanups.push(dispose);
+          if (expanded && ['gate', 'dyn'].includes(key)) {
+            const base = window.SculptWingMap?.stripPath(currentId), sc = base + '/' + (key === 'gate' ? 'gatesc' : 'dynsc');
+            if (['src', 'tap', 'type', 'f', 'q', '$solo'].every(leaf => wireKnown(sc + '/' + leaf))) renderSidechain(key, entry.content);
+            else entry.content.append(note('Sidechain in lettura; i parametri del processore restano disponibili.'));
+          }
+        }
+      }
+      entry.readStatus = el('div', 'editor-device-read-status'); entry.readStatus.setAttribute('role', 'status'); entry.content.append(entry.readStatus);
+    } finally { bindings = previousBindings; cleanups = previousCleanups; deviceControlScope = previousScope; rendering = wasRendering; }
+    entry.cleanup = () => { scope.active = false; for (const dispose of localCleanups) dispose(); };
+  }
   function refreshDeviceChain() {
     if (!deviceChain?.isConnected || !sourceStrip() || refreshingDevices) return;
     refreshingDevices = true;
-    const modules = [];
-    if (isChannel()) modules.push('filter');
-    for (const key of orderValue()) {
-      const block = key === 'insert' ? 'pre' : key;
-      if ((block !== 'gate' || isChannel()) && !modules.includes(block)) modules.push(block);
-    }
-    if (sourceStrip().kind !== 'AUX') modules.push('post');
-    const signature = currentId + ':' + modules.join(',');
-    if (signature !== deviceChainKey) {
-      const id = currentId; deviceChainKey = signature;
-      for (const entry of deviceNodes.values()) entry.cleanup?.();
-      deviceNodes.clear(); deviceChain.replaceChildren();
-      for (const key of modules) {
-        const data = deviceState(key), item = el('section', 'editor-device editor-device-panel');
-        item.dataset.module = key;
-        const head = el('header', 'editor-device-header');
+    try {
+      const snapshot = deviceSnapshot(), modules = snapshot.items.map(item => item.id), id = currentId;
+      if (deviceChainKey !== id) {
+        clearDeviceMove();
+        for (const entry of deviceNodes.values()) entry.cleanup?.();
+        deviceNodes.clear(); deviceChain.replaceChildren(); deviceChainKey = id;
+      }
+      for (const descriptor of snapshot.items) {
+        const key = descriptor.id; if (deviceNodes.has(key)) continue;
+        const item = el('section', 'editor-device editor-device-panel'); item.dataset.module = key;
+        item.dataset.deviceRole = ({ input: 'pre', dyn: 'comp', pre: 'insert', post: 'insert', sends: 'send' })[key] || key;
+        const head = el('header', 'editor-device-header'), drag = el('button', 'editor-device-drag'); drag.type = 'button'; drag.setAttribute('aria-describedby', 'editor-device-drag-help');
+        drag.addEventListener('click', () => { if (dialog.open && id === currentId) { if (deviceDrag?.key === key) clearDeviceMove(); else startDeviceMove(key); } });
+        drag.addEventListener('dragstart', event => { if (!dialog.open || id !== currentId || !startDeviceMove(key, event)) event.preventDefault(); });
+        drag.addEventListener('dragend', () => { if (deviceDrag) clearDeviceMove(); });
         const choose = el('button', 'editor-device-select'); choose.type = 'button'; choose.id = 'editor-device-' + key;
         const name = el('span', 'editor-device-label'), model = el('span', 'editor-device-model'); choose.append(name, model);
         choose.addEventListener('click', () => { if (dialog.open && currentId === id) openDevice(key); });
         choose.addEventListener('keydown', event => {
-          const index = modules.indexOf(key); let next;
-          if (event.key === 'ArrowRight') next = (index + 1) % modules.length;
-          else if (event.key === 'ArrowLeft') next = (index + modules.length - 1) % modules.length;
+          const order = deviceSnapshot().items.filter(item => item.available !== false).map(item => item.id), index = order.indexOf(key); let next;
+          if (event.key === 'ArrowRight') next = (index + 1) % order.length;
+          else if (event.key === 'ArrowLeft') next = (index + order.length - 1) % order.length;
           else if (event.key === 'Home') next = 0;
-          else if (event.key === 'End') next = modules.length - 1;
-          if (next === undefined) return; event.preventDefault(); activeDevice = modules[next]; refreshDeviceChain(); deviceNodes.get(modules[next])?.choose.focus();
+          else if (event.key === 'End') next = order.length - 1;
+          if (next === undefined) return; event.preventDefault(); activeDevice = order[next]; refreshDeviceChain(); deviceNodes.get(order[next])?.choose.focus();
         });
         const power = el('button', 'editor-device-bypass', 'IN'); power.type = 'button';
         power.addEventListener('click', () => { if (!dialog.open || currentId !== id) return; const state = deviceState(key); if (state.canBypass) state.toggle(); });
         const expand = el('button', 'editor-device-expand'); expand.type = 'button'; expand.addEventListener('click', () => { if (dialog.open && currentId === id) openDevice(key); });
         const content = el('div', 'editor-device-content'); content.id = 'editor-device-content-' + key;
         choose.setAttribute('aria-controls', content.id); expand.setAttribute('aria-controls', content.id);
-        head.append(power, choose, expand); item.append(head, content);
-        deviceChain.append(item); deviceNodes.set(key, { item, choose, name, model, power, expand, content, signature: '', contentKey: '', cleanup: null });
+        head.append(drag, power, choose, expand); item.append(head, content); deviceChain.append(item);
+        item.addEventListener('dragover', event => {
+          const target = deviceDropTarget(key, event); if (!target) return;
+          event.preventDefault(); if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+          for (const entry of deviceNodes.values()) delete entry.item.dataset.drop;
+          item.dataset.drop = target.position;
+        });
+        item.addEventListener('dragleave', event => { if (!item.contains(event.relatedTarget)) delete item.dataset.drop; });
+        item.addEventListener('drop', event => { const target = deviceDropTarget(key, event); if (!target) return; event.preventDefault(); event.stopPropagation(); commitDeviceMove(target.id); });
+        deviceNodes.set(key, { item, choose, name, model, power, expand, drag, content, signature: '', contentKey: '', cleanup: null });
       }
-    }
-    const selected = selectedDevice();
-    for (const [key, entry] of deviceNodes) {
-      const data = deviceState(key), on = key === selected;
-      const expanded = expandedDevices.has(key), signature = [data.name, data.model, data.state, data.on, data.canBypass, on, expanded].join('|');
-      if (signature !== entry.signature) {
-        entry.signature = signature; entry.name.textContent = data.name; entry.model.textContent = data.model;
-        entry.item.dataset.state = data.state || 'active'; entry.item.dataset.expanded = String(expanded); entry.item.classList.toggle('is-selected', on);
-        entry.choose.setAttribute('aria-pressed', String(on)); entry.choose.setAttribute('aria-label', data.name + ' · ' + data.model);
-        entry.choose.setAttribute('aria-expanded', String(expanded)); entry.expand.setAttribute('aria-expanded', String(expanded));
-        entry.expand.setAttribute('aria-label', (expanded ? 'Riduci ' : 'Espandi ') + data.name); entry.expand.textContent = expanded ? '↔' : '›'; entry.expand.title = expanded ? 'Mostra i parametri principali' : 'Espandi in larghezza · tutti i controlli';
-        entry.power.disabled = !data.canBypass; entry.power.textContent = data.state === 'unknown' ? '—' : data.on ? 'IN' : 'BYP'; entry.power.setAttribute('aria-pressed', String(!!data.on)); entry.power.setAttribute('aria-label', data.powerLabel || data.name + ' attivo');
+      const focused = deviceChain.contains(document.activeElement) ? document.activeElement : null;
+      for (let i = 0; i < modules.length; i++) {
+        const node = deviceNodes.get(modules[i]).item, before = deviceChain.children[i];
+        if (node !== before) { if (typeof deviceChain.moveBefore === 'function') deviceChain.moveBefore(node, before || null); else deviceChain.insertBefore(node, before || null); }
       }
-      const insert = key === 'pre' || key === 'post', slot = insert ? channel()?.[key + 'Fx'] : null;
-      const cutSchema = key === 'filter' && window.SculptLive?.isLive?.() ? ['lc', 'lcf', 'lcs', 'hc', 'hcf', 'hcs'].map(suffix => window.SculptLive.metadata?.(window.SculptWingMap?.stripPath(currentId) + '/flt/' + suffix)?.revision || '').join(',') : '';
-      const contentKey = [currentId, key, expanded, slot || '', insert ? data.state === 'unknown' : false, cutSchema].join(':');
-      if (contentKey !== entry.contentKey) {
-        entry.contentKey = contentKey; entry.cleanup?.(); entry.cleanup = null; entry.content.replaceChildren();
-        entry.updates = [];
-        if (insert && (!slot || data.state === 'unknown')) {
-          entry.content.append(note(data.state === 'unknown' ? 'Assegnazione da leggere dalla WING.' : 'Nessun FX assegnato a questo insert.'), button('Assegna FX', () => switchTab('processing'), 'editor-link-button'));
-        } else {
-          const ctx = insert ? { type: 'fx', slot } : { type: 'strip', id: currentId, block: key };
-          let localCleanups = [];
-          if (key === 'filter') {
-            const previousBindings = bindings, previousCleanups = cleanups, wasRendering = rendering;
-            bindings = entry.updates; cleanups = localCleanups; rendering = true;
-            try { renderDeviceCuts(entry.content, expanded); }
-            finally { bindings = previousBindings; cleanups = previousCleanups; rendering = wasRendering; }
-          }
-          const host = el('div', 'editor-device-principal'); entry.content.append(host);
-          let cleanup;
-          if (expanded) { host.className = 'editor-plugin-host editor-device-full'; cleanup = window.SculptFX?.renderProcessor(host, ctx, { rotaryBank: true }); }
-          else cleanup = window.SculptFX?.renderPrincipal?.(host, ctx);
-          entry.cleanup = () => { cleanup?.(); for (const dispose of localCleanups) dispose(); };
+      if (focused?.isConnected && document.activeElement !== focused) focused.focus({ preventScroll: true });
+      for (const descriptor of snapshot.items) {
+        const key = descriptor.id, entry = deviceNodes.get(key), data = deviceState(key, descriptor), selected = key === selectedDevice(), expanded = expandedDevices.has(key);
+        const headerKey = [data.name, data.model, data.state, data.available, data.utility, data.canBypass, data.on, selected, expanded, descriptor.movable, descriptor.reason].join('|');
+        if (headerKey !== entry.signature) {
+        entry.signature = headerKey;
+        entry.name.textContent = data.name; entry.model.textContent = data.model;
+        entry.item.dataset.state = data.state; entry.item.dataset.expanded = String(expanded); entry.item.dataset.reorderable = String(!!descriptor.movable); entry.item.classList.toggle('is-selected', selected);
+        entry.choose.setAttribute('aria-pressed', String(selected)); entry.choose.setAttribute('aria-label', data.accessibleName + ' · ' + data.model); entry.choose.setAttribute('aria-expanded', String(expanded));
+        entry.expand.disabled = data.available === false; entry.expand.setAttribute('aria-expanded', String(expanded)); entry.expand.setAttribute('aria-label', (expanded ? 'Riduci ' : 'Espandi ') + data.accessibleName); entry.expand.textContent = expanded ? '↔' : '›'; entry.expand.title = expanded ? 'Mostra i parametri principali' : 'Espandi in larghezza · tutti i controlli';
+        entry.power.hidden = !!data.utility; entry.power.disabled = !data.canBypass; entry.power.textContent = data.state === 'unknown' ? '—' : data.on ? 'IN' : 'BYP'; entry.power.setAttribute('aria-pressed', String(!!data.on)); entry.power.setAttribute('aria-label', data.accessibleName + ' attivo');
+        entry.drag.draggable = !!descriptor.movable; entry.drag.disabled = !descriptor.movable; entry.drag.setAttribute('aria-label', 'Sposta ' + data.accessibleName); entry.drag.title = descriptor.movable ? (key === 'sends' ? 'Sposta il TAP delle mandate PRE' : 'Sposta il blocco nel percorso WING') : descriptor.reason || 'Posizione fissa nella WING';
+        entry.choose.disabled = data.available === false;
         }
+        if (data.available !== false) ensureDeviceRead(entry, key, expanded);
+        if (key === 'input' && (expanded || !isInput())) ensureDelayRead();
+        const sourceKey = key === 'input' || key === 'home' ? [channel()?.source, channel()?.altSource, channel()?.useAlt, channel()?.sourceAuto, D().get().io?.globalAlt, activeSource()?.preamp, isInput() ? activeSourceKnown() : true].join(',') : '';
+        const readPaths = deviceReadPaths(key, expanded), live = window.SculptLive;
+        const schema = live?.isLive?.() ? readPaths.map(path => live.metadata?.(path)?.revision || '').join(',') + ':' + entry.readPhase : '';
+        const contentKey = [id, key, expanded, data.available, sourceKey, key === 'input' ? delayDisplayKey() : '', key === 'sends' ? selectedDeviceSend() : '', key === 'pre' || key === 'post' ? channel()?.[key + 'Fx'] || '' : '', live?.sessionToken?.() || '', schema].join('|');
+        if (contentKey !== entry.contentKey) { entry.contentKey = contentKey; renderDeviceContents(entry, key, data, expanded); }
+        for (const update of entry.updates || []) update();
+        if (entry.readStatus) { entry.readStatus.textContent = entry.readPhase === 'error' ? entry.readError : entry.readPhase === 'loading' ? 'Lettura WING…' : ''; entry.readStatus.hidden = !entry.readStatus.textContent; }
       }
-      for (const update of entry.updates || []) update();
-    }
-    refreshingDevices = false;
+    } finally { refreshingDevices = false; }
   }
   function renderDevices() {
     deviceChainKey = ''; deviceChain = el('div', 'editor-device-chain editor-device-board');
-    deviceChain.setAttribute('aria-label', 'Dispositivi del canale · espansione orizzontale');
-    panel.append(deviceChain);
-    cleanups.push(() => { for (const entry of deviceNodes.values()) entry.cleanup?.(); deviceNodes.clear(); deviceChainKey = ''; });
+    deviceChain.setAttribute('aria-label', 'Moduli del canale · espansione orizzontale');
+    deviceDragHelp = el('p', 'editor-device-drag-help', 'Trascina una maniglia per spostare i blocchi consentiti dalla WING.'); deviceDragHelp.id = 'editor-device-drag-help'; deviceDragHelp.setAttribute('role', 'status'); deviceDragHelp.setAttribute('aria-live', 'polite');
+    panel.append(deviceChain, deviceDragHelp);
+    const cancel = event => { if (event.key === 'Escape' && deviceDrag) { event.preventDefault(); event.stopPropagation(); clearDeviceMove(); } };
+    panel.addEventListener('keydown', cancel);
+    cleanups.push(() => { clearDeviceMove(); panel.removeEventListener('keydown', cancel); for (const entry of deviceNodes.values()) entry.cleanup?.(); deviceNodes.clear(); deviceChainKey = ''; });
+    const chain = window.SculptChannelChain, id = currentId;
+    if (chain) {
+      const unsubscribe = chain.bind(id, () => { if (currentId === id && activeTab === 'devices') refreshDeviceChain(); });
+      if (typeof unsubscribe === 'function') cleanups.push(unsubscribe);
+      Promise.resolve(chain.prepare(id)).catch(error => { if (dialog?.open && currentId === id) setDeviceStatus(error?.message || String(error)); });
+    }
     refreshDeviceChain();
   }
   function renderOrder() {
@@ -794,14 +1216,7 @@
         selectField('Pendenza high cut', () => channel().highSlope ?? 12, [6, 12].map(value => ({ value, label: `${value} dB/oct` })), value => patchChannel({ highSlope: Number(value) })));
       filter.append(grid(low, high)); renderProcessor('filter', filter); panel.append(filter);
     }
-    const delay = module(isInput() ? 'Delay d’ingresso' : 'Delay di uscita');
-    const delayUnit = () => channel().delayUnit || 'MS', displayedUnit = delayUnit();
-    const convert = ms => displayedUnit === 'M' ? ms * .343 : displayedUnit === 'FT' ? ms * 1.1253 : displayedUnit === 'SMP' ? ms * ((D().get().setup.sampleRate || 48000) / 1000) : ms;
-    const unconvert = value => displayedUnit === 'M' ? value / .343 : displayedUnit === 'FT' ? value / 1.1253 : displayedUnit === 'SMP' ? value / ((D().get().setup.sampleRate || 48000) / 1000) : value;
-    delay.append(grid(toggle('DELAY ON', () => !!channel().delayOn, value => patchChannel({ delayOn: value }), { ariaLabel: 'Delay attivo' }),
-      selectField('Unità delay', delayUnit, [{ value: 'MS', label: 'Millisecondi' }, { value: 'M', label: 'Metri' }, { value: 'FT', label: 'Piedi' }, { value: 'SMP', label: 'Campioni' }], value => { patchChannel({ delayUnit: value }); renderPanel(false); })));
-    delay.append(parameter({ caption: 'Delay', get: () => convert(channel().delay || 0), set: value => patchChannel({ delay: Number(unconvert(value).toFixed(3)) }), min: 0, max: convert(500), step: delayUnit() === 'SMP' ? 1 : .1, unit: delayUnit() === 'MS' ? 'ms' : delayUnit() === 'M' ? 'm' : delayUnit() === 'FT' ? 'ft' : 'smp' }));
-    panel.append(delay);
+    renderDelay(panel);
     const inserts = module('Insert FX', renderInsert('pre'));
     inserts.id = 'editor-insert-section';
     if (sourceStrip().kind !== 'AUX') inserts.append(renderInsert('post'));
@@ -1062,7 +1477,7 @@
   function structuralKey() {
     const ch = channel();
     return JSON.stringify([currentId, activeTab, activeTab === 'channel' ? [ch?.source, ch?.altSource, ch?.useAlt, ch?.sourceAuto, D()?.get().io?.globalAlt] : null,
-      activeTab === 'processing' ? [ch?.preFx, ch?.postFx, ch?.delayUnit, ch?.order] : null,
+      activeTab === 'processing' ? [ch?.preFx, ch?.postFx, ch?.delayUnit, ch?.order, delayDisplayKey()] : null,
       activeTab === 'groups' ? ['x', 'y'].map(key => D()?.get().automix[key]?.channels?.includes(currentId)) : null,
       activeTab === 'dynamics' ? [dynamicsBlock, D()?.processor({ type: 'strip', id: currentId, block: dynamicsBlock })?.model === 'CMB'] : null,
       activeTab === 'sends' ? [sendDirection, sendGroup] : null]);
@@ -1072,7 +1487,7 @@
     if (!dialog?.open || navigating || rendering || !sourceStrip()) return;
     dockEditor();
     dialog.classList.toggle('editor-compact-devices', compactEditor());
-    const devicesTab = tabList.querySelector('[data-tab="devices"]'); if (devicesTab) devicesTab.hidden = !compactEditor();
+    const devicesTab = tabList.querySelector('[data-tab="devices"]'); if (devicesTab) devicesTab.hidden = false;
     const strip = sourceStrip();
     const live = window.SculptLive, liveState = live?.isLive() ? live.snapshot() : null;
     dialog.querySelector('.editor-demo').textContent = !liveState ? 'DEMO' : liveState.mode === 'live' ? (liveState.writable ? 'LIVE' : 'LETTURA') : 'WING';
@@ -1226,9 +1641,8 @@
     if (!dialog) createDialog();
     const wasOpen = !!dialog.open, changedId = currentId !== id;
     const previousView = [activeTab, dynamicsBlock, sendDirection, sendGroup];
-    const nextView = changedId && !keepTab ? [compactEditor() ? 'devices' : 'channel', 'dyn', 'out', 'BUS'] : [...previousView];
+    const nextView = changedId && !keepTab ? ['devices', 'dyn', 'out', 'BUS'] : [...previousView];
     if (tab !== undefined) nextView[0] = tab;
-    if (!compactEditor() && nextView[0] === 'devices') nextView[0] = 'channel';
     if (tab === 'dynamics') nextView[1] = block || 'dyn';
     if (nextView[0] === 'dynamics' && C().getStrip(id).kind !== 'CH') nextView[1] = 'dyn';
     const changedView = previousView.some((value, index) => value !== nextView[index]);
@@ -1283,16 +1697,18 @@
     window.SculptUI?.close();
     return showChannel(id, { keepTab: !!dialog?.open, origin: options?.origin, tab, block });
   }
+  function openDevicePage(id, key) {
+    if (!DEVICE_IDS.includes(key) || !C()?.getStrip(id) || !D()) return false;
+    window.SculptUI?.close?.();
+    activeDevice = key; expandedDevices.add(key);
+    const result = showChannel(id, { keepTab: true, tab: 'devices' });
+    refreshDeviceChain(); deviceNodes.get(key)?.item.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+    return result;
+  }
   window.addEventListener('sculpt-mixer-view', () => {
     if (!dialog?.open) return;
-    if (!compactEditor() && activeTab === 'devices') {
-      returnToDevices = true;
-      if (activeDevice === 'eq') activeTab = 'eq';
-      else if (['gate', 'dyn'].includes(activeDevice)) { activeTab = 'dynamics'; dynamicsBlock = activeDevice; }
-      else activeTab = 'processing';
-      resetLiveGate(); renderPanel(false);
-    } else if (compactEditor() && returnToDevices) { returnToDevices = false; activeTab = 'devices'; resetLiveGate(); renderPanel(false); }
+    clearDeviceMove();
     dockEditor(); sync();
   });
-  window.SculptEditor = Object.freeze({ open, openSection, close, sections: () => TABS.map(([id, name]) => ({ id, name })), isOpen: () => !!dialog?.open });
+  window.SculptEditor = Object.freeze({ open, openSection, openDevice: openDevicePage, close, sections: () => TABS.map(([id, name]) => ({ id, name })), isOpen: () => !!dialog?.open });
 })();

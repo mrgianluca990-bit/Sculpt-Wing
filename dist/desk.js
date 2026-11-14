@@ -218,12 +218,29 @@
       fx.stripId=id||null;fx.position=position;
     },'routing');return true;
   }
-  function patchChannel(id,patch){if(!get().channels[id]||!plain(patch))return false;change(d=>{
+  function patchChannel(id,patch){if(!get().channels[id]||!plain(patch))return false;
+    let delay=patch.delay;
+    const live=root.SculptLive;
+    if('delay'in patch&&live?.isLive?.()){
+      const strip=C.getStrip(id),input=['CH','AUX'].includes(strip?.kind);
+      const base=strip&&['CH','AUX','BUS','MAIN','MTX'].includes(strip.kind)?'/'+strip.kind.toLowerCase()+'/'+strip.number+(input?'/in/set':'/dly'):null;
+      const path=base&&base+'/dly',meta=path&&live.metadata?.(path),value=patch.delay;
+      // Live delay values already use the selected wire unit. A millisecond
+      // clamp would silently turn, for example, 48000 samples into 3000.
+      // Mode changes must finish and refresh their schema before a new number.
+      if(!path||!live.hasValue?.(path)||!meta||meta.path!==path||meta.readOnly||![1,2,4].includes(meta.type)||!Number.isInteger(meta.revision)
+        ||!Number.isFinite(meta.min)||!Number.isFinite(meta.max)||meta.min>meta.max
+        ||typeof value!=='number'||!Number.isFinite(value)||!Number.isFinite(Math.fround(value))||value<meta.min||value>meta.max
+        ||meta.type===4&&(!Number.isInteger(value)||value<-0x80000000||value>0x7fffffff)
+        ||'delayUnit'in patch&&patch.delayUnit!==live.value?.(base+(input?'/dlymode':'/mode')))return false;
+      delay=value;
+    }else if('delay'in patch)delay=clamp(delay,0,3000);
+    return change(d=>{
     const ch=d.channels[id];for(const [key,value]of Object.entries(patch)){
       if(!(key in ch))continue;
       if(['source','altSource'].includes(key)){if(d.sources[value])ch[key]=value;}
       else if(key==='order'){if(Array.isArray(value)&&C.getStrip(id).kind==='CH'&&new Set(value).size===4&&value.every(v=>['gate','eq','dyn','insert'].includes(v)))ch.order=[...value];}
-      else if(key==='delay')ch[key]=clamp(value,0,3000);
+      else if(key==='delay')ch[key]=delay;
       else if(['lowCut','highCut'].includes(key))ch[key]=clamp(value,20,20000);
       else if(['width','tapWidth'].includes(key))ch[key]=clamp(value,-150,150);
       else if(key==='balance')ch[key]=clamp(value,-9,9);
@@ -232,7 +249,7 @@
       else ch[key]=clean(value);
     }
     if('source'in patch||'altSource'in patch||'useAlt'in patch){const src=d.sources[ch.useAlt?ch.altSource:ch.source];if(src)ch.mode=src.mode;}
-  },'channel',{id,paths:[['desk','channels',id]]});return true;}
+  },'channel',{id,paths:[['desk','channels',id]]})!==false;}
   function patchSource(id,patch){const s=get().sources[id];if(!s||id==='OFF')return false;change(d=>{
     for(const [k,v]of Object.entries(patch)){
       if(k==='gain'&&s.preamp)s.gain=Math.round(clamp(v,s.gainMin,s.gainMax)/s.gainStep)*s.gainStep;
