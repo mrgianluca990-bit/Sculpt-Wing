@@ -1,36 +1,33 @@
-# Aggiornare Sculpt Wing 0.6.8 su GitHub — Mac M1
+# Compilare Sculpt Wing 0.7.1 su GitHub · Mac M1
 
-Questa consegna aggiorna il repository esistente **mrgianluca990-bit/Sculpt-Wing**, verificato alla **0.6.7** su `main`, commit `765149942d8ef083bfa1c8c8191d30f1a38d12a2`. Lo ZIP contiene i file modificati e aggiunti per la 0.6.8: continuità dell’editor, precisione EQ, pan sulle strip, ottimizzazioni e RTA WING. **Conserva gli altri file presenti nel repository**: questo è un aggiornamento, non una copia completa del progetto.
+Il pacchetto `Sculpt-Wing-0.7.1-source.zip` contiene il progetto completo aggiornato dalla base 0.6.8 del repository [mrgianluca990-bit/Sculpt-Wing](https://github.com/mrgianluca990-bit/Sculpt-Wing), commit `7720343a47d660dd7ddacf249f4eef5ab219de9a`.
 
-## Caricamento
+Include Compact con dispositivi affiancati ed espandibili, Extended con Cmd + =, host USB/VST3, importazione PDF live, RTA automatico, Controllo automatico, avviso Ricollega, macro corrette e scene locali. La compilazione ARM64 resta da eseguire dopo il caricamento autorizzato.
 
-1. Estrai **Sculpt-Wing-0.6.8-Aggiornamento-Mac-M1.zip** sul Mac.
-2. Apri il repository [Sculpt-Wing](https://github.com/mrgianluca990-bit/Sculpt-Wing), ramo `main`, e scegli **Add file → Upload files**.
-3. Carica i file estratti mantenendo i percorsi `dist/`, `native/`, `desktop/`, `docs/`, `tests/` e i file nella radice. Non caricare il solo ZIP né la cartella esterna come un livello aggiuntivo del repository.
-4. Premi **Commit changes** su `main`.
+## Caricamento con GitHub Desktop
 
-Il workflow **`.github/workflows/build-desktop.yml`** è già configurato. Una copia viene fornita nel pacchetto: va nello stesso percorso se occorre ripristinarlo. Nel Finder, **Cmd + Shift + .** mostra la cartella `.github`.
+1. Estrai `Sculpt-Wing-0.7.1-source.zip` sul Mac.
+2. Apri il clone del repository Sculpt-Wing in GitHub Desktop e crea un ramo per l’aggiornamento.
+3. Copia il contenuto estratto nella radice del clone, mantenendo i percorsi. Includi `audio-host/`, `dist/`, `native/`, `desktop/`, `docs/`, `scripts/`, `tests/` e `.github/`.
+4. Controlla il diff, crea il commit e pubblica il ramo.
+5. Apri una pull request verso `main`: il workflow di verifica e compilazione parte per la pull request. Dopo aver integrato l’aggiornamento in `main`, parte anche sul push.
 
-Con GitHub Desktop puoi invece copiare i file estratti nel clone esistente, mantenere gli altri file, quindi eseguire Commit e Push.
+Nel Finder **Cmd + Shift + .** mostra la cartella `.github`. Il workflow deve trovarsi in `.github/workflows/build-desktop.yml`, senza un livello di cartella aggiuntivo. Lo ZIP contiene sorgenti; non caricare lo ZIP stesso come sostituto dei file del repository.
 
 ## Compilazione e download
 
 1. Apri **Actions → Build Sculpt Wing - Mac M1**.
-2. Attendi il completamento del controllo dell’interfaccia e della compilazione **Sculpt Wing - Mac M1 (arm64)**. Se occorre avviare manualmente, usa **Run workflow** sul ramo `main`.
+2. Attendi i test dell’interfaccia e del trasporto, il test dell’host con un effetto VST3 reale e la compilazione ARM64. Per un avvio manuale usa **Run workflow** sul ramo aggiornato.
 3. Nell’esecuzione riuscita, scarica l’artifact **Sculpt-Wing-Mac-M1**.
-4. Estrai lo ZIP esterno scaricato da GitHub, quindi **Sculpt-Wing-0.6.8-mac-arm64.zip**. All’interno trovi **Sculpt Wing.app**.
-5. Chiudi la vecchia app e sostituiscila con la nuova in Applicazioni.
+4. Estrai lo ZIP esterno di GitHub e poi `Sculpt-Wing-0.7.1-mac-arm64.zip`.
+5. Chiudi la precedente app e copia **Sculpt Wing.app** in Applicazioni.
 
-Il workflow corrente produce il solo target **Mac M1 / Apple Silicon ARM64**. Usa un runner Mac Intel con architettura di destinazione esplicita e verifica dell’eseguibile ARM64 e della firma ad hoc. Non crea automaticamente una Release pubblica.
+Il motore VST3 è incluso nell’app. Il workflow verifica architettura ARM64 e firma ad hoc dell’app e del motore. Non serve installare Node sul Mac dell’utente per usare il pacchetto finale. Il collaudo di audio USB, plugin personali e collegamento WING si svolge sul Mac e sul banco reali.
 
-## Se qualcosa non compare
+## Se la compilazione si interrompe
 
-Verifica che `dist`, `native`, `desktop` e `.github` siano nella radice del repository, senza una cartella esterna aggiuntiva. Il workflow deve essere nel percorso `.github/workflows/build-desktop.yml` sul ramo predefinito. Se un job fallisce, apri il primo passaggio rosso e conserva il relativo log.
+Apri il primo passaggio rosso e conserva il messaggio e il log. Verifica prima che il ramo contenga anche `audio-host/` e il workflow aggiornato. Le istruzioni di compilazione locale sono in [desktop/README.md](desktop/README.md) e [audio-host/README.md](audio-host/README.md).
 
-Questo aggiornamento è stato compilato come frontend e verificato con test nell’ambiente Linux. Il binario macOS 0.6.8 deve essere generato da GitHub; avvio sul Mac M1 e collaudo su WING fisica restano verifiche separate.
-
-- [Uso e novità](LEGGIMI.txt)
-- [Risultati delle verifiche 0.6.8](docs/RELEASE_0.6.8_MAC_M1.md)
-- [Importazione della channel list](docs/CHANNEL_LIST_IMPORT.md)
-- [OSC e Sculpt Show](docs/OSC_SCULPT_SHOW.md)
-- [Collaudo con mixer e Show](docs/COLLAUDO_0.6.8.md)
+- [Novità e utilizzo](docs/RELEASE_0.7.1_MAC_M1.md).
+- [Verifiche eseguite e prove da completare](docs/VERIFICA_0.7.1.md).
+- [Importazione della channel list](docs/CHANNEL_LIST_IMPORT.md).

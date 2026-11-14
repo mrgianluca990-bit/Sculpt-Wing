@@ -1,64 +1,81 @@
-SCULPT WING 0.6.8 — EDITOR, EQ, PAN E RTA · MAC M1
+SCULPT WING 0.7.1 — COMPACT A MODULI E CORREZIONI LIVE
 
-Questo ZIP aggiorna i sorgenti del repository Sculpt-Wing 0.6.7 già caricato.
-Il pacchetto Mac ARM64 viene creato dal workflow GitHub dopo il caricamento.
+Il pacchetto contiene i sorgenti completi aggiornati dalla versione 0.6.8.
+La nuova app Mac ARM64 viene creata dal workflow GitHub dopo il caricamento.
 
 NOVITÀ
 
-• Cambiando canale con l’editor aperto rimane lo stesso modulo: EQ, Dinamica,
-  Mandate e le altre sezioni. Sono conservate le sottoviste compatibili.
-• Apertura e cambio canale ricostruiscono il pannello una sola volta.
-  Il log delle macro non provoca un aggiornamento globale di tutte le strip.
-• Le bande WING EQ seguono il puntatore anche quando il grafico è ridimensionato.
-  Afferrare il punto non cambia i valori. Maiusc dà una regolazione più fine.
-• Pan sopra il fader di ogni strip audio. Trascina in orizzontale o in verticale;
-  doppio clic = centro C. Il gesto si annulla con Cmd+Z.
-• In SOF, pan della mandata CH/AUX. LINK indica che segue il pan del canale:
-  disattiva Pan link nell’editor Mandate per una regolazione indipendente.
-• RTA da dati reali WING nella pagina Meter / RTA. Spettro a 120 bande, sorgente
-  e tap effettivi, scala relativa. Senza banco il grafico resta vuoto.
-• L’RTA WING è globale: un indice numerico privo di mappatura verificabile viene
-  mostrato come Sorgente WING #N. Non viene attribuito arbitrariamente al canale.
-  L’overlay EQ richiede una sorgente verificabile; altrimenti usa RTA banco.
+• Compact apre i processori affiancati nella riga opposta ai fader del canale.
+  I parametri principali sono subito disponibili; ogni modulo si espande
+  orizzontalmente per mostrare tutti i controlli, mantenendo le schede vicine.
+• EQ e Dynamics hanno grafici più ampi. Preset, Salva, Copia, Incolla e Reset
+  sono nella testata a destra, senza una riga inferiore vuota.
+• RTA automatico all’apertura EQ, con conferma di sorgente e tap reali.
+• Cmd + = alterna Compact ed Extended. Extended conserva processori WING
+  e slot VST3 sopra gli stessi fader.
+• USB per l’audio dei VST3 sul Mac, Ethernet per il controllo della WING.
+  Motore nativo incluso nell’app; avvio audio esplicito, preset salvati sul Mac.
+• Applica scena dal PDF disponibile anche con WING collegata e Controllo attivo.
+  Anteprima, verifica della proposta, avanzamento e conferma dei parametri.
+• Lettura iniziale dei 16 DCA e dei membri, oltre alle 76 strip audio.
+• Rinomina live con lettura dedicata del canale o della sorgente attiva CLINK.
+• Controllo automatico dopo la sincronizzazione; avviso con Ricollega in caso
+  di perdita della connessione. Corretta la coda UDP che poteva chiudere TCP.
+• Catalogo completo delle scene dello Show aperto sulla WING.
+• Scene reali salvabili in locale, rinominabili, esportabili/importabili
+  e richiamabili con anteprima, gruppi e protezioni.
+• Macro interrompibili, con protezione da cambi di sessione e doppio avvio.
+• Preparazione dei gesti e applicazione dei valori ricevuti più rapide.
+  I risultati misurati sono riportati nelle note e nel report di verifica.
 
-CARICARE SU GITHUB
+PRIMI PASSI
 
-1. Estrai Sculpt-Wing-0.6.8-Aggiornamento-Mac-M1.zip.
-2. Apri mrgianluca990-bit/Sculpt-Wing, ramo main.
-3. Add file → Upload files: carica il CONTENUTO estratto mantenendo le cartelle
-   dist, native, desktop, docs, tests e i file alla radice. Conserva gli altri
-   file del repository; questo ZIP contiene soltanto aggiornamenti e aggiunte.
-4. Commit changes. Il workflow Build Sculpt Wing - Mac M1 parte automaticamente.
-5. Actions → esecuzione completata → artifact Sculpt-Wing-Mac-M1.
-6. Estrai lo ZIP di GitHub e poi Sculpt-Wing-0.6.8-mac-arm64.zip.
-7. Chiudi la vecchia app e sostituiscila con Sculpt Wing.app in Applicazioni.
+1. Connessione WING: collega il banco e attendi la lettura completa.
+   Controllo si abilita automaticamente; puoi disattivarlo per la sola lettura.
+2. Compact: apri l’editor dal nome della strip ed espandi i singoli moduli.
+   Rinomina legge l’identità effettiva del banco.
+   Con CLINK il nome segue la sorgente e può essere condiviso da più canali.
+3. PDF: Menu → Importa channel list → scegli PDF → controlla l’anteprima →
+   Applica scena. Patch, gain, phantom e processori restano conservati.
+4. Extended: Cmd + = o selettore nella testata. Slot WING = editor integrati;
+   slot VST3 = editor nativi degli effetti sul Mac.
+5. VST3: Audio USB → scegli WING e buffer → prepara rack/porte USB → scansione
+   e scelta effetti → configura il loop External corrispondente sulla WING →
+   Avvia audio USB. Fermare il motore silenzia le sue uscite USB.
+6. Scene → Scene locali → scegli nome e gruppi → Salva WING in locale.
+   Per il richiamo: seleziona la scena → Prepara richiamo → anteprima → Conferma.
+   Gain e phantom sono esclusi dal richiamo per impostazione iniziale.
+7. Scene → Show WING legge tutte le scene dello Show attualmente aperto.
+   Non esplora tutti i file o gli Show nella memoria della console.
 
-La cartella .github può essere nascosta dal Finder: Cmd + Shift + . la mostra.
-Il workflow deve stare in .github/workflows/build-desktop.yml. È incluso nello
-ZIP per ripristinarlo se necessario; non va aggiunto un livello di cartella.
+Le scene locali usano file .sculpt-wing-scene.json, distinti dai file Snap
+nativi della WING. La cattura è sequenziale, con intervallo registrato.
+Un richiamo interrotto mostra quanto è già stato confermato e non viene
+proseguito automaticamente dopo una nuova connessione.
 
-USO
+La pagina browser non elabora audio USB/VST3. Sono supportati effetti VST3
+Apple Silicon; strumenti MIDI, sidechain esterne e plugin Intel tramite
+Rosetta non fanno parte di questa versione. La latenza fisica va misurata
+sul sistema Mac/WING effettivamente utilizzato.
 
-• Editor: clic sul nome di un canale. Rinomina porta al campo Nome; vuoto =
-  nome standard. L’editor occupa la riga opposta.
-• Fader: afferra la testa; doppio clic = 0 dB. Pan: doppio clic = centro C.
-• DCA: nella riga superiore, ancorabili. Non hanno un pan audio.
-• Cmd+Z annulla; Maiusc+Cmd+Z ripristina. Un gesto equivale a una operazione.
-• WING: collegamento in lettura, poi Attiva controllo per modificare i valori.
-• Meter / RTA: controlla la sorgente effettiva prima di interpretare lo spettro.
-• Import PDF: modifica e controlla l’anteprima prima di applicare la channel list.
-• OSC / Sculpt Show: configurazione e invio direttamente dalla shell desktop.
+COMPILAZIONE
+
+Estrai Sculpt-Wing-0.7.1-source.zip. Segui CARICA_SU_GITHUB.md per il caricamento
+in un ramo del repository e la compilazione. Nel Finder, Cmd + Shift + . rende
+visibile .github. L’artifact previsto è Sculpt-Wing-Mac-M1, contenente
+Sculpt-Wing-0.7.1-mac-arm64.zip e Sculpt Wing.app.
 
 GUIDE
 
-README.md — panoramica dell’app e comandi di sviluppo.
-CARICA_SU_GITHUB.md — caricamento e download della compilazione Mac M1.
-docs/RELEASE_0.6.8_MAC_M1.md — modifiche, misure e risultati delle prove.
-docs/RTA_WING.md — uso dell’RTA, sorgente globale e limiti di calibrazione.
-docs/COLLAUDO_0.6.8.md — prova con il Mac e la WING reali.
-docs/CHANNEL_LIST_IMPORT.md — importazione e anteprima channel list.
-docs/OSC_SCULPT_SHOW.md — OSC e comandi per Show.
+README.md — panoramica e sviluppo.
+CARICA_SU_GITHUB.md — compilazione e download della nuova app.
+docs/RELEASE_0.7.1_MAC_M1.md — uso, modifiche e limiti.
+docs/VERIFICA_0.7.1.md — risultati delle prove e collaudo ancora necessario.
+docs/RTA_WING.md — analizzatore, profili e fonti.
+docs/CHANNEL_LIST_IMPORT.md — anteprima e applicazione della channel list.
+audio-host/README.md — motore nativo VST3 e test.
 
-Le prove locali coprono codice, frontend, protocollo e trasporti simulati o in
-loopback. Non è stata eseguita la nuova app su Mac M1 fisico né collegata una
-WING reale. La compilazione ARM64 viene eseguita da GitHub dopo il caricamento.
+La build macOS ARM64, il rendering sul Mac e il collaudo di questo aggiornamento
+su WING e audio USB fisici restano da eseguire. I benchmark JavaScript non sono
+misure della latenza audio o della risposta del banco reale.
+I sorgenti non sostituiscono l’app installata.

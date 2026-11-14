@@ -15,6 +15,7 @@ class FixtureWing {
     for(const [kind,count]of [['ch',40],['aux',8],['bus',16],['main',4],['mtx',8]])for(let n=1;n<=count;n++){
       const p=`/${kind}/${n}`;this.field(p+'/fdr',-13,3);this.field(p+'/mute',0,4,{min:0,max:1});this.field(p+'/pan',0,1,{min:-100,max:100});this.field(p+'/name',`${kind.toUpperCase()} ${n}`,7,{maxLength:16});this.field(p+'/$name',`${kind.toUpperCase()} ${n}`,7,{readOnly:true,maxLength:16});this.field(p+'/col',9,4,{min:0,max:18});if(['ch','aux'].includes(kind))this.field(p+'/clink',0,4,{min:0,max:1});
     }
+    for(let n=1;n<=16;n++){const p=`/dca/${n}`;this.field(p+'/fdr',0,3);this.field(p+'/mute',0,4,{min:0,max:1});this.field(p+'/$solo',0,4,{min:0,max:1});this.field(p+'/name',`DCA ${n}`,7,{maxLength:8});}
     this.field('/fx/1/mdl','VSS3',5,{items:catalog.list({type:'fx',slot:1}).map(m=>({value:m.id,label:m.name}))});this.field('/fx/1/fxmix',100,1,{min:0,max:100});this.setFXParameters('VSS3');
   }
   setFXParameters(model){
@@ -60,7 +61,7 @@ test('live fader Undo and Redo pass through the real Session and authoritative d
 });
 
 test('read-only fader gestures create no history and read-only Undo cannot write to the mixer',async t=>{
-  const f=await fixture(t);f.up();await f.L.settled();assert.equal(f.C.getStrip('ch-1').level,-13);assert.equal(f.driver.writes.length,0);assert.equal(f.C.historyState().undoCount,0);
+  const f=await fixture(t);f.arm(false);f.up();await f.L.settled();assert.equal(f.C.getStrip('ch-1').level,-13);assert.equal(f.driver.writes.length,0);assert.equal(f.C.historyState().undoCount,0);
   f.arm(true);await f.move();f.arm(false);const count=f.driver.writes.length,result=await f.C.undo();assert.equal(result.ok,false);assert.equal(f.driver.writes.length,count);assert.equal(f.C.getStrip('ch-1').level,-12.5);assert.equal(f.C.historyState().undoCount,1);assert.equal(f.C.historyState().redoCount,0);
 });
 

@@ -192,7 +192,7 @@ test('explicit macro sections render their requested module once, including Gate
 });
 
 test('blur commits to the old channel/send and detached fields cannot write to the next channel', t => {
-  const f = fixture(t); f.E.open('ch-1');
+  const f = fixture(t); f.E.openSection('ch-1', 'channel');
   const trim = f.named('Trim in dB'); trim.focus(); trim.value = '6.2';
   f.clickStrip('ch-2');
   assert.equal(f.C.getStrip('ch-1').trim, 6.2); assert.equal(f.C.getStrip('ch-2').trim, 0);
@@ -211,7 +211,7 @@ test('blur commits to the old channel/send and detached fields cannot write to t
 });
 
 test('channel navigation releases a captured gesture and rejects later events from the previous rotary', t => {
-  const f = fixture(t); f.E.open('ch-1');
+  const f = fixture(t); f.E.openSection('ch-1', 'channel');
   const knob = f.named('Pan — manopola');
   f.pointer(knob, 'pointerdown', 200); f.pointer(f.w, 'pointermove', 182);
   const oldValue = f.C.getStrip('ch-1').pan;

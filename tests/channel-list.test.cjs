@@ -161,7 +161,7 @@ test('the channel editor selects every imported family colour and preserves cust
   const selected=()=>swatches().filter(choice=>!choice.hidden&&choice.getAttribute('aria-pressed')==='true');
   const names=['Rosso','Verde','Blu','Bianco','Rosa','Giallo','Arancio'];
   for(let i=0;i<rows.length;i++){
-    editor.open(rows[i].targetId);
+    editor.openSection(rows[i].targetId,'channel');
     assert.equal(swatches().filter(choice=>!choice.hidden).length,19);
     assert.equal(selected().length,1);
     assert.equal(selected()[0].getAttribute('aria-label'),'Colore '+names[i]);
@@ -170,7 +170,7 @@ test('the channel editor selects every imported family colour and preserves cust
   }
   assert.deepEqual(plain(f.C.capture().values),before,'opening identity never normalizes or rewrites imported colours');
   assert.deepEqual(Array.from(I.palette,([color])=>color).sort(),Array.from(require('../dist/wing-map.js').COLORS).sort(),'importer and editor match the live palette values');
-  f.C.updateStrip('ch-1',{color:'#abcdef'});editor.open('ch-1');
+  f.C.updateStrip('ch-1',{color:'#abcdef'});editor.openSection('ch-1','channel');
   assert.equal(selected().length,1);assert.equal(selected()[0].getAttribute('aria-label'),'Colore attuale del progetto #abcdef');assert.equal(f.C.getStrip('ch-1').color,'#abcdef');
   swatches().find(choice=>choice.getAttribute('aria-label')==='Colore Rosso').click();
   assert.equal(f.C.getStrip('ch-1').color,'#e31b44');assert.equal(f.C.getStrip('ch-1').name,'Kick');

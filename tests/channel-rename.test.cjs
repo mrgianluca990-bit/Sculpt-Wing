@@ -46,7 +46,7 @@ test('explicitly clearing an input or output name restores its family and channe
 test('editor allows a blank while typing and restores the default on Enter, blur or change', t => {
   const f = fixture(t);
   for (const [id, event] of [['ch-1', 'Enter'], ['aux-2', 'blur'], ['bus-3', 'change'], ['mtx-4', 'Enter'], ['main-2', 'blur']]) {
-    f.C.updateStrip(id, { name: 'Custom' }); f.E.open(id);
+    f.C.updateStrip(id, { name: 'Custom' }); f.E.openSection(id, 'channel');
     const input = f.name(); input.focus(); input.value = '   '; input.dispatchEvent(new f.w.Event('input', { bubbles: true }));
     assert.equal(f.C.getStrip(id).name, 'Custom'); assert.equal(input.value, '   ', 'typing does not immediately reinsert a name');
     if (event === 'Enter') f.key(input, 'Enter'); else if (event === 'blur') input.blur(); else input.dispatchEvent(new f.w.Event('change', { bubbles: true }));
@@ -81,7 +81,7 @@ test('offline output source modal shows the normalized name and physical source 
 });
 
 test('live readonly metadata, a stale control and mutation rejection restore the confirmed channel name', async t => {
-  const f = fixture(t); f.C.updateStrip('ch-1', { name: 'Confirmed' }); f.E.open('ch-1'); f.E.close();
+  const f = fixture(t); f.C.updateStrip('ch-1', { name: 'Confirmed' }); f.E.openSection('ch-1', 'channel'); f.E.close();
   let writable = true, metadataReadOnly = false, accept = true, reviews = 0;
   f.w.SculptLive = {
     isLive: () => true, isConnected: () => true, isWritable: () => writable, applying: () => false,
@@ -91,7 +91,7 @@ test('live readonly metadata, a stale control and mutation rejection restore the
     metadata: () => ({ type: 7, maxLength: 16, readOnly: metadataReadOnly }),
     loadScope: async () => {}, readNode: async () => {}, subscribe: () => () => {}
   };
-  f.E.open('ch-1'); await new Promise(resolve => setImmediate(resolve));
+  f.E.openSection('ch-1', 'channel'); await new Promise(resolve => setImmediate(resolve));
   let input = f.name(); assert.ok(input); assert.equal(input.disabled, false);
   input.focus(); input.value = ''; writable = false; f.key(input, 'Enter');
   assert.equal(f.C.getStrip('ch-1').name, 'Confirmed'); assert.equal(input.value, 'Confirmed'); assert.equal(reviews, 0);

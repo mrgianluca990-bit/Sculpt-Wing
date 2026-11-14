@@ -24,7 +24,7 @@ function fixture(t) {
   const files = ['plugin-data.js', 'model.js', 'app.js', 'desk.js', 'shell.js', 'plugin-panels.js', ...['layouts', 'dynamics', 'eq', 'fx', 'channel', 'native', 'dynamics-extra', 'filters'].map(part => `plugin-original-${part}.js`), 'plugins.js', 'editor.js'];
   for (const file of files) vm.runInContext(fs.readFileSync(path.join(base, file), 'utf8'), dom.getInternalVMContext(), { filename: file });
   const E = w.SculptEditor, C = w.SculptController, D = w.SculptDesk;
-  E.open('ch-1');
+  E.openSection('ch-1', 'channel');
   const editor = () => w.document.querySelector('.editor-dialog');
   const named = name => [...editor().querySelectorAll('[aria-label]')].find(node => node.getAttribute('aria-label') === name);
   const tab = name => editor().querySelector(`[data-tab="${name}"]`).click();

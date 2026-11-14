@@ -82,9 +82,9 @@ test('invalid preview edits block all changes and a preserved post-fader PRE tap
   assert.deepEqual(plain(f.C.capture()),before);f.button('Chiudi').click();assert.deepEqual(plain(f.C.capture()),before);
 });
 
-test('live transition disables Apply and Undo and cannot be bypassed by re-enabling the button',t=>{
+test('a live transition without a writable connection disables Apply and Undo and cannot be bypassed',t=>{
   const f=fixture(t),before=plain(f.C.capture());f.importText();f.setLive(true);const apply=f.button('Applica scena');assert.equal(apply.disabled,true);
-  apply.disabled=false;apply.click();assert.deepEqual(plain(f.C.capture()),before);assert.match(f.w.document.querySelector('.cl-status').textContent,/offline/);
+  apply.disabled=false;apply.click();assert.deepEqual(plain(f.C.capture()),before);assert.match(f.w.document.querySelector('.cl-status').textContent,/Collega la WING/);
   f.setLive(false);assert.equal(apply.disabled,false);apply.click();assert.equal(f.C.getStrip('ch-1').name,'Kick');f.setLive(true);f.w.SculptChannelPreview.open();assert.equal(f.button('Annulla importazione').disabled,true);assert.equal(f.w.SculptChannelPreview.canUndo(),false);
 });
 

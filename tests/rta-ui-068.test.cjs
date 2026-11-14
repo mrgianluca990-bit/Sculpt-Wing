@@ -43,3 +43,29 @@ test('EQ underlay requires verified matching metadata and closes the old source 
   Object.defineProperty(f.w.document,'visibilityState',{value:'hidden',configurable:true});f.w.document.dispatchEvent(new f.w.Event('visibilitychange'));await tick();assert.equal(f.requests.at(-1),null);assert.equal(eq.querySelector('.sculpt-rta-trace').getAttribute('d'),'');
   second();await tick();assert.equal(eq.querySelectorAll('.sculpt-rta-spectrum').length,0);assert.equal(f.intervalCount,0);
 });
+
+test('resizing an EQ redraws the current RTA in its new bounds without claiming the source again',async t=>{
+  const f=fixture(t),a=f.w.document.getElementById('a'),eq=f.w.document.getElementById('eq');let resized,disconnected=false;
+  f.w.ResizeObserver=class{constructor(callback){resized=callback;}observe(node){assert.equal(node,eq);}disconnect(){disconnected=true;}};
+  let region={left:36,top:16,width:584,height:138};const cleanup=f.w.SculptRTA.mount(a,{sourceId:'ch-1',overlay:eq,region:()=>region});await tick();
+  f.emit(f.frame());await pause(110);const trace=eq.querySelector('.sculpt-rta-trace'),before=trace.getAttribute('d'),requests=f.requests.length;
+  region={left:50,top:20,width:1000,height:320};resized();await pause(110);
+  assert.notEqual(trace.getAttribute('d'),before);assert.match(trace.getAttribute('d'),/L1050\.00,340 L50,340 Z$/);assert.equal(f.requests.length,requests);
+  cleanup();await tick();assert.equal(disconnected,true);
+});
+
+test('an EQ outside the viewport releases RTA and resumes the same source and tap when visible',async t=>{
+  const f=fixture(t),a=f.w.document.getElementById('a'),eq=f.w.document.getElementById('eq');let intersection,disconnected=false;
+  f.w.IntersectionObserver=class{constructor(callback){intersection=callback;}observe(node){assert.equal(node,eq);}disconnect(){disconnected=true;}};
+  const cleanup=f.w.SculptRTA.mount(a,{sourceId:'ch-1',tap:'PREEQ',overlay:eq});await tick();
+  assert.equal(f.requests.length,0,'do not claim a mounted graph before its viewport is known');
+  intersection([{target:eq,isIntersecting:false,intersectionRatio:0},{target:eq,isIntersecting:true,intersectionRatio:0.5}]);await tick();
+  assert.deepEqual(JSON.parse(JSON.stringify(f.requests.at(-1))),{id:'ch-1',tap:'PREEQ'});
+  f.emit(f.frame());await pause(110);assert.ok(eq.querySelector('.sculpt-rta-trace').getAttribute('d'));
+  intersection([{target:eq,isIntersecting:false,intersectionRatio:0}]);await tick();
+  assert.equal(f.requests.at(-1),null);assert.equal(eq.querySelector('.sculpt-rta-trace').getAttribute('d'),'');
+  f.emit({status:'inactive'});
+  intersection([{target:eq,isIntersecting:true,intersectionRatio:1}]);await tick();
+  assert.equal(f.requests.length,3);assert.deepEqual(JSON.parse(JSON.stringify(f.requests.at(-1))),{id:'ch-1',tap:'PREEQ'});assert.equal(eq.querySelector('.sculpt-rta-trace').getAttribute('d'),'');
+  cleanup();await tick();assert.equal(disconnected,true);
+});

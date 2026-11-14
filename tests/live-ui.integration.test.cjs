@@ -15,6 +15,7 @@ class FixtureWing {
       if(['ch','aux'].includes(kind))field(p+'/clink',0,4,{min:0,max:1});
       for(const stage of kind==='aux'?['preins']:['preins','postins']){field(p+'/'+stage+'/ins','NONE',5,{items:[{value:'NONE',label:'NONE'},...Array.from({length:16},(_,i)=>({value:'FX'+(i+1),label:'FX'+(i+1)}))]});field(p+'/'+stage+'/on',0,4,{min:0,max:1});}
     }
+    for(let n=1;n<=16;n++){const p=`/dca/${n}`;field(p+'/fdr',0,3);field(p+'/mute',0,4,{min:0,max:1});field(p+'/$solo',0,4,{min:0,max:1});field(p+'/name',`DCA ${n}`,7,{maxLength:8});}
     for(let slot=1;slot<=16;slot++){
       const model=slot===1?'VSS3':'NONE',p='/fx/'+slot;field(p+'/mdl',model,5,{items:catalog.list({type:'fx',slot}).map(m=>({value:m.id,label:m.name}))});field(p+'/fxmix',100,1,{min:0,max:100});
       for(const param of catalog.get({type:'fx',slot},model).parameters){const value=slot===1&&param.key==='dcy'?2.7:param.default,type=param.type==='enum'?5:param.type==='boolean'?4:1;field(p+'/'+param.sourceKey,value,type,{min:param.min,max:param.max,...(param.type==='enum'?{items:param.options.map(v=>({value:v,label:v}))}:{})});}
@@ -54,7 +55,8 @@ test('real app connects through the native boundary, guards edits, reads back an
   w.document.getElementById('wing-connection').click();
   w.document.querySelector('.live-connect-form').dispatchEvent(new w.Event('submit',{bubbles:true,cancelable:true}));
   await until(()=>w.SculptLive.isConnected(),'initial mixer synchronization');
-  assert.equal(C.getStrip('ch-1').level,-13);assert.equal(C.getStrip('ch-1'),stripRef);assert.equal(driver.writes.length,0);assert.equal(w.SculptLive.isWritable(),false);
+  assert.equal(C.getStrip('ch-1').level,-13);assert.equal(C.getStrip('ch-1'),stripRef);assert.equal(driver.writes.length,0);assert.equal(w.SculptLive.isWritable(),true);
+  w.document.querySelector('.live-arm').click();assert.equal(w.SculptLive.isWritable(),false,'manual read-only mode remains available');
   assert.equal(w.SculptLive.gainReduction('ch-1'),null,'live GR waits for an actual meter packet');
   driver.emit('meters',{receivedAt:Date.now(),reportId:1,strips:{ch:{1:{input:[-12,-18],output:[-24,-30],gateGainRaw:128,dynGainRaw:64}}}});
   assert.equal(w.SculptLive.gainReduction('ch-1').gate.fraction,.5);assert.equal(w.SculptLive.gainReduction('ch-1').comp.fraction,.25);assert.equal(w.SculptLive.gainReduction('ch-1').comp.db,null);
@@ -66,6 +68,8 @@ test('real app connects through the native boundary, guards edits, reads back an
   assert.equal(D.get().macros[8].name,'Patch rapido','macro configuration remains local in live read-only mode');
   assert.equal(driver.writes.length,writesBeforeLocalMacro,'editing a local macro sends no mixer commands');
   let pickedMacroParameter=null;
+  const normalTreeRead=driver.readTree;
+  driver.readTree=async()=>{throw new Error('Explorer must not request a full subtree');};
   w.SculptLive.openExplorer('/ch/1',{onSelect:entry=>pickedMacroParameter=entry});
   await until(()=>!!w.document.querySelector('[aria-label="Usa nella macro /ch/1/fdr"]'),'read-only WING parameter picker');
   assert.equal([...w.document.querySelectorAll('.wing-nodes button')].some(button=>button.textContent==='Invia'),false,'the assignment picker exposes selection without a send button');
@@ -73,6 +77,7 @@ test('real app connects through the native boundary, guards edits, reads back an
   w.document.querySelector('[aria-label="Usa nella macro /ch/1/fdr"]').click();
   assert.equal(pickedMacroParameter.path,'/ch/1/fdr');assert.equal(pickedMacroParameter.value,-13);
   assert.equal(driver.writes.length,writesBeforeLocalMacro,'choosing the parameter does not execute it');
+  driver.readTree=normalTreeRead;
   w.SculptUI.open('connection');
   w.document.querySelector('.live-arm').click();assert.equal(w.SculptLive.isWritable(),true);
   fader.dispatchEvent(new w.KeyboardEvent('keydown',{key:'ArrowUp',bubbles:true,cancelable:true}));
@@ -100,7 +105,7 @@ test('real app connects through the native boundary, guards edits, reads back an
   }
   driver.values.set('/io/in/LCL/1/g',23);
   const held=deferred();driver.describeHook=path=>path==='/ch/1/in/set'?held.promise:undefined;
-  w.SculptEditor.open('ch-1');
+  w.SculptEditor.openSection('ch-1','channel');
   assert.equal(w.document.querySelector('.editor-live-read').dataset.state,'loading');assert.equal(w.document.querySelector('.editor-panel input'),null,'seeded controls stay hidden while the read is pending');
   held.reject(new Error('Read interruption fixture'));await until(()=>w.document.querySelector('.editor-live-read')?.dataset.state==='error','editor failed read state');
   assert.equal(w.document.querySelector('.editor-panel input'),null,'failed reads never expose seeded controls');
@@ -113,7 +118,7 @@ test('real app connects through the native boundary, guards edits, reads back an
   w.SculptEditor.close();w.SculptFX.open({type:'fx',slot:1});
   w.SculptUI.open('connection');w.document.querySelector('.live-arm').click();
   decay=w.document.querySelector('.fx-modal [data-parameter="dcy"] input');decay.value='7';decay.dispatchEvent(new w.Event('change',{bubbles:true}));assert.equal(processorRef.params.dcy,3.2);assert.equal(D.processor({type:'fx',slot:1}),processorRef,'processor reference survives rejected edit');
-  w.SculptEditor.open('ch-1');await until(()=>!!w.document.querySelector('.editor-panel input[aria-label="Gain preamp in dB"]'),'reopen hydrated editor');
+  w.SculptEditor.openSection('ch-1','channel');await until(()=>!!w.document.querySelector('.editor-panel input[aria-label="Gain preamp in dB"]'),'reopen hydrated editor');
   driver.emit('status','suspended','Background fixture');
   assert.equal(w.SculptLive.snapshot().mode,'suspended');assert.equal(w.document.querySelector('.editor-panel input'),null,'connection status removes stale editor controls immediately');
   assert.equal(w.SculptLive.gainReduction('ch-1'),null,'suspension clears actual GR frames along with stereo metering');

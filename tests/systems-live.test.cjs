@@ -7,16 +7,18 @@ const {executeAction,prepareActions}=require('../dist/systems.js');
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
 function actionEnv(){
   const strip={id:'ch-1',level:-4,mute:false},send={level:-10,on:true},state={channels:{'ch-1':{solo:false}},fx:[{stripId:'ch-1',position:'pre',enabled:true}]},calls=[],status={failureVersion:0,failure:''};
-  const live={isLive:()=>true,isConnected:()=>true,isWritable:()=>true,snapshot:()=>status,loadScope:async(...args)=>calls.push(['scope',...args]),ensureProcessor:async ctx=>calls.push(['processor',ctx]),settled:async()=>calls.push(['settled'])};
+  const values=new Map(Object.entries({'/ch/1/fdr':-4,'/ch/1/send/2/lvl':-10,'/ch/1/send/2/on':1,'/dca/1/fdr':0,'/mgrp/2/mute':0,'/cfg/talk/A/$on':0,'/cfg/solo/$dim':0,'/ch/1/in/set/altsrc':0,'/ch/1/preins/ins':'FX1','/ch/1/preins/on':1}));
+  const live={isLive:()=>true,isConnected:()=>true,isWritable:()=>true,snapshot:()=>status,readNode:async path=>calls.push(['read',path]),hasValue:path=>values.has(path),value:path=>values.get(path),metadata:path=>!values.has(path)?null:path.endsWith('/ins')?{path,type:5,readOnly:false,items:[{value:'FX1'}]}:/\/(fdr|lvl)$/.test(path)?{path,type:3,min:-144,max:10,readOnly:false}:{path,type:4,min:0,max:1,readOnly:false},loadScope:async(...args)=>calls.push(['scope',...args]),ensureProcessor:async ctx=>calls.push(['processor',ctx]),settled:async()=>calls.push(['settled'])};
   const controller={getStrip:id=>id==='ch-1'?strip:null,updateStrip:(id,p)=>{Object.assign(strip,p);return true;},getSend:()=>send,setSend:(a,b,p)=>{Object.assign(send,p);return true;}};
   const desk={get:()=>state,processor:ctx=>state.fx[ctx.slot-1],channel:id=>state.channels[id]};
   return {env:{live,controller,desk},strip,send,state,calls,status};
 }
-test('macro preflight reads all required scopes before any action and coalesces duplicate scopes',async()=>{
+test('macro preflight reads only required leaves before any action and coalesces duplicate parameters',async()=>{
   const f=actionEnv();await prepareActions([{type:'fader',target:'ch-1',value:-4},{type:'send',target:'ch-1',destination:'bus-2',value:-10},{type:'dca',target:'1',value:0},{type:'muteGroup',target:'2',mode:'toggle'},{type:'talkback',target:'a',mode:'toggle'},{type:'monitorDim',target:'0',mode:'toggle'},{type:'sourceAlt',target:'ch-1',mode:'toggle'},{type:'fxBypass',target:'1',mode:'toggle'}],f.env);
-  assert.equal(f.strip.level,-4);assert.deepEqual(f.calls.filter(c=>c[0]==='scope'&&c[1]==='groups'),[['scope','groups',undefined]]);
-  assert(f.calls.some(c=>c[0]==='scope'&&c[1]==='sends'&&c[2].targetId==='bus-2'));
-  assert(f.calls.some(c=>c[0]==='scope'&&c[1]==='inserts'));
+  assert.equal(f.strip.level,-4);assert.equal(f.calls.filter(c=>c[0]==='scope').length,0,'one action never loads a whole Groups or Monitor page');
+  assert(f.calls.some(c=>c[0]==='read'&&c[1]==='/ch/1/send/2/lvl'));
+  assert(f.calls.some(c=>c[0]==='read'&&c[1]==='/dca/1/fdr'));
+  assert.equal(f.calls.filter(c=>c[0]==='read'&&c[1]==='/ch/1/preins/on').length,1);
   await assert.rejects(prepareActions([{type:'scene',target:'local-scene'}],f.env),/scene Sculpt locali/);
 });
 test('rejected fader/send mutations stop macro execution rather than reporting success',async()=>{

@@ -5,11 +5,11 @@ const clone=v=>JSON.parse(JSON.stringify(v));
 const pause=()=>new Promise(resolve=>setTimeout(resolve,0));
 const deferred=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});return{promise,resolve,reject};};
 class Mixer {
-  constructor(){this.data={'/ch/1':{'/ch/1/fdr':-9,'/ch/1/mute':0,'/ch/1/$name':'Voice'},'/ch/1/eq':{'/ch/1/eq/mdl':'STD','/ch/1/eq/gain':1}};this.revision=1;this.listeners={value:new Set(),status:new Set(),schema:new Set(),meters:new Set()};this.writes=[];this.reads=[];this.lists=[];this.closes=0;}
+  constructor(){this.data={'/ch/1':{'/ch/1/fdr':-9,'/ch/1/mute':0,'/ch/1/$name':'Voice'},'/ch/1/eq':{'/ch/1/eq/mdl':'STD','/ch/1/eq/gain':1}};this.revision=1;this.listeners={value:new Set(),status:new Set(),schema:new Set(),meters:new Set()};this.writes=[];this.reads=[];this.lists=[];this.closes=0;this.connections=[];}
   listener(kind,fn){this.listeners[kind].add(fn);return()=>this.listeners[kind].delete(fn);}
   onValue(fn){return this.listener('value',fn);}onStatus(fn){return this.listener('status',fn);}onSchemaChange(fn){return this.listener('schema',fn);}onStripMeters(fn){return this.listener('meters',fn);}
   emit(kind,...args){for(const fn of [...this.listeners[kind]])fn(...args);}
-  async connect(){return{name:'Test WING',model:'WING-RACK',firmware:'fixture',host:'192.168.1.100'};}
+  async connect(host){this.connections.push(host);if(this.connectHook)await this.connectHook(host);return{name:'Test WING',model:'WING-RACK',firmware:'fixture',host};}
   async disconnect(){this.closes++;this.emit('status','disconnected');}
   async subscribeStripMeters(selection){this.selection=selection;if(this.meterError)throw this.meterError;}
   meta(path){return {path,name:path.split('/').at(-1),type:path.endsWith('/mdl')?5:path.endsWith('name')?7:path.endsWith('/mute')?4:1,min:path.endsWith('/mute')?0:-144,max:path.endsWith('/mute')?1:10,revision:this.revision,readOnly:path.endsWith('/$name'),...(path.endsWith('/mdl')?{items:[{value:'STD'},{value:'LA'}]}:{})};}
@@ -34,8 +34,13 @@ function fixture(customMap=map,initial){
 }
 const ctx={type:'strip',id:'ch-1',block:'eq'};
 
-test('connect reads mixer values and never replays the local show; starts read-only',async()=>{
-  const f=fixture();await f.session.connect('192.168.1.100');assert.equal(f.state.values['ch-1'].level,-9);assert.equal(f.driver.writes.length,0);assert.equal(f.session.writable,false);
+test('connect enables control only after reading the mixer and never replays the local show',async()=>{
+  const f=fixture(),held=deferred();f.driver.readHook=()=>held.promise;
+  const connection=f.session.connect('192.168.1.100');await pause();
+  assert.equal(f.session.mode,'syncing');assert.equal(f.session.writable,false);
+  assert.equal(f.edit(s=>s.values['ch-1'].level=-1).ok,false);assert.equal(f.driver.writes.length,0);
+  held.resolve();await connection;assert.equal(f.state.values['ch-1'].level,-9);assert.equal(f.driver.writes.length,0);assert.equal(f.session.writable,true);
+  f.session.setWritable(false);
   assert.equal(f.edit(s=>s.values['ch-1'].level=-1).ok,false);assert.equal(f.session.pending.size,0);assert.equal(f.state.values['ch-1'].level,-9);
   assert.deepEqual(Object.keys(f.driver.selection),['ch','aux','bus','main','mtx']);f.close();
 });
@@ -52,7 +57,80 @@ test('disconnection drops pending commands and late replies cannot attach to a r
   f.driver.setHook=()=>gate.promise;f.edit(s=>s.values['ch-1'].level=-3);const work=f.session.settled();await pause();
   f.edit(s=>s.values['ch-1'].level=-2);await f.session.disconnect();gate.resolve();await work;
   assert.equal(f.session.values.size,0);assert.equal(f.session.pending.size,0);assert.equal(f.driver.writes.length,1);
-  f.driver.setHook=null;await f.session.connect('192.168.1.100');assert.equal(f.session.writable,false);assert.equal(f.state.values['ch-1'].level,-3);await f.session.settled();assert.equal(f.driver.writes.length,1);f.close();
+  f.driver.setHook=null;await f.session.connect('192.168.1.100');assert.equal(f.session.writable,true);assert.equal(f.state.values['ch-1'].level,-3);await f.session.settled();assert.equal(f.driver.writes.length,1);f.close();
+});
+
+test('unexpected loss stays visible until one explicit reconnect has completed its fresh sync',async()=>{
+  const f=fixture();await f.session.connect('192.168.1.77');
+  f.edit(s=>s.values['ch-1'].level=-2);
+  f.driver.emit('status','error','TCP interrotto fixture');
+  assert.equal(f.session.writable,false);assert.equal(f.session.pending.size,0);
+  assert.deepEqual({...f.session.snapshot().connectionLoss,at:0},{host:'192.168.1.77',reason:'TCP interrotto fixture',status:'error',at:0});
+  await pause();assert.deepEqual(f.driver.connections,['192.168.1.77'],'loss never reconnects invisibly');
+  const identity=deferred(),sync=deferred();f.driver.connectHook=()=>identity.promise;f.driver.readHook=()=>sync.promise;
+  const reconnect=f.session.reconnect();await assert.rejects(f.session.reconnect(),/connessione corrente/);
+  assert.equal(f.session.mode,'connecting');assert.equal(f.session.writable,false);assert.ok(f.session.snapshot().connectionLoss);
+  identity.resolve();await pause();assert.equal(f.session.mode,'syncing');assert.equal(f.session.writable,false);assert.ok(f.session.snapshot().connectionLoss);
+  sync.resolve();await reconnect;await f.session.settled();
+  assert.equal(f.session.mode,'live');assert.equal(f.session.writable,true);assert.equal(f.session.snapshot().connectionLoss,null);
+  assert.deepEqual(f.driver.connections,['192.168.1.77','192.168.1.77']);assert.equal(f.driver.writes.length,0,'the old queued gesture was not replayed');f.close();
+});
+
+test('failed reconnect keeps its cause and retry host; manual disconnect clears the notice',async()=>{
+  const f=fixture();await f.session.connect('192.168.1.78');f.driver.emit('status','disconnected','Il banco ha chiuso TCP');
+  f.driver.connectHook=()=>{throw new Error('Indirizzo non raggiungibile fixture');};
+  await assert.rejects(f.session.reconnect(),/non raggiungibile/);
+  assert.equal(f.session.mode,'error');assert.equal(f.session.writable,false);
+  assert.match(f.session.snapshot().connectionLoss.reason,/non raggiungibile/);assert.equal(f.session.snapshot().connectionLoss.host,'192.168.1.78');
+  await f.session.disconnect();assert.equal(f.session.snapshot().connectionLoss,null);
+  f.driver.connectHook=null;await f.session.connect('192.168.1.78');await f.session.disconnect();
+  assert.equal(f.session.snapshot().connectionLoss,null,'manual close must not appear as a lost connection');f.close();
+});
+
+test('high-level I/O reads only direct fields and leaves its large descendants unloaded',async()=>{
+  const f=fixture();await f.session.connect('192.168.1.100');
+  f.driver.data['/io']={'/io/altsw':1,'/io/autoaltovr':0};
+  const list=f.driver.list.bind(f.driver);f.driver.list=path=>path==='/io'?Promise.resolve([f.driver.meta('/io/altsw'),f.driver.meta('/io/autoaltovr'),{path:'/io/in',type:0,revision:1}]):list(path);
+  f.driver.readHook=path=>{assert.notEqual(path,'/io','must not request all I/O descendants');};
+  await f.session.loadNode('/io');assert.equal(f.session.values.get('/io/altsw'),1);assert.equal(f.session.values.get('/io/autoaltovr'),0);
+  assert.equal(f.session.metadata.get('/io/in').type,0);assert.equal(f.session.loaded.has('/io/in'),false);assert.equal(f.session.connected(),true);f.close();
+});
+
+test('definition APIs preserve the complete catalogue and flags without a broad data read',async()=>{
+  const f=fixture();await f.session.connect('192.168.1.100');
+  const definition={path:'/$ctl/lib/$scenes',name:'$scenes',type:5,flags:0x250,readOnly:true,revision:1,items:Array.from({length:120},(_,i)=>({value:String(i+1),label:'Scene '+(i+1)}))};
+  const lists=[];f.driver.list=async(path,options)=>{lists.push([path,options]);return[definition];};
+  f.driver.describe=async()=>definition;f.driver.readTree=()=>{throw new Error('No tree values required');};
+  const listed=await f.session.listNode('/$ctl/lib',{refresh:true});
+  assert.equal(listed[0].items.length,120);assert.equal(listed[0].flags,0x250);
+  assert.deepEqual(lists,[['/$ctl/lib',{refresh:true}]]);assert.equal(f.session.values.has(definition.path),false);
+  listed[0].items[0].label='Caller edit';assert.equal(f.session.metadata.get(definition.path).items[0].label,'Scene 1');
+  assert.deepEqual(await f.session.describeNode(definition.path),definition);f.close();
+});
+
+test('definition reads finishing after a session change cannot populate the new session',async()=>{
+  const f=fixture();await f.session.connect('192.168.1.100');const held=deferred();
+  f.driver.list=async()=>{await held.promise;return[{path:'/old/value',type:4,revision:1}];};
+  f.driver.describe=async()=>{await held.promise;return{path:'/old',type:0,revision:1};};
+  const listing=f.session.listNode('/old'),describing=f.session.describeNode('/old');
+  await f.session.disconnect();held.resolve();
+  await assert.rejects(listing,/sessione WING è cambiata/);await assert.rejects(describing,/sessione WING è cambiata/);
+  assert.equal(f.session.metadata.size,0);f.close();
+});
+
+test('fresh grouped values never fill an omitted leaf from cache and reject broad root reads',async()=>{
+  const f=fixture();await f.session.connect('192.168.1.100');f.session.values.set('/ch/1/eq/missing',99);
+  const read=f.driver.readTree.bind(f.driver),requests=[];f.driver.readTree=(path,options)=>{requests.push([path,options]);return read(path);};
+  const values=await f.session.readValues('/ch/1/eq');
+  assert.deepEqual(values,{'/ch/1/eq/mdl':'STD','/ch/1/eq/gain':1});assert.equal(values['/ch/1/eq/missing'],undefined);
+  assert.deepEqual(requests,[['/ch/1/eq',{depth:0}]]);
+  await f.session.readValues('/ch/1',{depth:8});assert.deepEqual(requests.at(-1),['/ch/1',{depth:8}]);
+  for(const depth of [-1,9,1.5])await assert.rejects(f.session.readValues('/ch/1',{depth}),/Profondità/);
+  assert.equal(requests.length,2,'invalid depths never reach the transport');
+  for(const path of ['/','/io','/ch','/$ctl/lib'])await assert.rejects(f.session.readValues(path),/più piccolo/);
+  const held=deferred();f.driver.readTree=async()=>{await held.promise;return{'/ch/1/eq/gain':88};};
+  const loading=f.session.readValues('/ch/1/eq');await f.session.disconnect();held.resolve();
+  await assert.rejects(loading,/sessione WING è cambiata/);assert.equal(f.session.values.size,0);f.close();
 });
 
 test('turning control off cancels a queued gesture and restores the confirmed value',async()=>{
@@ -110,6 +188,7 @@ test('the real map writes a linked source name without sending the effective rea
   const state=M.defaults(),context={window:{SculptModel:M,SculptCatalog:Cat,SculptController:{getState:()=>state,listStrips:()=>M.list(state),getStrip:id=>M.find(state,id),transact:fn=>fn(state),subscribe:()=>()=>{}}}};
   vm.runInNewContext(fs.readFileSync(require.resolve('../dist/desk.js'),'utf8'),context);
   const f=fixture(realMap,state);f.driver.data={};for(const strip of M.list(state))f.driver.data[realMap.stripPath(strip.id)]={[realMap.stripPath(strip.id)+'/fdr']:-12};
+  for(let n=1;n<=16;n++)f.driver.data['/dca/'+n]={[`/dca/${n}/fdr`]:0,[`/dca/${n}/mute`]:0,[`/dca/${n}/$solo`]:0,[`/dca/${n}/name`]:`DCA ${n}`};
   Object.assign(f.driver.data['/ch/1'],{'/ch/1/clink':1,'/ch/1/name':'Unused local','/ch/1/$name':'Mic A'});
   f.driver.data['/io/in/LCL/1']={'/io/in/LCL/1/name':'Mic A'};
   await f.session.connect('192.168.1.100');await f.session.loadNode('/io/in/LCL/1');f.session.setWritable(true);

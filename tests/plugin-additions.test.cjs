@@ -166,13 +166,21 @@ test('the real live definition contract locks both ambiguous CMB peak controls b
     f.w.SculptWingMap = WingMap;
     f.w.SculptLiveSession = { Session: class {
       constructor() {
-        this.metadata = new Map([['/ch/1/dyn/thr', {
-          path: '/ch/1/dyn/thr', type: 1, min: -36, max: 12, readOnly: false
-        }]]);
+        this.metadata = new Map(); this.values = new Map(); this.epoch = 1;
+        for (const parameter of Catalog.get(f.ctx, 'CMB').parameters) {
+          const path = definition.parameterPath(parameter.key);
+          if (!path) continue;
+          this.values.set(path, f.D.processor(f.ctx).params[parameter.key]);
+          this.metadata.set(path, {
+            path, readOnly: false, min: parameter.min, max: parameter.max,
+            type: parameter.type === 'enum' ? 6 : parameter.type === 'boolean' ? 4 : 1,
+            ...(parameter.options ? { items: parameter.options.map(value => ({ value, label: value })) } : {})
+          });
+        }
         this.writable = true;
       }
       active() { return true; }
-      connected() { return false; }
+      connected() { return true; }
       snapshot() { return { mode: 'live', writable: true, pending: 0 }; }
       processorState() { return { ready: true }; }
       async ensureProcessor() {}

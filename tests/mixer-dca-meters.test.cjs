@@ -14,7 +14,7 @@ function fixture(t){
 }
 function liveFixture(f,load=async()=>{}){
   f.run('wing-map.js');const values=new Map(),metadata=new Map(),status={mode:'live',writable:true,loads:0,reviews:0};
-  f.w.SculptLive={isLive:()=>true,isConnected:()=>status.mode==='live',isWritable:()=>status.writable,hasValue:p=>values.has(p),metadata:p=>metadata.get(p),hasStripValue:()=>true,canPersist:()=>false,applying:()=>false,reviewMutation:()=>{status.reviews++;return status.mode==='live'&&status.writable;},loadScope:scope=>{assert.equal(scope,'groups');status.loads++;return load();}};
+  f.w.SculptLive={isLive:()=>true,isConnected:()=>status.mode==='live',isWritable:()=>status.writable,hasValue:p=>values.has(p),metadata:p=>metadata.get(p),hasStripValue:()=>true,canPersist:()=>false,applying:()=>false,reviewMutation:()=>{status.reviews++;return status.mode==='live'&&status.writable;},loadScope:scope=>{assert.equal(scope,'dca');status.loads++;return load();}};
   return {values,metadata,status,read(p,value,meta={}){values.set(p,value);if(meta)metadata.set(p,{path:p,readOnly:false,...meta});else metadata.delete(p);f.w.SculptWingMap.apply(f.C.getState(),p,value);},mode(mode){status.mode=mode;f.w.dispatchEvent(new f.w.CustomEvent('sculpt-live-state',{detail:{mode}}));}};
 }
 test('DCA masters share the upper bank with outputs and retain the existing shared group controls',t=>{
@@ -58,7 +58,7 @@ test('Custom Layer controls DCA visibility while preserving its two-row layout',
 });
 test('DCA live hydration and guarded controls never display unreceived demo values as live',async t=>{
   const f=fixture(t),values=new Map();let writable=false,loads=0;
-  f.w.SculptLive={isLive:()=>true,isConnected:()=>true,isWritable:()=>writable,hasValue:path=>values.has(path),metadata:path=>values.has(path)?{path,readOnly:false}:null,hasStripValue:()=>true,canPersist:()=>false,applying:()=>false,reviewMutation:()=>writable,loadScope:async scope=>{assert.equal(scope,'groups');loads++;}};
+  f.w.SculptLive={isLive:()=>true,isConnected:()=>true,isWritable:()=>writable,hasValue:path=>values.has(path),metadata:path=>values.has(path)?{path,readOnly:false}:null,hasStripValue:()=>true,canPersist:()=>false,applying:()=>false,reviewMutation:()=>writable,loadScope:async scope=>{assert.equal(scope,'dca');loads++;}};
   f.bank.open();await Promise.resolve();const slider=f.dca(1).querySelector('.fader');assert.equal(loads,1);assert.equal(f.dca(1).querySelector('.level-readout span').textContent,'—');assert.equal(slider.getAttribute('aria-disabled'),'true');
   f.key(slider,'ArrowDown');assert.equal(f.D.get().dca[0].level,0);
   values.set('/dca/1/fdr',-6);f.C.getState().desk.dca[0].level=-6;f.bank.refresh();assert.equal(f.dca(1).querySelector('.level-readout span').textContent,'−6.0');
@@ -104,6 +104,20 @@ test('reconnection starts a fresh DCA read and a late old request cannot finish 
   pending[0].reject(new Error('Previous session error'));await Promise.resolve();await Promise.resolve();
   assert.match(f.w.document.getElementById('outputs-mode').textContent,/LETTURA DCA/);assert.doesNotMatch(f.w.document.getElementById('toast').textContent,/Previous session/);
   pending[1].resolve();await Promise.resolve();await Promise.resolve();assert.doesNotMatch(f.w.document.getElementById('outputs-mode').textContent,/LETTURA DCA/);assert.equal(l.status.loads,2);
+});
+test('opening an unread DCA label hydrates its own scope and explicit reread refreshes names and memberships',async t=>{
+  const f=fixture(t),l=liveFixture(f),reads=[];
+  f.dca(1).querySelector('.strip-label').click();assert.equal(l.status.loads,1,'a label is sufficient; the Groups page need not be opened');
+  await new Promise(resolve=>setImmediate(resolve));
+  for(let n=1;n<=16;n++)for(const [key,value]of [['fdr',-n],['name','DCA '+n],['mute',0],['$solo',0]])l.read(`/dca/${n}/${key}`,value);
+  for(const strip of f.C.listStrips())l.read(f.w.SculptWingMap.stripPath(strip.id)+'/tags','');
+  f.w.SculptLive.readNode=async(path,options)=>{reads.push({path,options});if(path==='/dca/1')l.read('/dca/1/name','Updated');if(path==='/ch/1/tags')l.read(path,'#D1');};
+  f.bank.refresh();const retry=[...f.w.document.querySelectorAll('.dca-config button')].find(node=>node.textContent==='Rileggi DCA');
+  assert.equal(retry.disabled,false);retry.click();await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(reads.length,92);assert(reads.every(item=>item.options.force===true));assert.equal(reads.filter(item=>/^\/dca\//.test(item.path)).length,16);
+  assert(reads.filter(item=>!/^\/dca\//.test(item.path)).every(item=>item.path.endsWith('/tags')));
+  assert.equal(f.dca(1).querySelector('.strip-name').textContent,'Updated');assert.equal(f.dca(1).querySelector('.dca-members-button').textContent,'1 membri');
+  assert.equal(f.dca(1).querySelector('.meter'),null,'a DCA has no fabricated audio meter');
 });
 test('channel meters remain at input through mute, fader changes, SOF and custom row moves',t=>{
   const f=fixture(t),meter=f.strip('ch-1').querySelector('.meter');f.tick(1000);const before=meter.style.getPropertyValue('--meter');

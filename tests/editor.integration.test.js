@@ -50,7 +50,8 @@ class Element {
   querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
   contains(node) { return this === node || this.children.some(child => child.contains(node)); }
   showModal() { this.open = true; }
-  close() { this.open = false; }
+  close() { if (!this.open) return; this.open = false; this.dispatchEvent({ type: 'close' }); }
+  remove() { if (this.parentElement) { this.parentElement.children = this.parentElement.children.filter(child => child !== this); this.parentElement = null; } }
   scrollIntoView() {}
   select() {}
   setPointerCapture() {}
@@ -80,7 +81,23 @@ const C = context.SculptController = {
   setSend: (a, b, patch) => { const result = M.setSend(state, a, b, patch); emit(); return result; },
   toast: value => { lastToast = value; }
 };
-context.SculptUI = { toast: C.toast, register() {}, open() {}, modal() { throw new Error('No modal expected in this test'); } };
+context.SculptUI = {
+  toast: C.toast, register() {}, open() {}, close() {},
+  button(text, action, className = '') {
+    const node = document.createElement('button'); node.type = 'button'; node.className = 'desk-button ' + className; node.textContent = text;
+    if (action) node.addEventListener('click', action); return node;
+  },
+  field(caption, input) {
+    const node = document.createElement('label'), label = document.createElement('span'); label.textContent = caption;
+    if (!input.getAttribute('aria-label')) input.setAttribute('aria-label', caption); node.append(label, input); return node;
+  },
+  modal(title, content) {
+    const dialog = document.createElement('dialog'), body = document.createElement('div'), before = document.activeElement;
+    dialog.className = 'desk-modal'; dialog.setAttribute('aria-label', title); body.append(content); dialog.append(body); document.body.append(dialog);
+    dialog.addEventListener('close', () => { dialog.remove(); before?.focus?.(); }); dialog.showModal();
+    return { dialog, body, close: () => dialog.close() };
+  }
+};
 run('desk.js'); run('plugin-panels.js'); run('plugins.js'); run('editor.js');
 const D = context.SculptDesk, E = context.SculptEditor;
 const baselineSubscriptions = [...subscriptions];
@@ -150,35 +167,59 @@ assert.equal(D.source('LCL:1').gain, 9.5); assert.equal(D.source('A:1').gain, al
 E.close(); assert.deepEqual([...subscriptions], baselineSubscriptions);
 (async () => {
   let writable = true, readOnlyName = false;
-  let unblockRead;
-  let firstRead = true;
+  let unblockRead, unblockNameRead, firstRead = true, firstNameRead = true;
   const heldRead = new Promise(resolve => { unblockRead = resolve; });
+  const heldNameRead = new Promise(resolve => { unblockNameRead = resolve; });
+  const liveSubscriptions = new Set(), tick = () => new Promise(resolve => setImmediate(resolve));
+  const renameDialog = () => document.querySelector('.desk-modal');
+  const liveName = () => named('Nome canale', renameDialog());
   context.SculptWingMap = { stripPath: id => '/' + id.replace('-', '/'), sourcePath: id => '/io/in/' + String(id).replace(':', '/') };
   context.SculptLive = {
     isLive: () => true, isConnected: () => true, isWritable: () => writable,
-    snapshot: () => ({ mode: 'live', writable, pending: 0 }), hasStripValue: () => true,
-    value: path => path.endsWith('/clink') ? 0 : '', hasValue: () => true,
+    snapshot: () => ({ mode: 'live', writable, pending: 0, failureVersion: 0 }), hasStripValue: () => true,
+    sessionToken: () => 1, settled: async () => {},
+    value: path => path.endsWith('/clink') ? 0 : path === '/ch/1/name' ? C.getStrip('ch-1').name : '', hasValue: () => true,
     metadata: () => ({ type: 7, maxLength: 16, readOnly: readOnlyName }),
     loadScope: async () => { if (firstRead) { firstRead = false; await heldRead; } },
-    readNode: async () => {}, subscribe: () => () => {},
+    readNode: async path => { if (path === '/ch/1' && firstNameRead) { firstNameRead = false; await heldNameRead; } },
+    subscribe: listener => { liveSubscriptions.add(listener); return () => liveSubscriptions.delete(listener); },
   };
-  E.open('ch-1');
+  E.openSection('ch-1', 'channel');
+  const editorSubscriptions = [...subscriptions];
   named('Rinomina canale').click();
-  assert.equal(named('Nome'), undefined, 'rename waits for the channel read instead of exposing seed values');
-  unblockRead();
-  await new Promise(resolve => setImmediate(resolve));
-  assert.ok(named('Nome'), 'live identity finishes loading');
-  assert.equal(document.activeElement, named('Nome'), 'rename focuses identity after the asynchronous live read');
-  assert.equal(named('Nome').disabled, false);
+  assert.ok(renameDialog(), 'live rename opens its dedicated dialog');
+  assert.equal(liveName().disabled, true, 'name stays disabled until its own asynchronous read completes');
+  assert.equal(named('Nome'), undefined, 'the unrelated channel panel is still loading');
+  assert.equal(liveSubscriptions.size, 2, 'editor and rename each subscribe to live state');
+  unblockNameRead(); await tick();
+  assert.equal(liveName().disabled, false);
+  assert.equal(document.activeElement, liveName(), 'the dedicated name input receives focus after its read');
+  assert.equal(named('Nome'), undefined, 'renaming does not wait for the entire channel/processor read');
+  liveName().value = 'Voce live'; renameDialog().querySelector('form').dispatchEvent({ type: 'submit' }); await tick();
+  assert.equal(C.getStrip('ch-1').name, 'Voce live');
+  assert.equal(renameDialog(), null, 'confirmed rename closes the dedicated dialog');
+  assert.deepEqual([...subscriptions], editorSubscriptions, 'successful rename disposes its controller subscription');
+  assert.equal(liveSubscriptions.size, 1, 'successful rename disposes its live subscription');
+  named('Rinomina canale').click(); await tick();
   writable = false; emit();
   assert.equal(named('Rinomina canale').disabled, true, 'read-only live connection disables the shortcut');
-  assert.equal(named('Nome').disabled, true, 'read-only live connection disables name input');
+  assert.equal(liveName().disabled, true, 'read-only live connection disables the dedicated name input');
   const priorName = C.getStrip('ch-1').name;
-  change(named('Nome'), 'Disallowed');
+  liveName().value = 'Disallowed'; renameDialog().querySelector('form').dispatchEvent({ type: 'submit' }); await tick();
   assert.equal(C.getStrip('ch-1').name, priorName, 'programmatic stale changes cannot commit after controls are disabled');
   writable = true; readOnlyName = true; emit();
+  unblockRead(); await tick();
+  assert.ok(named('Nome'), 'the ordinary channel identity still finishes its independent read');
   assert.equal(named('Nome').disabled, true, 'firmware read-only metadata disables the field');
+  renameDialog().close();
+  assert.deepEqual([...subscriptions], editorSubscriptions, 'cancelled rename disposes its controller subscription');
+  assert.equal(liveSubscriptions.size, 1);
+  named('Rinomina canale').click(); await tick();
+  assert.equal(liveName().disabled, true, 'firmware read-only metadata also prevents the dedicated rename');
+  assert(renameDialog().textContent.includes('non dichiara modificabile'), 'the dedicated dialog explains firmware restrictions');
+  renameDialog().close();
   E.close(); delete context.SculptLive; delete context.SculptWingMap;
   assert.deepEqual([...subscriptions], baselineSubscriptions);
-  console.log(`PASS: ${rendered} page renders across 76 strips; vertical sends, numeric commits, rename shortcut and asynchronous/read-only live identity, source sharing/ALT, plugins, automix and cleanup.`);
+  assert.equal(liveSubscriptions.size, 0, 'all editor and rename live subscriptions are disposed');
+  console.log(`PASS: ${rendered} page renders across 76 strips; vertical sends, numeric commits, dedicated asynchronous/read-only live rename, source sharing/ALT, plugins, automix and cleanup.`);
 })().catch(error => { console.error(error); process.exitCode = 1; });

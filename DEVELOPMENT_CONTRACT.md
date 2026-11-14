@@ -166,3 +166,33 @@ Richieste di Gianluca: mantenere lo stesso modulo cambiando canale; rendere l’
 - Destinazione di distribuzione: Mac M1 / Apple Silicon ARM64. Separare build frontend/test locali, compilazione ARM64 su GitHub, avvio Mac fisico e collaudo con WING.
 
 Note della consegna: [docs/RELEASE_0.6.8_MAC_M1.md](docs/RELEASE_0.6.8_MAC_M1.md).
+
+## Aggiornamento 0.7.0 — Extended, USB/VST3 e correzioni live
+
+L’utente sceglie due cavi: Ethernet per il controllo della WING e USB per il percorso audio dei VST3 sul Mac. La vista attuale si chiama **Compact**; la nuova vista **Extended** conserva i fader sotto e presenta sopra i moduli WING e gli slot VST3 richiamabili. **Cmd + =** alterna le viste, con un unico evento e senza attivare contemporaneamente lo zoom. Stato audio, selezione, SOF, ancoraggi e ordine rimangono condivisi. Il cambio vista non è una scena e non modifica il mixer.
+
+L’host VST3 è un componente nativo incluso nell’app Mac, separato dal renderer. L’audio non passa da JavaScript. Configurazione e avvio sono espliciti, nessun ripristino automatico dell’elaborazione dopo avvio o errore, nessun cambio automatico verso gli altoparlanti interni. Nomi salvati e plugin mancanti non devono apparire in elaborazione. Il bypass dipende da un motore ancora attivo; non promettere failover hardware o latenza USB misurata senza prova fisica.
+
+Durante la stessa consegna l’utente conferma che il collegamento alla WING funziona, ma segnala: impossibilità di applicare la scena preparata dal PDF, risposta lenta dei controlli, disconnessione aprendo le scene, DCA non letti e rinomina dei canali bloccata dal computer. Trattare questi punti come parte dell’aggiornamento.
+
+L’importazione PDF live deve validare l’intera proposta, leggere i parametri necessari e usare la coda verificata. Applicare soltanto i valori espliciti dell’anteprima; conservare patch, gain, phantom e processori. Rispettare CLINK e individuare conflitti sulle sorgenti condivise prima dell’invio. Riportare riscontri e completamento parziale, senza reinvio su una nuova sessione. Conservare la cronologia delle modifiche.
+
+Includere i 16 DCA nella sincronizzazione iniziale e usare i tag reali per i membri. Rinomina e identità devono poter leggere solo il canale e la sorgente attiva senza dipendere da rami audio non pertinenti. La pagina Scene deve richiedere i dati visualizzati, evitando la lettura automatica dell’intera libreria. I selettori di file e i download non devono interrompere il trasporto. Conservare la chiusura della sessione in caso di timeout effettivo, con diagnostica del percorso richiesto.
+
+Ridurre il lavoro locale dei gesti mantenendo controlli dello schema, permessi, readback, ordine e invalidazione dei comandi. Documentare misure riproducibili della preparazione JavaScript separatamente dalla latenza del Mac e della WING. La consegna resta Mac M1 / Apple Silicon; distinguere sorgenti verificati, build Mac e collaudo sul banco.
+
+## Aggiornamento 0.7.1 — debug, dispositivi Compact, scene e RTA
+
+Le richieste esplicite di Gianluca in questa consegna superano i precedenti default dove indicato:
+
+- **Controllo automatico** soltanto dopo identità e sincronizzazione completate. Rimane disponibile la scelta manuale di sola lettura; nessuna trasmissione della demo o di gesti della sessione precedente.
+- **Avviso persistente con Ricollega** per una perdita inattesa, leggibile e azionabile anche sopra i dialoghi. Conservare l’IP, mostrare progresso ed errori e riabilitare Controllo solo dopo la nuova lettura riuscita. Evitare disconnessioni causate dalle code dei meter o da letture sproporzionate. Non nascondere le perdite di rete reali e non promettere continuità fisica non provata.
+- **Macro:** verificare l’intera sequenza prima della prima scrittura, controllare sessione e annullamento ad ogni passo del fade, rendere le attese interrompibili, mostrare stato/progresso e impedire doppie esecuzioni involontarie. Livello di una mandata confermato prima di abilitarla; Undo locale non sovrascrive modifiche successive.
+- **Compact in stile dispositivi Ableton:** tutti i moduli supportati affiancati nella riga opposta al canale, parametri principali disponibili e singola espansione orizzontale per accedere a tutti i controlli. Gli altri moduli e i fader rimangono presenti. Rispettare ordine reale, famiglie di canali, bypass e assegnazioni degli insert. Extended conserva l’impostazione a slot sopra i fader.
+- **Grafici EQ e Dynamics:** spazio prioritario a grafico, analizzatore e riduzione di guadagno, controlli compatti. Preset/Salva/Copia/Incolla/Reset nella barra superiore a destra, senza riga vuota dedicata sotto. Conservare parametri, limiti, tastiera, campi numerici e gesti.
+- **RTA automatico:** l’apertura dell’EQ richiede il canale e il tap pertinenti; il cambio canale scarta dati precedenti e richiede la nuova sorgente. Usare profili documentati e metadata effettivi, confermare sorgente/tap ricevuti, mantenere visibili assenza del flusso e contesa. Nessun tracciato inventato o etichetta LIVE prima della verifica.
+- **Scene sul banco:** leggere il catalogo completo dello Show aperto mediante definizioni dei nodi, perché il valore scalare può contenere soltanto il primo nome. Non confonderlo con un file browser di tutta la memoria della console. Prima del GO verificare Show, ordine, indice e sessione.
+- **Scene locali:** salvare, elencare, importare/esportare e richiamare scene sul computer. In live acquisire soltanto valori realmente letti, con scope esplicito; i dati demo non rappresentano una scena del banco. Persistenza separata, anteprima del richiamo, verifica di schema/limiti/safes/sessione, avanzamento e risultati parziali. Una lettura sequenziale non va presentata come cattura atomica.
+- **Prestazioni:** ridurre scansioni ripetute della mappa, copie superflue, aggiornamenti di controlli invariati e sottoscrizioni non visibili. Conservare la verifica integrale delle modifiche, il riscontro del banco e i vincoli di sessione. Misurare con confronto riproducibile, distinguendo CPU locale da latenza hardware.
+
+Il controllo automatico ha respinto il precedente push su GitHub perché la pubblicazione esterna non era stata autorizzata esplicitamente. Il lavoro locale prosegue; pubblicazione del ramo e compilazione remota richiedono la conferma dell’utente sulla consegna concreta.
