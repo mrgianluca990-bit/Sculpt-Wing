@@ -1031,7 +1031,7 @@ class Application final : public JUCEApplication
 {
 public:
     const String getApplicationName() override { return "SculptWingAudio"; }
-    const String getApplicationVersion() override { return "0.7.1"; }
+    const String getApplicationVersion() override { return "0.7.2"; }
     bool moreThanOneInstanceAllowed() override { return true; }
     void initialise(const String& commandLine) override
     {
