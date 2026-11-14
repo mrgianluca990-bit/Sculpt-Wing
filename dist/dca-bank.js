@@ -20,17 +20,18 @@
   function change(id,key,value){
     const node={level:'fdr',solo:'$solo'}[key]||key;
     if(!group(id)||!editable(id,node))return false;
+    if(Object.is(group(id)[key],value))return true;
     const index=D.get().dca.findIndex(item=>item.id===id);
     return D.change(d=>{const g=d.dca[index];if(g)g[key]=value;},'dca',{paths:[['desk','dca',index]],id:`dca-${id}`});
   }
   function levelDialog(id){
-    const g=group(id);if(!g||!editable(id,'fdr'))return;
+    const g=group(id),session=live()?.sessionToken?.();if(!g||!editable(id,'fdr'))return;
     const content=U.el('form','dca-level-form'),input=U.el('input','desk-input');input.type='number';input.min=-90;input.max=10;input.step=.1;input.required=true;input.value=g.level;input.inputMode='decimal';input.setAttribute('aria-label',`Livello DCA ${id} in dB`);
     const apply=U.button('Applica livello',null,'desk-primary');apply.type='submit';
     const zero=U.button('0 dB',()=>{input.value='0';});
     content.append(U.field('Livello in dB',input),zero,apply);
     const modal=U.modal(`Livello DCA ${id} · ${g.name}`,content);
-    content.addEventListener('submit',event=>{event.preventDefault();if(input.checkValidity()&&Number.isFinite(input.valueAsNumber)&&change(id,'level',Math.round(clamp(input.valueAsNumber,-90,10)*10)/10)!==false)modal.close();});input.focus();input.select();
+    content.addEventListener('submit',event=>{event.preventDefault();if(session!==live()?.sessionToken?.()){modal.close();C.toast('La sessione WING è cambiata. Riapri il livello DCA.');return;}if(input.checkValidity()&&Number.isFinite(input.valueAsNumber)&&change(id,'level',Math.round(clamp(input.valueAsNumber,-90,10)*10)/10)!==false)modal.close();});input.focus();input.select();
   }
   function configure(id){
     const g=group(id);if(!g)return;
@@ -53,7 +54,7 @@
     }
     search.addEventListener('input',()=>checks.forEach(item=>{item.item.hidden=!item.text.includes(search.value.trim().toLowerCase());}));
     content.append(U.field('Nome del gruppo',name),count,search,list);
-    const retry=U.button('Rileggi DCA',()=>loadGroups());content.append(retry);
+    const retry=U.button('Rileggi DCA',()=>loadGroups(true));content.append(retry);
     content.append(U.button('Apri DCA / Mute Groups',()=>{modal.close();U.open('groups');}));
     const modal=U.modal(`DCA ${id} · nome e membri`,content);
     function refreshConfig(){
@@ -71,6 +72,7 @@
       retry.hidden=!live()?.isLive();retry.disabled=loading||!live()?.isConnected?.();
     }
     configRefreshers.add(refreshConfig);modal.dialog.addEventListener('close',()=>configRefreshers.delete(refreshConfig),{once:true});name.addEventListener('blur',refreshConfig);refreshConfig();
+    if(!known(id,'fdr')||!membersKnown())void loadGroups();
   }
   function makeStrip(id){
     const article=U.el('article',`strip dca-strip${id===1?' group-first':''}`);article.dataset.dca=id;article.dataset.id=`dca-${id}`;article.style.setProperty('--color','#c78cd9');
@@ -87,9 +89,9 @@
     item.fader.addEventListener('pointerdown',event=>{
       if(drag||event.button!==0||!event.target.closest('.fader-cap')||!editable(id,'fdr'))return;
       const inset=parseFloat(getComputedStyle(item.fader).getPropertyValue('--fader-inset'))||12;
-      drag={pointer:event.pointerId,y:event.clientY,position:toPosition(group(id).level),travel:Math.max(20,item.fader.getBoundingClientRect().height-inset*2)};C.beginGesture?.();item.fader.focus({preventScroll:true});item.fader.setPointerCapture(event.pointerId);article.classList.add('dragging');event.preventDefault();
+      drag={pointer:event.pointerId,y:event.clientY,position:toPosition(group(id).level),session:live()?.sessionToken?.(),travel:Math.max(20,item.fader.getBoundingClientRect().height-inset*2)};C.beginGesture?.();item.fader.focus({preventScroll:true});item.fader.setPointerCapture(event.pointerId);article.classList.add('dragging');event.preventDefault();
     });
-    item.fader.addEventListener('pointermove',event=>{if(!drag||drag.pointer!==event.pointerId)return;change(id,'level',toDb(drag.position+(drag.y-event.clientY)/drag.travel*(event.shiftKey?.2:1)));event.preventDefault();});
+    item.fader.addEventListener('pointermove',event=>{if(!drag||drag.pointer!==event.pointerId)return;if(drag.session!==live()?.sessionToken?.()||!editable(id,'fdr')){end(event);return;}change(id,'level',toDb(drag.position+(drag.y-event.clientY)/drag.travel*(event.shiftKey?.2:1)));event.preventDefault();});
     for(const event of ['pointerup','pointercancel','lostpointercapture'])item.fader.addEventListener(event,end);
     window.addEventListener('blur',()=>{if(drag)end({pointerId:drag.pointer});});
     item.fader.addEventListener('dblclick',event=>{if(event.button!==0)return;change(id,'level',0);event.preventDefault();event.stopPropagation();});
@@ -122,10 +124,17 @@
     if(!section.classList.contains('layer-active')){const counter=section.querySelector('.row-count'),count=String(C.getState().outputs.length+D.get().dca.length);if(counter.textContent!==count)counter.textContent=count;}
     if(active){const mode=document.getElementById('outputs-mode'),text=loading?'LETTURA DCA DALLA WING…':'BUS · MATRICI · MASTER · DCA';if(mode.textContent!==text)mode.textContent=text;}
   }
-  async function loadGroups(){
+  async function loadGroups(force=false){
     if(!live()?.isLive()||!live()?.isConnected?.()||loading)return;
     const generation=++loadGeneration;loading=true;refresh();
-    try{await live().loadScope('groups');}
+    try{
+      if(force&&live().readNode){
+        for(const path of window.SculptWingMap.readPaths(C.getState(),'dca')){
+          if(generation!==loadGeneration||!live()?.isConnected?.())return;
+          await live().readNode(path,{force:true});
+        }
+      }else await live().loadScope('dca');
+    }
     catch(error){if(generation===loadGeneration&&live()?.isConnected?.())C.toast(error.message||'Lettura DCA non riuscita');}
     finally{if(generation===loadGeneration){loading=false;refresh();}}
   }
@@ -149,6 +158,7 @@
   }
   function open(){
     window.SculptEditor?.close();
+    if(window.SculptMixerView?.mode?.()==='extended')window.SculptMixerView.setBank('outputs');
     if(C.getLayerRows?.())C.showLayer(null);
     setActive(true);refresh();
     const target=[...items.values()].find(item=>!item.article.hidden&&item.article.parentElement===bank)?.article;

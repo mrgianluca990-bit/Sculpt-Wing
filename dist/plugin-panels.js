@@ -78,7 +78,8 @@
     const sections=(spec.sections||[]).map(([name,keys])=>section(name,keys.filter(key=>{if(!valid.has(key)||seen.has(key))return false;seen.add(key);return true;}))).filter(s=>s.keys.length);
     const rest=model.parameters.filter(p=>!seen.has(p.key));
     if(rest.length)sections.push(section('Options',rest.map(p=>p.key)));
-    return {...spec,id:`${model.category}:${model.id}`,sections,heroes:spec.heroes||[],layout:model.layout};
+    const native=model.category==='eq'&&model.id==='STD'?'eq':model.category==='gate_dynamics'&&['GATE','DUCK','COMP','EXP'].includes(model.id)?'dynamics':model.category==='filter'?'filter':null;
+    return {...spec,id:`${model.category}:${model.id}`,sections,heroes:spec.heroes||[],layout:model.layout,native};
   }
   const api={forModel};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.SculptPanelLayout=api;

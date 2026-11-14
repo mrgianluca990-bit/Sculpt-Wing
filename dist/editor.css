@@ -207,42 +207,85 @@
   .editor-docked .editor-send-row { padding:7px; }
   .editor-docked .editor-send-row .editor-parameter-vertical { --send-fader-travel:clamp(88px,calc(50dvh - 305px),128px); }
   .editor-docked #editor-panel-dynamics { grid-template-columns:minmax(650px,1fr) 220px; }
-  .editor-docked .fx-wing-editor { display:flex; flex-direction:column; height:100%; min-height:0; gap:5px; }
-  .editor-docked .fx-wing-editor > .fx-processor-toolbar { flex:none; margin:0; }
-  .editor-docked .fx-wing-editor > .fx-face { flex:1; min-height:175px; padding:8px; overflow:auto; scrollbar-width:thin; }
-  .editor-docked .fx-wing-editor > .fx-tools { flex:none; margin:0; padding:0; }
-  .editor-docked .fx-wing-editor > .fx-demo-caption { flex:none; margin:0; }
-  .editor-docked .fx-wing-editor > .fx-connection-status { flex:none; margin:0; padding:5px 8px; font-size:10px; }
-  .editor-docked .fx-wing-eq-layout { height:100%; align-items:stretch; }
-  .editor-docked .fx-wing-display { display:flex; flex-direction:column; }
-  .editor-docked .fx-wing-display .fx-eq-display { display:flex; flex-direction:column; flex:1; min-height:0; }
-  .editor-docked .fx-wing-display .fx-eq-display svg { flex:1; min-height:125px; max-height:none; height:100%; }
-  .editor-docked .fx-wing-dynamics .fx-knob { width:38px; height:38px; margin:7px auto; }
-  .editor-docked .fx-wing-dynamics .fx-number { width:54px; height:24px; font-size:11px; }
-  .editor-docked .fx-wing-dynamics .fx-control-label { font-size:9px; }
-  .editor-docked .fx-wing-dynamics .fx-control > .fx-select { height:24px; font-size:10px; }
 }
 
-/* A shallow dock has room for one row of dynamics controls. Keep the time
-   controls alongside threshold and output; narrower docks scroll sideways. */
+/* Compact presents every channel device in one horizontal board. Expanding a
+   card changes its width only; the source mixer row remains available. */
+.editor-compact-devices #editor-panel-devices { display:flex; overflow:hidden; padding:7px; min-width:0; min-height:0; }
+.editor-device-board { display:flex; flex:1 1 0; align-items:stretch; gap:9px; min-width:0; min-height:0; height:100%; padding:0 0 6px; overflow-x:auto; overflow-y:hidden; overscroll-behavior-x:contain; scrollbar-width:thin; scrollbar-color:#607380 #161d24; scroll-padding-inline:8px; }
+.editor-device-board::-webkit-scrollbar { height:9px; }
+.editor-device-board::-webkit-scrollbar-track { background:#151c23; }
+.editor-device-board::-webkit-scrollbar-thumb { border:2px solid #151c23; border-radius:6px; background:#607380; }
+.editor-device-panel { display:flex; flex:0 0 228px; flex-direction:column; align-self:stretch; min-width:0; min-height:0; margin:0; border:1px solid #3e4c58; border-radius:6px; background:#212b35; overflow:hidden; }
+.editor-device-panel.is-selected { border-color:#aa7c76; box-shadow:inset 0 0 0 1px #aa7c7626; }
+.editor-device-panel[data-expanded=true] { flex-basis:min(860px,calc(100vw - 52px)); }
+.editor-device-panel[data-expanded=true][data-module=eq] { flex-basis:min(960px,calc(100vw - 52px)); }
+.editor-device-panel[data-expanded=true][data-module=filter] { flex-basis:min(660px,calc(100vw - 52px)); }
+.editor-device-header { display:flex; flex:none; align-items:center; gap:7px; min-height:36px; padding:5px 7px; border-bottom:1px solid #3d4a55; background:#303d49; }
+.editor-device-panel.is-selected .editor-device-header { background:#3a414a; border-bottom-color:#80635f; }
+.editor-device-select { display:flex; flex:1 1 0; align-items:center; gap:7px; min-width:0; min-height:24px; padding:0; background:transparent; border:0; color:#dce4eb; text-align:left; }
+.editor-device-label { flex:none; font-size:10px; font-weight:750; letter-spacing:.6px; text-transform:uppercase; }
+.editor-device-model { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#acbac7; font-size:9px; font-weight:400; }
+.editor-device-panel[data-expanded=false] .editor-device-select { flex-direction:column; align-items:flex-start; justify-content:center; gap:1px; }
+.editor-device-panel[data-expanded=false] .editor-device-model { max-width:100%; font-size:8px; }
+.editor-device-panel[data-state=bypass] .editor-device-label { color:#a9afb6; }
+.editor-device-panel[data-state=unknown] .editor-device-model { color:#8f9ba6; }
+.editor-device-bypass { display:grid; flex:none; place-items:center; width:27px; min-width:27px; height:22px; padding:0; border:1px solid #665d54; border-radius:4px; background:#36332f; color:#c6bba8; font-size:8px!important; font-weight:700; letter-spacing:.2px; }
+.editor-device-bypass[aria-pressed=true] { border-color:#8b9e74; background:#8eaa6a; color:#14201a; box-shadow:0 0 0 1px #b9d58a20; }
+.editor-device-bypass:disabled { opacity:.4; }
+.editor-device-expand { flex:none; width:25px; min-height:24px; padding:0; border:1px solid #566572; border-radius:4px; background:#26333f; color:#e1e9ed; font-size:17px!important; line-height:22px; }
+.editor-device-expand[aria-expanded=true] { background:#4a4b43; border-color:#9b8c69; color:#f2dfb3; }
+.editor-device-select:focus-visible,.editor-device-bypass:focus-visible,.editor-device-expand:focus-visible { outline:2px solid #f2c980; outline-offset:2px; }
+.editor-device-content { flex:1 1 0; min-width:0; min-height:0; padding:8px; overflow-y:auto; overflow-x:hidden; scrollbar-width:thin; scrollbar-color:#536673 #19232b; }
+.editor-device-content > .editor-note { margin:4px 2px 12px; color:#9cabb8; font-size:10px; }
+.editor-device-content > .editor-link-button { min-height:27px; font-size:10px!important; }
+.editor-device-full { height:100%; min-width:0; min-height:0; margin:0; }
+.editor-device-principal { min-width:0; }
+.editor-device-cuts { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin:0 0 9px; padding:0 0 9px; border-bottom:1px solid #3c4a56; }
+.editor-device-cuts .editor-parameter-label { color:#adbdc8; }
+.editor-device-cuts .editor-toggle { min-height:25px; height:25px; padding:0 6px; font-size:9px!important; }
+.editor-device-cuts .editor-knob { width:32px; height:32px; }
+.editor-device-cuts .editor-knob-pointer::after { height:8px; }
+.editor-device-cuts .editor-number { width:65px; height:25px; font-size:10px!important; }
+.editor-device-cuts .editor-parameter-heading { min-height:28px; margin-bottom:4px; }
+.editor-device-cuts .editor-parameter-value { font-size:10px; }
+.editor-device-cuts .editor-select { height:27px; font-size:10px; }
+.editor-device-cuts .editor-field { margin:5px 0 0; }
+.editor-device-cuts .editor-field-label { font-size:8px; }
+.editor-channel-step { display:none; }
+.editor-compact-devices .editor-channel-navigation { display:none; }
+.editor-compact-devices .editor-channel-step { display:grid; place-items:center; width:25px; height:28px; min-width:25px; padding:0; border:1px solid #4c4850; border-radius:4px; background:#252730; color:#d7dce1; font-size:20px!important; line-height:1; }
+.editor-module-filters > .editor-control-grid { gap:10px; }
+.editor-filter-block { padding:8px; border:1px solid #3c4652; border-radius:5px; background:#1a242e; }
+.editor-filter-block > .editor-toggle { width:100%; margin:0 0 8px; border-color:#48586a; color:#c3d2df; background:#263544; }
+.editor-filter-block > .editor-toggle[aria-pressed=true] { color:#f0d6a6; border-color:#9b825b; background:#3f3b30; }
+.editor-filter-block .editor-parameter-label { color:#b9c6d1; }
 @media(min-width:900px) {
-  .editor-docked .fx-wing-dynamics > .fx-face { overflow:auto; scroll-padding-inline:8px; scrollbar-color:#8b6f7b #17151b; }
-  .editor-docked .fx-wing-dynamics > .fx-face::-webkit-scrollbar { width:9px; height:9px; }
-  .editor-docked .fx-wing-dynamics > .fx-face::-webkit-scrollbar-track { background:#17151b; }
-  .editor-docked .fx-wing-dynamics > .fx-face::-webkit-scrollbar-thumb { background:#8b6f7b; border:2px solid #17151b; border-radius:5px; }
-  .editor-docked .fx-wing-dynamics-layout { grid-template-columns:280px max-content; min-width:max-content; height:100%; min-height:140px; align-items:stretch; }
-  .editor-docked .fx-wing-dynamics-graphs { display:grid; grid-template-columns:1fr 1fr; grid-template-rows:minmax(0,1fr) auto; gap:6px; min-height:0; }
-  .editor-docked .fx-wing-dynamics-graphs .fx-wing-chart { display:flex; flex-direction:column; min-height:0; }
-  .editor-docked .fx-wing-dynamics-graphs .fx-wing-display-heading { flex:none; flex-direction:column; align-items:flex-start; gap:2px; padding:4px 6px; }
-  .editor-docked .fx-wing-dynamics-graphs .fx-wing-chart svg { flex:1; height:0; min-height:0; max-height:none; }
-  .editor-docked .fx-wing-reference-note { grid-column:1 / -1; font-size:8px; }
-  .editor-docked .fx-wing-dynamics-controls { grid-template-columns:none; grid-auto-flow:column; grid-auto-columns:max-content; align-content:start; }
-  .editor-docked .fx-wing-dynamics-controls > .fx-wing-control-group { padding:7px 6px; }
-  .editor-docked .fx-wing-dynamics-controls .fx-wing-knob-row { gap:6px; }
-  .editor-docked .fx-wing-dynamics-controls .fx-wing-knob-row > .fx-control { flex:0 0 64px; min-width:64px; }
-  .editor-docked .fx-wing-dynamics-controls .fx-wing-group-timing { grid-column:2; grid-row:1; }
-  .editor-docked .fx-wing-dynamics-controls .fx-wing-group-output { grid-column:3; grid-row:1; }
-  .editor-docked .fx-wing-dynamics-controls .fx-wing-group-options { grid-column:4; grid-row:1; width:170px; }
-  .editor-docked .fx-wing-group-options .fx-wing-knob-row > .fx-control { flex:1 1 70px; min-width:70px; }
-  .editor-docked .fx-wing-group-options .fx-wing-knob-row > .fx-control-boolean { flex-basis:100%; }
+  .editor-dialog.editor-docked.editor-compact-devices[open] { grid-template-columns:minmax(320px,.9fr) minmax(410px,1.1fr); }
+  .editor-docked.editor-compact-devices .editor-tabs { grid-column:2; }
+  .editor-docked.editor-compact-devices .editor-header-actions { gap:3px; }
+  .editor-docked.editor-compact-devices .editor-header .editor-rename { padding-inline:5px; }
+  .editor-docked.editor-compact-devices .editor-close { width:28px; }
+  .editor-docked.editor-compact-devices .editor-tab { min-width:51px; padding-inline:5px; }
+  .editor-docked.editor-compact-devices .editor-tab[data-tab=devices] { min-width:72px; }
+  .editor-docked #editor-panel-dynamics { grid-template-columns:minmax(620px,1fr) 200px; gap:7px; }
+  .editor-docked .editor-device-content { padding:7px; }
+  .editor-docked .editor-device-full .fx-wing-editor { height:100%; }
+  .editor-docked .editor-device-full .fx-wing-editor > .fx-face { padding:6px; }
+  .editor-docked .editor-device-full .fx-processor-toolbar { gap:5px; }
+  .editor-docked .editor-device-full .fx-processor-toolbar .fx-tools button { padding-inline:6px; font-size:9px; }
+  .editor-docked .editor-device-full .fx-processor-family { padding-inline:5px; font-size:8px; }
+}
+@media(max-width:899px) {
+  .editor-compact-devices .editor-header { min-height:53px; padding:7px 9px; gap:8px; }
+  .editor-compact-devices .editor-header h2 { font-size:17px; }
+  .editor-compact-devices .editor-header-actions { gap:3px; }
+  .editor-compact-devices .editor-rename { height:28px; padding-inline:6px; font-size:9px!important; }
+  .editor-compact-devices .editor-close { width:28px; height:28px; }
+  .editor-compact-devices .editor-header-solo,.editor-compact-devices .editor-sof { height:28px; min-width:28px; padding-inline:5px; font-size:9px!important; }
+}
+@media(max-width:600px) {
+  .editor-device-panel { flex-basis:210px; }
+  .editor-device-panel[data-expanded=true],.editor-device-panel[data-expanded=true][data-module=eq],.editor-device-panel[data-expanded=true][data-module=filter] { flex-basis:calc(100vw - 36px); }
+  .editor-device-board { gap:7px; }
 }

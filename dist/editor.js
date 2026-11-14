@@ -2,6 +2,7 @@
   'use strict';
 
   const TABS = [
+    ['devices', 'Dispositivi'],
     ['channel', 'Canale'], ['processing', 'Processo'], ['eq', 'EQ'],
     ['dynamics', 'Dinamica'], ['sends', 'Mandate'], ['groups', 'Gruppi']
   ];
@@ -32,10 +33,16 @@
   const clone = value => JSON.parse(JSON.stringify(value));
   const inputTap = id => TAP_INPUT.includes(D()?.channel(id)?.tap) ? D().channel(id).tap : 'PFL';
 
-  let dialog, currentId = null, activeTab = 'channel', dynamicsBlock = 'dyn';
+  let dialog, currentId = null, activeTab = 'devices', dynamicsBlock = 'dyn', processingDevice = '';
   let sendDirection = 'out', sendGroup = 'BUS', sendFilter = '';
-  let panel, tabList, headerName, headerKind, headerDot, headerSof, headerSolo, headerRename;
-  let renameFocusId = null;
+  let panel, tabList, deviceChain, headerName, headerKind, headerDot, headerSof, headerSolo, headerRename;
+  let deviceChainKey = '';
+  const deviceNodes = new Map();
+  const expandedDevices = new Set(['eq']);
+  let activeDevice = 'eq', refreshingDevices = false;
+  let returnToDevices = false;
+  const compactEditor = () => window.SculptMixerView?.mode?.() !== 'extended';
+  let renameFocusId = null, liveNameDialog = null;
   let footerStatus, previousFocus, unsubscribe, unsubscribeLive, rendering = false, navigating = false, panelVersion = 0;
   let sourceControl, dockHost, coveredChildren = [];
   const rowHosts = new Map();
@@ -73,8 +80,8 @@
   }
   function bind(update) { bindings.push(update); update(); }
   function controlActive() {
-    const id = currentId, version = panelVersion;
-    return () => !!dialog?.open && id === currentId && version === panelVersion;
+    const id = currentId, version = panelVersion, session = window.SculptLive?.sessionToken?.();
+    return () => !!dialog?.open && id === currentId && version === panelVersion && session === window.SculptLive?.sessionToken?.();
   }
   function patch(changes) { C().updateStrip(currentId, changes); }
   function patchChannel(changes) { D().patchChannel(currentId, changes); }
@@ -353,9 +360,98 @@
   function renameChannel() {
     const live = window.SculptLive;
     if (live?.isLive?.() && (!live.isConnected?.() || !live.isWritable?.())) return;
+    if (live?.isLive?.()) { renameLiveChannel(live, currentId); return; }
     renameFocusId = currentId;
     switchTab('channel');
     focusName();
+  }
+  function renameLiveChannel(live, id) {
+    const U = window.SculptUI, map = window.SculptWingMap, strip = C().getStrip(id), base = map?.stripPath(id);
+    if (!U?.modal || !base || !strip) return;
+    if (liveNameDialog?.dialog.open) { liveNameDialog.dialog.querySelector('input')?.focus(); return; }
+    const epoch = live.sessionToken?.(), input = el('input', 'desk-input');
+    input.id = 'editor-live-name'; input.type = 'text'; input.maxLength = 16; input.autocomplete = 'off'; input.value = strip.name;
+    const form = el('form', 'editor-live-rename'), status = note('Lettura del nome dalla WING…'); status.setAttribute('role', 'status');
+    const apply = U.button('Rinomina', null, 'desk-primary'); apply.type = 'submit';
+    const retry = U.button('Rileggi nome', () => load()), cancel = U.button('Annulla', () => modal.close());
+    const actions = el('div', 'desk-actions'); actions.append(apply, retry, cancel); retry.hidden = true;
+    form.append(U.field('Nome canale', input), status, actions);
+    const modal = U.modal('Rinomina ' + label(strip), form); liveNameDialog = modal;
+    let disposed = false, busy = false, loading = false, context = null, generation = 0;
+    const sessionValid = () => !disposed && modal.dialog.open && window.SculptLive === live && epoch === live.sessionToken?.() && live.isConnected?.();
+    const assertSession = () => { if (!sessionValid()) throw new Error('La sessione WING è cambiata. Riapri Rinomina dopo il collegamento.'); };
+    const required = path => {
+      if (!live.hasValue?.(path) || !live.metadata?.(path)) throw new Error('Lettura del nome incompleta: ' + path + '. Rileggi prima di modificare.');
+      return live.value(path);
+    };
+    const identity = () => {
+      if (!['CH', 'AUX'].includes(strip.kind)) return { path: base + '/name', linked: false, signature: base };
+      const linked = !!Number(required(base + '/clink'));
+      if (!linked) return { path: base + '/name', linked: false, signature: base + ':local' };
+      const useAlt = !!Number(required(base + '/in/set/altsrc')), automatic = !!Number(required(base + '/in/set/srcauto'));
+      const globalAlt = automatic ? !!Number(required('/io/altsw')) : false, alt = useAlt || globalAlt;
+      const group = required(base + '/in/conn/' + (alt ? 'altgrp' : 'grp'));
+      const port = group === 'OFF' ? 0 : required(base + '/in/conn/' + (alt ? 'altin' : 'in'));
+      const channel = D().channel(id), sourceId = alt ? channel?.altSource : channel?.source, source = map.sourcePath(sourceId);
+      if (!source || group === 'OFF') throw new Error('CLINK è attivo ma la sorgente non ha un nome modificabile disponibile. Controlla la sorgente sul banco.');
+      return { path: source + '/name', linked: true, sourceId, signature: JSON.stringify([base, useAlt, automatic, globalAlt, group, port, source]) };
+    };
+    const validContext = () => {
+      if (!context || !sessionValid()) return false;
+      try { return identity().signature === context.signature; } catch { return false; }
+    };
+    const controls = () => {
+      const enabled = !loading && !busy && validContext() && live.isWritable?.();
+      input.disabled = !enabled; apply.disabled = !enabled; retry.disabled = loading || busy || !sessionValid();
+    };
+    const observe = () => {
+      if (disposed) return;
+      if (!sessionValid()) status.textContent = 'WING scollegata. Riapri Rinomina dopo il collegamento.';
+      else if (!live.isWritable?.()) status.textContent = 'Attiva Controllo nella connessione WING per rinominare.';
+      else if (!loading && !busy && context && !validContext()) { status.textContent = 'La sorgente è cambiata sul banco. Rileggi il nome prima di modificarlo.'; retry.hidden = false; }
+      controls();
+    };
+    const unsubLive = live.subscribe?.(observe), unsubController = C().subscribe(observe);
+    modal.dialog.addEventListener('close', () => { disposed = true; generation++; unsubLive?.(); unsubController?.(); if (liveNameDialog === modal) liveNameDialog = null; }, { once: true });
+    async function load() {
+      const token = ++generation; loading = true; context = null; retry.hidden = true; status.textContent = 'Lettura del nome dalla WING…'; controls();
+      try {
+        assertSession(); await live.settled?.(); assertSession(); await live.readNode(base); assertSession();
+        if (['CH', 'AUX'].includes(strip.kind) && Number(required(base + '/clink'))) {
+          // Renaming must not depend on loading every processor or an unused ALT
+          // source. Read only the routing that selects the active linked name.
+          for (const path of [base + '/in/conn', base + '/in/set']) { await live.readNode(path); assertSession(); }
+          if (Number(required(base + '/in/set/srcauto'))) { await live.readNode('/io/altsw'); assertSession(); }
+        }
+        const target = identity();
+        if (target.linked) { await live.readNode(target.path); assertSession(); }
+        if (token !== generation) return;
+        if (identity().signature !== target.signature) throw new Error('La sorgente è cambiata durante la lettura. Rileggi il nome.');
+        const meta = live.metadata?.(target.path); required(target.path);
+        if (!meta || meta.readOnly || meta.type !== 7) throw new Error('Il firmware non dichiara modificabile il nome ' + target.path + '.');
+        context = target; input.maxLength = Number.isInteger(meta.maxLength) && meta.maxLength > 0 ? Math.min(16, meta.maxLength) : 16;
+        input.value = C().getStrip(id).name;
+        status.textContent = target.linked ? 'CLINK · ' + target.sourceId + ': il nome si aggiorna anche sugli altri canali collegati a questa sorgente.' : 'Conferma con Invio o Rinomina. Vuoto → ' + window.SculptModel.defaultName(strip) + '.';
+      } catch (error) { if (!disposed && token === generation) { status.textContent = error.message || String(error); retry.hidden = false; } }
+      finally { if (!disposed && token === generation) { loading = false; controls(); if (!input.disabled) { input.focus(); input.select(); } } }
+    }
+    form.addEventListener('submit', async event => {
+      event.preventDefault(); if (busy || loading || !validContext() || !live.isWritable?.()) { observe(); return; }
+      const name = input.value.trim(), meta = live.metadata?.(context.path);
+      if (meta?.readOnly || name.length > input.maxLength) { status.textContent = 'Il nome supera i limiti o non è modificabile sul banco.'; return; }
+      const target = context, failureVersion = live.snapshot?.().failureVersion || 0;
+      busy = true; controls(); status.textContent = 'Invio del nome alla WING…';
+      try {
+        assertSession();
+        if (C().updateStrip(id, { name }) === false) throw new Error('La WING non ha accettato la modifica. Il nome confermato è stato ripristinato.');
+        const expected = C().getStrip(id).name;
+        await live.settled(); assertSession();
+        if ((live.snapshot?.().failureVersion || 0) !== failureVersion || live.value(target.path) !== expected) throw new Error(live.snapshot?.().failure || 'Il banco non ha confermato il nome richiesto.');
+        modal.close(); toast('Nome aggiornato sulla WING: ' + C().getStrip(id).name + '.');
+      } catch (error) { if (!disposed) { input.value = C().getStrip(id).name; status.textContent = error.message || String(error); retry.hidden = false; } }
+      finally { busy = false; if (!disposed) controls(); }
+    });
+    load();
   }
   function renderIdentity() {
     const identity = module('Identità', textField('Nome', () => sourceStrip().name, value => { if (nameAccess().enabled && value !== sourceStrip().name) patch({ name: value }); }, { id: 'editor-channel-name', maxLength: 16, allowEmpty: true, disabled: () => !nameAccess().enabled, limit: () => nameAccess().maxLength }));
@@ -491,6 +587,145 @@
     if (Array.isArray(raw) && raw.length) return raw.filter(value => Object.hasOwn(ORDER_LABELS, value));
     if (typeof raw === 'string' && /^[GEDI]{4}$/.test(raw)) return [...raw].map(key => ({ G: 'gate', E: 'eq', D: 'dyn', I: 'insert' })[key]);
     return isChannel() ? ['gate', 'eq', 'dyn', 'insert'] : ['eq', 'dyn', 'insert'];
+  }
+  function selectedDevice() {
+    return activeDevice;
+  }
+  function openDevice(key) {
+    activeDevice = key;
+    if (expandedDevices.has(key)) expandedDevices.delete(key); else expandedDevices.add(key);
+    refreshDeviceChain();
+    deviceNodes.get(key)?.item.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }
+  function deviceState(key) {
+    const names = { channel: 'Canale', processing: 'Percorso', sends: 'Mandate', groups: 'Gruppi', filter: 'Filtro', gate: 'Gate', eq: 'EQ', dyn: 'Dynamics', pre: 'Insert 1', post: 'Insert 2' };
+    const live = window.SculptLive, online = !!live?.isLive?.(), id = currentId;
+    const known = path => !online || !!(path && live.isConnected?.() && live.hasValue?.(path) && live.metadata?.(path));
+    const writable = path => !online || !!(known(path) && live.isWritable?.() && !live.metadata(path).readOnly);
+    const base = window.SculptWingMap?.stripPath(id);
+    if (['channel', 'processing', 'sends', 'groups'].includes(key)) return { name: names[key], utility: true, model: { channel: 'I/O · ingresso', processing: 'Ordine · delay', sends: 'BUS · MAIN · MTX', groups: 'DCA · mute' }[key] };
+    if (key === 'pre' || key === 'post') {
+      const slot = channel()?.[key + 'Fx'], proc = slot ? D().processor({ type: 'fx', slot }) : null;
+      const assigned = known(base + '/' + key + 'ins/ins'), powerPath = base + '/' + key + 'ins/on';
+      const modelKnown = slot && known('/fx/' + slot + '/mdl');
+      return { name: names[key], model: !assigned ? 'Da leggere' : !slot ? 'Nessuno' : modelKnown ? window.SculptCatalog?.get({ type: 'fx', slot }, proc?.model)?.name || proc?.model || 'FX ' + slot : 'FX ' + slot,
+        state: !assigned ? 'unknown' : !slot ? 'empty' : !known(powerPath) ? 'unknown' : channel()[key + 'FxOn'] === false ? 'bypass' : 'active',
+        on: assigned && known(powerPath) && channel()[key + 'FxOn'] !== false, canBypass: assigned && !!slot && writable(powerPath),
+        toggle: () => D().patchChannel(id, { [key + 'FxOn']: channel()[key + 'FxOn'] === false }) };
+    }
+    const ctx = { type: 'strip', id, block: key }, proc = D().processor(ctx);
+    const spec = window.SculptWingMap?.processorSpec?.(ctx, proc?.model);
+    const modelKnown = !online || known(spec?.modelPath), powerKnown = !online || known(spec?.enabledPath);
+    return { name: names[key], model: !modelKnown ? 'Da leggere' : window.SculptCatalog?.get(ctx, proc?.model)?.name || proc?.model || '—',
+      state: !modelKnown || !powerKnown ? 'unknown' : proc?.enabled === false ? 'bypass' : 'active',
+      on: powerKnown && proc?.enabled !== false, canBypass: !!proc && writable(spec?.enabledPath),
+      powerLabel: key === 'filter' ? 'Filtro tilt attivo; low cut e high cut hanno controlli dedicati' : names[key] + ' attivo',
+      toggle: () => D().enableProcessor(ctx, !D().processor(ctx)?.enabled) };
+  }
+  function renderDeviceCuts(destination, expanded) {
+    const live = window.SculptLive, base = window.SculptWingMap?.stripPath(currentId) + '/flt';
+    const known = suffix => !live?.isLive?.() || !!(live.isConnected?.() && live.hasValue?.(base + '/' + suffix) && live.metadata?.(base + '/' + suffix));
+    const editable = suffix => known(suffix) && (!live?.isLive?.() || live.isWritable?.() && !live.metadata(base + '/' + suffix).readOnly);
+    const cuts = el('div', 'editor-device-cuts'); destination.append(cuts);
+    for (const [name, key, wire] of [['Low cut', 'low', 'lc'], ['High cut', 'high', 'hc']]) {
+      const group = el('div', 'editor-device-cut'), fieldKey = key + 'Cut', meta = live?.metadata?.(base + '/' + wire + 'f');
+      group.append(toggle(name.toUpperCase(), () => known(wire) && !!channel()[fieldKey + 'On'], value => patchChannel({ [fieldKey + 'On']: value }), { disabled: () => !editable(wire) }));
+      const value = parameter({ caption: name, get: () => channel()[fieldKey], set: next => patchChannel({ [fieldKey]: next }), min: meta?.min ?? 20, max: meta?.max ?? 20000, step: 1, log: true, unit: 'Hz', compact: true, disabled: () => !editable(wire + 'f') });
+      bind(() => { if (!known(wire + 'f')) { const input = value.querySelector('input'); if (input) { input.value = ''; input.placeholder = '—'; } const output = value.querySelector('output'); if (output) output.textContent = '—'; } });
+      group.append(value);
+      if (expanded) {
+        const items = live?.metadata?.(base + '/' + wire + 's')?.items;
+        const options = items?.length ? items.map(item => ({ value: String(item.value), label: item.label || String(item.value) + ' dB/oct' })) : (key === 'low' ? [6, 12, 18, 24] : [6, 12]).map(number => ({ value: number, label: number + ' dB/oct' }));
+        group.append(selectField('Pendenza ' + name.toLowerCase(), () => channel()[key + 'Slope'], options, value => patchChannel({ [key + 'Slope']: Number(value) }), { disabled: () => !editable(wire + 's') }));
+      }
+      cuts.append(group);
+    }
+  }
+  function refreshDeviceChain() {
+    if (!deviceChain?.isConnected || !sourceStrip() || refreshingDevices) return;
+    refreshingDevices = true;
+    const modules = [];
+    if (isChannel()) modules.push('filter');
+    for (const key of orderValue()) {
+      const block = key === 'insert' ? 'pre' : key;
+      if ((block !== 'gate' || isChannel()) && !modules.includes(block)) modules.push(block);
+    }
+    if (sourceStrip().kind !== 'AUX') modules.push('post');
+    const signature = currentId + ':' + modules.join(',');
+    if (signature !== deviceChainKey) {
+      const id = currentId; deviceChainKey = signature;
+      for (const entry of deviceNodes.values()) entry.cleanup?.();
+      deviceNodes.clear(); deviceChain.replaceChildren();
+      for (const key of modules) {
+        const data = deviceState(key), item = el('section', 'editor-device editor-device-panel');
+        item.dataset.module = key;
+        const head = el('header', 'editor-device-header');
+        const choose = el('button', 'editor-device-select'); choose.type = 'button'; choose.id = 'editor-device-' + key;
+        const name = el('span', 'editor-device-label'), model = el('span', 'editor-device-model'); choose.append(name, model);
+        choose.addEventListener('click', () => { if (dialog.open && currentId === id) openDevice(key); });
+        choose.addEventListener('keydown', event => {
+          const index = modules.indexOf(key); let next;
+          if (event.key === 'ArrowRight') next = (index + 1) % modules.length;
+          else if (event.key === 'ArrowLeft') next = (index + modules.length - 1) % modules.length;
+          else if (event.key === 'Home') next = 0;
+          else if (event.key === 'End') next = modules.length - 1;
+          if (next === undefined) return; event.preventDefault(); activeDevice = modules[next]; refreshDeviceChain(); deviceNodes.get(modules[next])?.choose.focus();
+        });
+        const power = el('button', 'editor-device-bypass', 'IN'); power.type = 'button';
+        power.addEventListener('click', () => { if (!dialog.open || currentId !== id) return; const state = deviceState(key); if (state.canBypass) state.toggle(); });
+        const expand = el('button', 'editor-device-expand'); expand.type = 'button'; expand.addEventListener('click', () => { if (dialog.open && currentId === id) openDevice(key); });
+        const content = el('div', 'editor-device-content'); content.id = 'editor-device-content-' + key;
+        choose.setAttribute('aria-controls', content.id); expand.setAttribute('aria-controls', content.id);
+        head.append(power, choose, expand); item.append(head, content);
+        deviceChain.append(item); deviceNodes.set(key, { item, choose, name, model, power, expand, content, signature: '', contentKey: '', cleanup: null });
+      }
+    }
+    const selected = selectedDevice();
+    for (const [key, entry] of deviceNodes) {
+      const data = deviceState(key), on = key === selected;
+      const expanded = expandedDevices.has(key), signature = [data.name, data.model, data.state, data.on, data.canBypass, on, expanded].join('|');
+      if (signature !== entry.signature) {
+        entry.signature = signature; entry.name.textContent = data.name; entry.model.textContent = data.model;
+        entry.item.dataset.state = data.state || 'active'; entry.item.dataset.expanded = String(expanded); entry.item.classList.toggle('is-selected', on);
+        entry.choose.setAttribute('aria-pressed', String(on)); entry.choose.setAttribute('aria-label', data.name + ' · ' + data.model);
+        entry.choose.setAttribute('aria-expanded', String(expanded)); entry.expand.setAttribute('aria-expanded', String(expanded));
+        entry.expand.setAttribute('aria-label', (expanded ? 'Riduci ' : 'Espandi ') + data.name); entry.expand.textContent = expanded ? '↔' : '›'; entry.expand.title = expanded ? 'Mostra i parametri principali' : 'Espandi in larghezza · tutti i controlli';
+        entry.power.disabled = !data.canBypass; entry.power.textContent = data.state === 'unknown' ? '—' : data.on ? 'IN' : 'BYP'; entry.power.setAttribute('aria-pressed', String(!!data.on)); entry.power.setAttribute('aria-label', data.powerLabel || data.name + ' attivo');
+      }
+      const insert = key === 'pre' || key === 'post', slot = insert ? channel()?.[key + 'Fx'] : null;
+      const cutSchema = key === 'filter' && window.SculptLive?.isLive?.() ? ['lc', 'lcf', 'lcs', 'hc', 'hcf', 'hcs'].map(suffix => window.SculptLive.metadata?.(window.SculptWingMap?.stripPath(currentId) + '/flt/' + suffix)?.revision || '').join(',') : '';
+      const contentKey = [currentId, key, expanded, slot || '', insert ? data.state === 'unknown' : false, cutSchema].join(':');
+      if (contentKey !== entry.contentKey) {
+        entry.contentKey = contentKey; entry.cleanup?.(); entry.cleanup = null; entry.content.replaceChildren();
+        entry.updates = [];
+        if (insert && (!slot || data.state === 'unknown')) {
+          entry.content.append(note(data.state === 'unknown' ? 'Assegnazione da leggere dalla WING.' : 'Nessun FX assegnato a questo insert.'), button('Assegna FX', () => switchTab('processing'), 'editor-link-button'));
+        } else {
+          const ctx = insert ? { type: 'fx', slot } : { type: 'strip', id: currentId, block: key };
+          let localCleanups = [];
+          if (key === 'filter') {
+            const previousBindings = bindings, previousCleanups = cleanups, wasRendering = rendering;
+            bindings = entry.updates; cleanups = localCleanups; rendering = true;
+            try { renderDeviceCuts(entry.content, expanded); }
+            finally { bindings = previousBindings; cleanups = previousCleanups; rendering = wasRendering; }
+          }
+          const host = el('div', 'editor-device-principal'); entry.content.append(host);
+          let cleanup;
+          if (expanded) { host.className = 'editor-plugin-host editor-device-full'; cleanup = window.SculptFX?.renderProcessor(host, ctx, { rotaryBank: true }); }
+          else cleanup = window.SculptFX?.renderPrincipal?.(host, ctx);
+          entry.cleanup = () => { cleanup?.(); for (const dispose of localCleanups) dispose(); };
+        }
+      }
+      for (const update of entry.updates || []) update();
+    }
+    refreshingDevices = false;
+  }
+  function renderDevices() {
+    deviceChainKey = ''; deviceChain = el('div', 'editor-device-chain editor-device-board');
+    deviceChain.setAttribute('aria-label', 'Dispositivi del canale · espansione orizzontale');
+    panel.append(deviceChain);
+    cleanups.push(() => { for (const entry of deviceNodes.values()) entry.cleanup?.(); deviceNodes.clear(); deviceChainKey = ''; });
+    refreshDeviceChain();
   }
   function renderOrder() {
     const order = orderValue();
@@ -780,7 +1015,7 @@
         if (tab === 'dynamics') await live.ensureProcessor({ type: 'strip', id, block });
         if (tab === 'processing') await live.loadScope('fx');
         if (tab === 'channel' && ['CH', 'AUX'].includes(C().getStrip(id)?.kind)) {
-          if (live.readNode) await live.readNode('/io');
+          if (live.readNode) await live.readNode('/io/altsw');
           if (!valid()) return;
           const ch = D().channel(id);
           for (const sourceId of [...new Set([ch?.source, ch?.altSource].filter(value => value && value !== 'OFF'))]) {
@@ -804,6 +1039,9 @@
       return false;
     }
     const key = livePanelKey();
+    // Each device owns a bounded processor read. Show the row immediately and
+    // let unread controls remain disabled while those reads complete.
+    if (activeTab === 'devices') { liveGate = { key, phase: 'ready', error: '', token: liveGate.token }; return true; }
     if (liveGate.key !== key || liveGate.phase === 'idle') beginLiveRead(key);
     if (liveGate.phase === 'ready') return true;
     const loading = liveGate.phase === 'loading';
@@ -833,6 +1071,8 @@
   function sync() {
     if (!dialog?.open || navigating || rendering || !sourceStrip()) return;
     dockEditor();
+    dialog.classList.toggle('editor-compact-devices', compactEditor());
+    const devicesTab = tabList.querySelector('[data-tab="devices"]'); if (devicesTab) devicesTab.hidden = !compactEditor();
     const strip = sourceStrip();
     const live = window.SculptLive, liveState = live?.isLive() ? live.snapshot() : null;
     dialog.querySelector('.editor-demo').textContent = !liveState ? 'DEMO' : liveState.mode === 'live' ? (liveState.writable ? 'LIVE' : 'LETTURA') : 'WING';
@@ -845,6 +1085,7 @@
     headerSof.classList.toggle('editor-active', C().getSof() === currentId);
     headerSof.setAttribute('aria-label', `${C().getSof() === currentId ? 'Disattiva' : 'Attiva'} SOF per ${label(strip)}`);
     if (structure !== structuralKey() || window.SculptLive?.isConnected?.() && liveGate.key !== livePanelKey()) { renderPanel(false); return; }
+    refreshDeviceChain();
     for (const update of bindings) update();
     const effective = D()?.effective(currentId);
     footerStatus.textContent = liveState ? (liveState.mode !== 'live' ? 'WING non collegata' : `${live.hasStripValue(currentId) ? db(strip.level) + ' dB' : 'Lettura…'} · ${liveState.pending ? 'scritture in attesa: ' + liveState.pending : liveState.writable ? 'controllo WING' : 'sola lettura'}`) : `${effective?.muted ? 'MUTE · ' : ''}${db(effective?.level ?? strip.level)} dB · salvato sul dispositivo`;
@@ -871,7 +1112,8 @@
     tabList.querySelectorAll('[role="tab"]').forEach(tab => { const on = tab.dataset.tab === activeTab; tab.setAttribute('aria-selected', String(on)); tab.tabIndex = on ? 0 : -1; });
     const ready = readyLivePanel();
     if (!ready) { panel.scrollTop = scrollTop; panel.scrollLeft = scrollLeft; structure = structuralKey(); rendering = false; sync(); return; }
-    if (activeTab === 'channel') renderChannel();
+    if (activeTab === 'devices') renderDevices();
+    else if (activeTab === 'channel') renderChannel();
     else if (activeTab === 'processing') renderProcessing();
     else if (activeTab === 'eq') renderProcessor('eq');
     else if (activeTab === 'dynamics') renderDynamics();
@@ -879,10 +1121,11 @@
     else if (activeTab === 'groups') renderGroups();
     panel.scrollTop = scrollTop; panel.scrollLeft = scrollLeft; structure = structuralKey(); rendering = false; sync(); focusName();
   }
-  function switchTab(id) {
+  function switchTab(id, device = '') {
     if (!TABS.some(([key]) => key === id)) return;
     if (id !== 'channel') renameFocusId = null;
-    const changed = activeTab !== id;
+    const changed = activeTab !== id || processingDevice !== device;
+    processingDevice = device;
     activeTab = id;
     if (changed || structure !== structuralKey()) renderPanel();
     else { sync(); focusName(); }
@@ -915,13 +1158,16 @@
     if (!dialog || !currentId) return;
     const source = sourceRow();
     const rowName = source?.classList.contains('outputs') ? 'outputs' : source?.classList.contains('inputs') ? 'inputs' : isInput() ? 'inputs' : 'outputs';
-    const targetName = rowName === 'inputs' ? 'outputs' : 'inputs';
-    let target = rowHosts.get(targetName);
+    const extendedHost = window.SculptMixerView?.editorHost?.();
+    const targetName = extendedHost ? 'extended' : rowName === 'inputs' ? 'outputs' : 'inputs';
+    let target = extendedHost || rowHosts.get(targetName);
     if (!target?.isConnected) { target = document.querySelector(`.mixer-row.${targetName}`); rowHosts.set(targetName, target); }
     if (dialog.dataset.sourceRow !== rowName) dialog.dataset.sourceRow = rowName;
     if (dialog.dataset.dockRow !== targetName) dialog.dataset.dockRow = targetName;
     if (dialog.dataset.channelId !== currentId) dialog.dataset.channelId = currentId;
     if (target === dockHost) return;
+    const focused = dialog.contains(document.activeElement) ? document.activeElement : null;
+    const selection = focused && typeof focused.selectionStart === 'number' ? [focused.selectionStart, focused.selectionEnd, focused.selectionDirection] : null;
     releaseDock();
     dialog.classList.toggle('editor-docked', !!target);
     if (!target) { if (dialog.parentElement !== document.body) document.body.append(dialog); return; }
@@ -931,6 +1177,7 @@
     // macro rail stay usable. Original inert values are restored on close/move.
     for (const child of dockHost.children) if (child !== dialog) { coveredChildren.push([child, !!child.inert]); child.inert = true; }
     dockHost.append(dialog);
+    if (focused?.isConnected && dialog.open) { focused.focus({ preventScroll: true }); if (selection) focused.setSelectionRange(...selection); }
   }
   function escapeEditor(event) {
     if (event.key !== 'Escape' || event.defaultPrevented || !dialog?.open) return;
@@ -949,7 +1196,7 @@
     headerRename = button('Rinomina', renameChannel, 'editor-rename', 'Rinomina canale');
     headerSolo = button('S', () => D().setSolo(currentId, !channel().solo), 'editor-header-solo', 'Solo del canale selezionato');
     headerSof = button('SOF', () => { C().setSof(C().getSof() === currentId ? null : currentId); close(); }, 'editor-sof');
-    actions.append(headerRename, headerSolo, headerSof, button('×', close, 'editor-close', 'Chiudi editor del canale'));
+    actions.append(button('‹', () => adjacent(-1), 'editor-channel-step', 'Canale precedente'), button('›', () => adjacent(1), 'editor-channel-step', 'Canale successivo'), headerRename, headerSolo, headerSof, button('×', close, 'editor-close', 'Chiudi editor del canale'));
     header.append(headerDot, identity, actions);
     const navigation = el('div', 'editor-channel-navigation');
     navigation.append(button('‹', () => adjacent(-1), '', 'Canale precedente'), el('span', '', 'CHANNEL EDITOR'), button('›', () => adjacent(1), '', 'Canale successivo'));
@@ -958,12 +1205,13 @@
       const tab = button(text, () => switchTab(id), 'editor-tab'); tab.id = `editor-tab-${id}`; tab.dataset.tab = id;
       tab.setAttribute('role', 'tab'); tab.setAttribute('aria-controls', `editor-panel-${id}`);
       tab.addEventListener('keydown', event => {
+        const visible = [...tabList.querySelectorAll('[role="tab"]')].filter(item => !item.hidden), position = visible.indexOf(tab);
         let target;
-        if (event.key === 'ArrowRight') target = (index + 1) % TABS.length;
-        if (event.key === 'ArrowLeft') target = (index + TABS.length - 1) % TABS.length;
+        if (event.key === 'ArrowRight') target = (position + 1) % visible.length;
+        if (event.key === 'ArrowLeft') target = (position + visible.length - 1) % visible.length;
         if (event.key === 'Home') target = 0;
-        if (event.key === 'End') target = TABS.length - 1;
-        if (target === undefined) return; event.preventDefault(); switchTab(TABS[target][0]); tabList.querySelector(`[data-tab="${activeTab}"]`).focus();
+        if (event.key === 'End') target = visible.length - 1;
+        if (target === undefined) return; event.preventDefault(); switchTab(visible[target].dataset.tab); visible[target].focus();
       }); tabList.append(tab);
     });
     panel = el('div', 'editor-panel'); panel.setAttribute('role', 'tabpanel'); panel.tabIndex = 0;
@@ -978,8 +1226,9 @@
     if (!dialog) createDialog();
     const wasOpen = !!dialog.open, changedId = currentId !== id;
     const previousView = [activeTab, dynamicsBlock, sendDirection, sendGroup];
-    const nextView = changedId && !keepTab ? ['channel', 'dyn', 'out', 'BUS'] : [...previousView];
+    const nextView = changedId && !keepTab ? [compactEditor() ? 'devices' : 'channel', 'dyn', 'out', 'BUS'] : [...previousView];
     if (tab !== undefined) nextView[0] = tab;
+    if (!compactEditor() && nextView[0] === 'devices') nextView[0] = 'channel';
     if (tab === 'dynamics') nextView[1] = block || 'dyn';
     if (nextView[0] === 'dynamics' && C().getStrip(id).kind !== 'CH') nextView[1] = 'dyn';
     const changedView = previousView.some((value, index) => value !== nextView[index]);
@@ -1034,5 +1283,16 @@
     window.SculptUI?.close();
     return showChannel(id, { keepTab: !!dialog?.open, origin: options?.origin, tab, block });
   }
+  window.addEventListener('sculpt-mixer-view', () => {
+    if (!dialog?.open) return;
+    if (!compactEditor() && activeTab === 'devices') {
+      returnToDevices = true;
+      if (activeDevice === 'eq') activeTab = 'eq';
+      else if (['gate', 'dyn'].includes(activeDevice)) { activeTab = 'dynamics'; dynamicsBlock = activeDevice; }
+      else activeTab = 'processing';
+      resetLiveGate(); renderPanel(false);
+    } else if (compactEditor() && returnToDevices) { returnToDevices = false; activeTab = 'devices'; resetLiveGate(); renderPanel(false); }
+    dockEditor(); sync();
+  });
   window.SculptEditor = Object.freeze({ open, openSection, close, sections: () => TABS.map(([id, name]) => ({ id, name })), isOpen: () => !!dialog?.open });
 })();

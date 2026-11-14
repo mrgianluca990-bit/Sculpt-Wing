@@ -1,5 +1,5 @@
 /* Editable channel-list proposals. Only explicit identity, mute, fader and
- * selected monitor-send fields enter the offline project. I/O stays untouched. */
+ * selected monitor-send fields enter the project or the verified live queue. */
 (function(root){
   'use strict';
   const Model=typeof module!=='undefined'&&module.exports?require('./model.js'):root.SculptModel;
@@ -390,11 +390,27 @@
     return {...validation,operations,guards,message:operations.length?'':'I valori dell’anteprima sono già applicati.'};
   }
 
-  const environment=env=>({controller:env?.controller||root.SculptController,model:env?.model||Model,live:env?.live||root.SculptLive});
+  const environment=env=>({controller:env?.controller||root.SculptController,model:env?.model||Model,live:env?.live||root.SculptLive,map:env?.map||root.SculptWingMap});
   const isLive=env=>env.live?.isLive?.()===true||env.live?.canPersist?.()===false;
   function guardsMatch(guards,state){
     const byId=stripMap(state);
     return guards.every(guard=>{const value=guard.kind==='strip'?byId.get(guard.targetId):effectiveSend(state,guard.sourceId,guard.targetId);return value&&Object.entries(guard.fields).every(([field,before])=>equal(value[field],before));});
+  }
+  function applyOperations(state,plan,model){
+    const byId=stripMap(state),tokens=[];
+    for(const operation of plan.operations){
+      if(operation.kind==='strip'){
+        const strip=byId.get(operation.targetId),fields=Object.keys(operation.patch),before=Object.fromEntries(fields.map(field=>[field,{exists:own(strip,field),value:clone(strip[field])}]));
+        model.patchStrip(strip,operation.patch);
+        tokens.push({kind:'strip',targetId:operation.targetId,before,after:Object.fromEntries(fields.map(field=>[field,clone(strip[field])]))});
+      }else{
+        const key=operation.sourceId+'>'+operation.targetId,existed=own(state.sends,key),before=existed?clone(state.sends[key]):undefined,effectiveBefore=clone(effectiveSend(state,operation.sourceId,operation.targetId));
+        const after={...(existed?clone(state.sends[key]):effectiveBefore),...clone(operation.patch)};
+        state.sends[key]=after;
+        tokens.push({kind:'send',sourceId:operation.sourceId,targetId:operation.targetId,key,existed,before,effectiveBefore,fields:Object.keys(operation.patch),after:clone(after)});
+      }
+    }
+    return tokens;
   }
   function applyDraft(draft,env){
     const e=environment(env);
@@ -406,23 +422,176 @@
     let applied=false,undo=[];
     const accepted=e.controller.transact(state=>{
       if(isLive(e)||!validateDraft(draft,state).ok||!guardsMatch(plan.guards,state))return;
-      const byId=stripMap(state),tokens=[];
-      for(const operation of plan.operations){
-        if(operation.kind==='strip'){
-          const strip=byId.get(operation.targetId),fields=Object.keys(operation.patch),before=Object.fromEntries(fields.map(field=>[field,{exists:own(strip,field),value:clone(strip[field])}]));
-          e.model.patchStrip(strip,operation.patch);
-          tokens.push({kind:'strip',targetId:operation.targetId,before,after:Object.fromEntries(fields.map(field=>[field,clone(strip[field])]))});
-        }else{
-          const key=operation.sourceId+'>'+operation.targetId,existed=own(state.sends,key),before=existed?clone(state.sends[key]):undefined,effectiveBefore=clone(effectiveSend(state,operation.sourceId,operation.targetId));
-          const after={...(existed?clone(state.sends[key]):effectiveBefore),...clone(operation.patch)};
-          state.sends[key]=after;
-          tokens.push({kind:'send',sourceId:operation.sourceId,targetId:operation.targetId,key,existed,before,effectiveBefore,fields:Object.keys(operation.patch),after:clone(after)});
-        }
-      }
-      undo=tokens;applied=true;
+      undo=applyOperations(state,plan,e.model);applied=true;
     },'channel-list');
     if(accepted===false||!applied)return {ok:false,message:'Il progetto è cambiato. Controlla l’anteprima prima di applicare.'};
     return {ok:true,count:plan.selectedCount,importedCount:plan.selectedCount,remainingCount:plan.remainingCount,monitorCount:plan.monitorCount,sendCount:plan.sendCount,undo:clone(undo),message:plan.selectedCount+' ingressi importati, '+plan.sendCount+' mandate preparate'+(plan.remainingCount?', '+plan.remainingCount+' ingressi rimanenti inizializzati':'')+'. Routing conservato.'};
+  }
+
+  function liveAvailability(env){
+    const e=environment(env),L=e.live;
+    if(!isLive(e))return {ok:false,message:'La modalità WING non è attiva.'};
+    if(!L?.isConnected?.())return {ok:false,message:'Collega la WING e attendi la lettura del banco prima di applicare la scena.'};
+    if(!L.isWritable?.())return {ok:false,message:'Attiva «Controllo» nella connessione WING per applicare la scena al banco.'};
+    if(!e.map?.capture||!L.readNode||!L.settled||!L.sessionToken||!L.value||!L.metadata||!L.hasValue)return {ok:false,message:'Il collegamento WING non dispone della verifica richiesta per importare la scena. Riapri l’app aggiornata.'};
+    return {ok:true};
+  }
+  function sourceFor(state,id,live,map){
+    if(!inputId(id)||!Number(live.value(map.stripPath(id)+'/clink')))return null;
+    const ch=state.desk?.channels?.[id];
+    if(!ch)return null;
+    const alt=ch.useAlt||(state.desk?.io?.globalAlt&&ch.sourceAuto),source=alt?ch.altSource:ch.source;
+    return map.sourcePath(source)?source:null;
+  }
+  function verifyLinkedSource(state,id,live,map,required){
+    const base=map.stripPath(id),need=path=>{
+      if(!live.hasValue(path)||!live.metadata(path))throw new Error(label(id)+' · lettura della sorgente incompleta ('+path+'). Nessuna modifica inviata.');
+      return live.value(path);
+    };
+    const useAlt=!!Number(need(base+'/in/set/altsrc')),automatic=!!Number(need(base+'/in/set/srcauto'));
+    const alt=useAlt||(automatic&&!!Number(need('/io/altsw'))),group=need(base+'/in/conn/'+(alt?'altgrp':'grp'));
+    if(group==='OFF'){
+      if(required)throw new Error(label(id)+' ha CLINK attivo ma la sorgente non è assegnata. Nessuna modifica inviata.');
+      return null;
+    }
+    need(base+'/in/conn/'+(alt?'altin':'in'));
+    const source=sourceFor(state,id,live,map);
+    if(!source&&required)throw new Error(label(id)+' · identità della sorgente '+group+' non disponibile. Nessuna modifica inviata.');
+    return source;
+  }
+  function wireEqual(a,b){return equal(a,b)||typeof a==='number'&&typeof b==='number'&&Math.abs(a-b)<0.0001;}
+  // Match the native client's documented float32 and linear/log step readback
+  // tolerance. Preparation still compares exact requested values; quantization
+  // is accepted only after the write has completed on the console.
+  function readbackMatches(meta,requested,actual){
+    if(typeof requested!=='number'||typeof actual!=='number')return requested===actual;
+    if(!Number.isFinite(actual)||meta?.min!==undefined&&actual<meta.min||meta?.max!==undefined&&actual>meta.max||meta?.type===3&&(actual<-144||actual>10))return false;
+    if(meta?.type===4)return actual===requested;
+    if(meta?.type===6)return Math.fround(actual)===Math.fround(requested);
+    const epsilon=Math.max(Math.abs(Math.fround(requested)),Math.abs(actual),1e-20)*2**-22;
+    if(Math.abs(actual-requested)<=epsilon)return true;
+    const {min,max,steps}=meta||{};
+    if(min===undefined||max===undefined||!steps||steps<=1)return false;
+    if(meta.type===1)return Math.abs(actual-requested)<=(max-min)/(steps-1)/2+epsilon;
+    return meta.type===2&&min>0&&max>min&&requested>0&&actual>0&&Math.abs(Math.log(actual/requested))<=Math.log(max/min)/(steps-1)/2+2**-22;
+  }
+  function sceneColor(value,map){
+    if(!Array.isArray(map.COLORS)||!/^#[0-9a-f]{6}$/i.test(value||''))return value;
+    const exact=map.COLORS.slice(1).find(color=>color.toLowerCase()===value.toLowerCase());if(exact)return exact;
+    const rgb=[1,3,5].map(n=>parseInt(value.slice(n,n+2),16));let chosen=value,distance=Infinity;
+    for(const color of map.COLORS.slice(1)){const next=[1,3,5].reduce((sum,n,i)=>sum+(parseInt(color.slice(n,n+2),16)-rgb[i])**2,0);if(next<distance){distance=next;chosen=color;}}
+    return chosen;
+  }
+  async function applyDraftLive(draft,env,options={}){
+    const e=environment(env),L=e.live,available=liveAvailability(e);
+    if(!available.ok)return available;
+    const epoch=L.sessionToken(),proposal=clone(draft),visited=new Set();let committed=false,unsubscribe=null,total=0;
+    const progress=value=>{try{options.onProgress?.(value);}catch{}};
+    const check=()=>{
+      if(options.signal?.aborted&&!committed)throw new Error('Applicazione della scena annullata prima dell’invio.');
+      if(L.sessionToken()!==epoch||!L.isConnected())throw new Error('La sessione WING è cambiata. Nessun comando verrà ripetuto su una nuova connessione.');
+      if(!L.isWritable())throw new Error('Controllo WING disattivato. Controlla sul banco i valori già ricevuti.');
+    };
+    const read=async paths=>{
+      const pending=unique(paths.filter(Boolean)).filter(path=>!visited.has(path));total+=pending.length;
+      for(const path of pending){check();progress({phase:'read',completed:visited.size,total,path,message:'Lettura WING · '+path});await L.readNode(path);check();visited.add(path);}
+    };
+    try{
+      check();await L.settled();check();
+      const initial=validateDraft(proposal,e.controller.getState());if(!initial.ok)return {...initial,message:initial.errors[0]};
+      const selected=proposal.rows.filter(row=>row.selected),remaining=proposal.remainingMode==='initialize'?proposal.remaining.filter(row=>row.initialize):[];
+      const ids=unique([...selected.map(row=>row.targetId),...remaining.map(row=>row.targetId),...proposal.monitors.filter(m=>m.applyIdentity!==false).map(m=>m.busId)]);
+      await read(ids.map(id=>e.map.stripPath(id)));
+      // Read only the sends represented in this proposal. The rest of the console
+      // remains authoritative and is not replayed from the local/demo project.
+      await read(selected.flatMap(row=>proposal.monitors.map(m=>e.map.sendBasePath(row.targetId,m.busId))));
+      let state=e.controller.getState();
+      const identityRows=[...selected,...remaining].filter(row=>{const strip=stripMap(state).get(row.targetId);return strip&&(strip.name!==clean(row.name)||strip.color.toLowerCase()!==row.color.toLowerCase());});
+      const linkKnown=id=>{
+        const path=e.map.stripPath(id)+'/clink';
+        if(!L.hasValue(path)||!L.metadata(path))throw new Error(label(id)+' · stato CLINK non letto dalla WING. Nessuna modifica inviata.');
+        return !!Number(L.value(path));
+      };
+      for(const row of [...selected,...remaining])linkKnown(row.targetId);
+      if(identityRows.some(row=>Number(L.value(e.map.stripPath(row.targetId)+'/clink')))){
+        // CLINK is preserved. Resolve every linked input so shared source names
+        // cannot silently alter a channel that is outside the selected proposal.
+        const linked=strips(state).filter(strip=>inputId(strip.id)&&linkKnown(strip.id));
+        await read(linked.flatMap(strip=>[e.map.stripPath(strip.id)+'/in/conn',e.map.stripPath(strip.id)+'/in/set']));
+        if(linked.some(strip=>Number(L.value(e.map.stripPath(strip.id)+'/in/set/srcauto'))))await read(['/io/altsw']);
+        state=e.controller.getState();
+        const changing=new Set(identityRows.map(row=>row.targetId));
+        for(const strip of linked)verifyLinkedSource(state,strip.id,L,e.map,changing.has(strip.id));
+        await read(identityRows.flatMap(row=>{const base=e.map.sourcePath(sourceFor(state,row.targetId,L,e.map));return base?[base+'/name',base+'/col']:[];}));
+      }
+      check();state=e.controller.getState();
+      const plan=planDraft(proposal,state);if(!plan.ok)return {...plan,message:plan.errors[0]};
+      const known=path=>{if(!path||!L.metadata(path)||!L.hasValue(path))throw new Error('Il banco non ha confermato '+(path||'un parametro della proposta')+'. Nessuna modifica inviata.');};
+      // A local default that happens to match the preview is not evidence of a
+      // value on WING. Verify every intended field, including unchanged fields
+      // and proposals that would otherwise return early as already applied.
+      for(const guard of plan.guards){
+        for(const field of Object.keys(guard.fields)){
+          if(guard.kind==='send')known(e.map.sendPath(guard.sourceId,guard.targetId,field));
+          else{
+            const base=e.map.stripPath(guard.targetId),identity=['name','color'].includes(field),linked=inputId(guard.targetId)&&Number(L.value(base+'/clink'));
+            known(base+'/'+(identity&&linked?'$':'')+({name:'name',color:'col',mute:'mute',level:'fdr'})[field]);
+          }
+        }
+        if(guard.kind==='send'&&guard.sourceId.startsWith('ch-')&&proposal.rows.find(row=>row.selected&&row.targetId===guard.sourceId)?.sends[guard.targetId]?.mode==='PRE')known(e.map.stripPath(guard.sourceId)+'/ptap');
+      }
+      if(!plan.operations.length)return {ok:true,live:true,count:plan.selectedCount,confirmed:0,undo:[],message:'La scena è già applicata alla WING.'};
+      const before=clone(state),projected=clone(state);applyOperations(projected,plan,e.model);
+      const beforeWire=e.map.capture(before),afterWire=e.map.capture(projected),descriptors=e.map.descriptors(projected),readOnly=new Set(descriptors.filter(d=>d.readOnly).map(d=>d.path));
+      const allowed=new Set(),identityPaths=new Map();
+      for(const op of plan.operations){
+        if(op.kind==='send')for(const field of Object.keys(op.patch))allowed.add(e.map.sendPath(op.sourceId,op.targetId,field));
+        else for(const field of Object.keys(op.patch)){
+          const source=['name','color'].includes(field)?sourceFor(before,op.targetId,L,e.map):null;
+          const base=source?e.map.sourcePath(source):e.map.stripPath(op.targetId),path=base+'/'+({name:'name',color:'col',mute:'mute',level:'fdr'})[field];
+          allowed.add(path);if(source)identityPaths.set(op.targetId,source);
+        }
+      }
+      const changes=[...afterWire].filter(([path,value])=>!readOnly.has(path)&&beforeWire.has(path)&&!wireEqual(beforeWire.get(path),value)).map(([path,value])=>({path,value}));
+      const echo=clone(before);
+      for(const change of changes){
+        if(!allowed.has(change.path))throw new Error('La proposta comprende un parametro non previsto: '+change.path+'. Nessuna modifica inviata.');
+        const meta=L.metadata(change.path);
+        if(!meta||!L.hasValue(change.path)||meta.readOnly)throw new Error('Il banco non dichiara modificabile '+change.path+'. Nessuna modifica inviata.');
+        if(meta.items&&!meta.items.some(item=>wireEqual(item.value,change.value)||String(item.value)===String(change.value)))throw new Error('Opzione non disponibile nel firmware per '+change.path+'. Nessuna modifica inviata.');
+        if(typeof change.value==='string'&&meta.maxLength&&change.value.length>meta.maxLength||typeof change.value==='number'&&((meta.min!==undefined&&change.value<meta.min)||(meta.max!==undefined&&change.value>meta.max)))throw new Error('Il valore supera i limiti WING: '+change.path+'. Nessuna modifica inviata.');
+        e.map.apply(echo,change.path,change.value);
+      }
+      const expectedStrips=stripMap(projected),actualStrips=stripMap(echo);
+      for(const op of plan.operations){
+        const desired=op.kind==='strip'?expectedStrips.get(op.targetId):effectiveSend(projected,op.sourceId,op.targetId),actual=op.kind==='strip'?actualStrips.get(op.targetId):effectiveSend(echo,op.sourceId,op.targetId);
+        for(const field of Object.keys(op.patch))if(!wireEqual(field==='color'?sceneColor(actual?.[field],e.map):actual?.[field],field==='color'?sceneColor(desired?.[field],e.map):desired?.[field])){
+          const source=identityPaths.get(op.targetId);
+          throw new Error(source?label(op.targetId)+' condivide la sorgente '+source+' con nomi o colori differenti nell’anteprima. Usa la stessa identità oppure disattiva CLINK sul canale. Nessuna modifica inviata.':'Il parametro '+label(op.targetId)+' · '+field+' non ha una corrispondenza WING verificata. Nessuna modifica inviata.');
+        }
+      }
+      for(const old of strips(before)){
+        const actual=actualStrips.get(old.id),desired=expectedStrips.get(old.id);
+        for(const field of ['name','color'])if(!wireEqual(field==='color'?sceneColor(actual[field],e.map):actual[field],field==='color'?sceneColor(desired[field],e.map):desired[field])){
+          const source=sourceFor(before,old.id,L,e.map);
+          throw new Error(label(old.id)+' segue la sorgente condivisa '+(source||'del canale importato')+': l’importazione ne cambierebbe '+(field==='name'?'il nome':'il colore')+' fuori dall’anteprima. Includilo con la stessa identità o disattiva CLINK. Nessuna modifica inviata.');
+        }
+      }
+      check();const failureVersion=L.snapshot?.().failureVersion||0;
+      unsubscribe=L.subscribe?.(status=>{if(committed)progress({phase:'write',total:changes.length,remaining:status.pending||0,completed:Math.max(0,changes.length-(status.pending||0)),message:'Invio alla WING · '+Math.max(0,changes.length-(status.pending||0))+'/'+changes.length+' parametri'});});
+      let changed=false;
+      const accepted=e.controller.transact(current=>{
+        check();if(!guardsMatch(plan.guards,current))return;
+        applyOperations(current,plan,e.model);changed=true;
+      },'channel-list');
+      if(accepted===false||!changed)return {ok:false,message:'Il banco o i suoi parametri sono cambiati durante la preparazione. Controlla l’anteprima e riprova.'};
+      committed=true;progress({phase:'write',total:changes.length,completed:0,message:'Invio alla WING · 0/'+changes.length+' parametri'});
+      await L.settled();check();
+      const mismatch=changes.filter(change=>!readbackMatches(L.metadata(change.path),change.value,L.value(change.path)));
+      if((L.snapshot?.().failureVersion||0)!==failureVersion||mismatch.length)return {ok:false,live:true,partial:true,confirmed:changes.length-mismatch.length,total:changes.length,message:'Applicazione non completata: '+(changes.length-mismatch.length)+'/'+changes.length+' parametri confermati dalla WING. '+(L.snapshot?.().failure||mismatch[0]?.path||'Controlla la connessione.')+' I valori mostrati provengono dal banco; nessun reinvio automatico.'};
+      return {ok:true,live:true,count:plan.selectedCount,confirmed:changes.length,total:changes.length,undo:[],message:'Scena applicata alla WING: '+plan.selectedCount+' ingressi, '+plan.sendCount+' mandate e '+changes.length+' parametri confermati. Routing, gain, phantom e processori conservati.'};
+    }catch(error){return {ok:false,live:true,partial:committed,message:(committed?'Invio interrotto: ':'')+(error.message||String(error))};}
+    finally{unsubscribe?.();}
   }
 
   function undoDraft(tokens,env){
@@ -467,6 +636,6 @@
     },'channel-list-undo');
     return accepted!==false&&restored?{ok:true,message:'Importazione annullata. Ripristinati solo i valori modificati; routing conservato.'}:{ok:false,message:conflict?'Alcuni valori sono cambiati dopo l’importazione: annullamento non applicato.':'Il progetto non è più disponibile offline.'};
   }
-  const API={prepareDraft,syncDraft,instrumentGroups,setPrimary,setInstrument,setInstrumentName,createInstrumentGroup,moveInstrumentRows,separateInstrumentRows,monitorNameSources,setMonitorName,setMonitorNameSource,patchInstrumentSend,addEmptyRow,setMonitorBus,changeRemainingMode,validateDraft,planDraft,applyDraft,undoDraft};
+  const API={prepareDraft,syncDraft,instrumentGroups,setPrimary,setInstrument,setInstrumentName,createInstrumentGroup,moveInstrumentRows,separateInstrumentRows,monitorNameSources,setMonitorName,setMonitorNameSource,patchInstrumentSend,addEmptyRow,setMonitorBus,changeRemainingMode,validateDraft,planDraft,applyDraft,liveAvailability,applyDraftLive,undoDraft};
   if(typeof module!=='undefined'&&module.exports)module.exports=API;else root.SculptChannelScene=API;
 })(typeof window!=='undefined'?window:globalThis);

@@ -16,6 +16,54 @@
   liveButton.setAttribute('aria-label','Connessione WING');liveButton.append(U.el('i','live-link-dot'),U.el('span','live-link-text','WING'));
   document.querySelector('.macro-rail')?.insertBefore(liveButton,document.getElementById('offline-button'));
 
+  const lossNotice=U.el('section','live-loss-notice');lossNotice.id='wing-connection-loss';lossNotice.hidden=true;
+  lossNotice.setAttribute('aria-label','Collegamento WING interrotto');
+  const lossAlert=U.el('div','live-loss-alert'),lossTitle=U.el('h2','','Collegamento WING interrotto'),lossReason=U.el('p','live-loss-reason');
+  lossAlert.setAttribute('role','alert');lossAlert.setAttribute('aria-atomic','true');lossAlert.append(lossTitle,lossReason);
+  const lossStatus=U.el('p','live-loss-status');lossStatus.setAttribute('role','status');
+  const lossProgress=U.el('progress','live-progress');lossProgress.setAttribute('aria-label','Lettura dei valori WING');
+  const reconnectButton=U.button('Ricollega',()=>reconnect().catch(error=>toast(error.message)),'desk-primary live-reconnect');
+  const lossActions=U.el('div','live-loss-actions');lossActions.append(reconnectButton,U.button('Connessione',()=>U.open('connection')));
+  lossNotice.append(lossAlert,lossStatus,lossProgress,lossActions);document.body.append(lossNotice);
+  const textIfChanged=(element,value)=>{if(element.textContent!==value)element.textContent=value;};
+  let openDialogs=[...document.querySelectorAll('dialog[open]')];
+  const markDialogOpened=dialog=>{openDialogs=openDialogs.filter(item=>item!==dialog);if(dialog.open)openDialogs.push(dialog);};
+  function placeLossNotice(){
+    if(lossNotice.hidden||!window.document?.body)return;
+    // A body overlay is inert underneath a modal <dialog>. Keep this persistent
+    // notice inside the foremost open panel so Ricollega remains clickable.
+    openDialogs=openDialogs.filter(dialog=>dialog.isConnected&&dialog.open);
+    const parent=openDialogs.at(-1)||[...document.querySelectorAll('dialog[open]')].at(-1)||document.body;
+    if(lossNotice.parentElement!==parent)parent.append(lossNotice);
+  }
+  function updateLossNotice(s){
+    lossNotice.hidden=!s.connectionLoss;
+    if(!s.connectionLoss){if(lossNotice.parentElement!==document.body)document.body.append(lossNotice);return;}
+    const busy=s.mode==='connecting'||s.mode==='syncing',host=busy?s.host:s.connectionLoss.host;
+    lossNotice.dataset.mode=s.mode;lossNotice.setAttribute('aria-busy',String(busy));
+    textIfChanged(lossReason,s.connectionLoss.reason);
+    textIfChanged(lossStatus,s.mode==='connecting'?`Connessione a ${host}…`:s.mode==='syncing'?`Lettura della WING · ${s.syncDone}/${s.syncTotal}`:`${host} · Controllo disattivato`);
+    reconnectButton.disabled=busy||!available;reconnectButton.textContent=busy?'Collegamento…':'Ricollega';
+    lossProgress.hidden=s.mode!=='syncing';lossProgress.max=s.syncTotal||1;lossProgress.value=s.syncDone;
+    placeLossNotice();
+  }
+  if(typeof MutationObserver==='function'){
+    const observer=new MutationObserver(records=>{
+      const observeDialog=dialog=>{observer.observe(dialog,{attributes:true,attributeFilter:['open'],attributeOldValue:true});if(dialog.open)markDialogOpened(dialog);};
+      for(const record of records){
+        if(record.type==='attributes'&&record.oldValue===null&&record.target.open)markDialogOpened(record.target);
+        for(const node of record.addedNodes||[]){
+          if(node.nodeType!==1)continue;
+          if(node.matches?.('dialog'))observeDialog(node);
+          for(const dialog of node.querySelectorAll?.('dialog')||[])observeDialog(dialog);
+        }
+      }
+      placeLossNotice();
+    });
+    observer.observe(document.body,{childList:true});
+    for(const dialog of document.querySelectorAll('dialog'))observer.observe(dialog,{attributes:true,attributeFilter:['open'],attributeOldValue:true});
+  }
+
   function update(kind){
     if(kind==='rta'){const state=session.rtaSnapshot();for(const listener of rtaListeners)listener(state);return;}
     if(kind!=='meters'){
@@ -24,7 +72,8 @@
       liveButton.querySelector('span').textContent=s.mode==='live'?(s.pending?`WING · ${s.pending}`:'WING'):s.mode==='syncing'?`${s.syncDone}/${s.syncTotal}`:'WING';
       document.querySelectorAll('.desk-badge:not(.fx-family-badge)').forEach(b=>{if(b.closest('.desk-profile')||b.parentElement?.classList.contains('desk-page-header'))b.textContent=statusLabels[s.mode];});
       const corner=document.querySelector('.demo-corner');if(corner)corner.textContent=s.mode==='demo'?'DEMO · METER SIMULATI':s.mode==='live'?(s.writable?'WING LIVE · CONTROLLO':'WING LIVE · LETTURA'):statusLabels[s.mode].toUpperCase();
-      if(lastSessionToken!==session.epoch){lastSessionToken=session.epoch;C.clearHistory?.();}
+      if(lastSessionToken!==session.epoch){lastSessionToken=session.epoch;window.SculptSystems?.stopMacros();C.clearHistory?.();}
+      updateLossNotice(s);
       const displayState=s.mode+':'+s.writable;
       if(!updating&&displayState!==lastDisplayState){lastDisplayState=displayState;updating=true;try{C.refresh?.();}finally{updating=false;}}
       for(const listener of listeners)listener(s);
@@ -42,6 +91,11 @@
     window.SculptSystems?.stopMacros();await session.disconnect(toDemo);
     if(toDemo&&demoSnapshot){const saved=demoSnapshot,macros=clone(D.get().macros||[]),macrosSeeded=D.get().macrosSeeded;saved.desk=saved.desk||{};saved.desk.macros=macros;saved.desk.macrosSeeded=macrosSeeded;demoSnapshot=null;C.restore(saved);}
     update();
+  }
+  async function reconnect(){
+    if(!available)throw new Error('Apri l’app installata per ricollegarti alla WING.');
+    window.SculptSystems?.stopMacros();
+    return session.reconnect();
   }
   const unitNames={0:'',1:'dB',2:'%',3:'ms',4:'Hz',5:'m',6:'s',7:'oct'};
   function parameterDefinition(ctx,key){
@@ -86,13 +140,13 @@
     processorState:ctx=>session.processorState(ctx),parameterDefinition,
     ensureProcessor:(ctx,options)=>session.ensureProcessor(ctx,options),triggerProcessor,
     applyProcessorPreset:(ctx,preset)=>session.processorPreset(ctx,preset).catch(e=>{toast(e.message);throw e;}),
-    reviewMutation(before,after,type){const result=session.review(before,after,type);if(!result.ok)toast(result.reason);return result.ok;},
+    reviewMutation(before,after,type,id){const result=session.review(before,after,type,id);if(!result.ok)toast(result.reason);return result.ok;},
     applying:()=>session.applying,hasStripValue,loadScope,allowMacro,
     hasValue:path=>session.values.has(path),value:path=>session.values.get(path),metadata:path=>session.metadata.get(path),
     nodeState:path=>({loaded:session.loaded.has(path),hasValue:session.values.has(path),metadata:session.metadata.get(path)}),
-    readNode:(path,options)=>session.loadNode(path,options),write:(path,value,options)=>session.write(path,value,options),
+    readNode:(path,options)=>session.loadNode(path,options),listNode:(path,options)=>session.listNode(path,options),describeNode:path=>session.describeNode(path),readValues:(path,options)=>session.readValues(path,options),write:(path,value,options)=>session.write(path,value,options),
     settled:()=>session.settled(),
-    ready:()=>available,open:()=>U.open('connection'),openExplorer:(path,options={})=>{explorerPath=path||'/';U.open('wing',options);},
+    ready:()=>available,open:()=>U.open('connection'),reconnect,openExplorer:(path,options={})=>{explorerPath=path||'/';U.open('wing',options);},
     pageOpened(id,args){
       if(!session.connected())return;
       const scopes={fx:'fx',io:'io',groups:'groups',monitor:'monitor',setup:'setup'};
@@ -108,7 +162,7 @@
 
   function renderConnection(container){
     const intro=U.el('div','live-intro'),mark=U.el('div','live-icon','W');
-    const titles=U.el('div');titles.append(U.el('p','desk-eyebrow','SCULPT WING · 0.6'),U.el('h2','',available?'Collega il tuo banco.':'Un’interfaccia, due modalità.'));
+    const titles=U.el('div');titles.append(U.el('p','desk-eyebrow','SCULPT WING · 0.7.1'),U.el('h2','',available?'Collega il tuo banco.':'Un’interfaccia, due modalità.'));
     intro.append(mark,titles);container.append(intro);
     const state=U.el('div','live-connection-state');state.setAttribute('role','status');
     const ip=U.el('input','desk-input live-ip');ip.type='text';ip.inputMode='decimal';ip.autocomplete='off';ip.spellcheck=false;ip.setAttribute('aria-label','Indirizzo IP della WING');
@@ -126,9 +180,9 @@
       connectButton.disabled=true;ip.disabled=true;
       container.append(U.card('APP IPHONE / IPAD · MAC · WINDOWS',U.el('p','desk-note','In Safari e Chrome puoi provare e conservare l’interfaccia offline. Le app installate su iPhone/iPad, Mac e Windows usano questa stessa interfaccia e comunicano direttamente con il mixer sulla rete locale.'),U.el('p','desk-note','Apri Sculpt Wing installato sul dispositivo per collegarti al banco. Questa pagina web serve per provare l’interfaccia e preparare la configurazione offline.')));
     }
-    container.append(U.card('PRIMO COLLEGAMENTO',U.el('p','desk-note','Collega WING e dispositivo alla stessa rete, inserisci l’IP mostrato dal banco e consenti l’accesso alla rete locale. Il collegamento legge prima i valori WING. Attiva Controllo quando vuoi inviare modifiche.'),U.el('p','desk-note','Le modifiche vengono rilette dal banco. Un’interruzione o la sospensione dell’app annulla i comandi in attesa e richiede una nuova connessione. I valori della demo non vengono caricati sul mixer.')));
+    container.append(U.card('PRIMO COLLEGAMENTO',U.el('p','desk-note','Collega WING e dispositivo alla stessa rete, inserisci l’IP mostrato dal banco e consenti l’accesso alla rete locale. Dopo la verifica e la lettura dei valori WING, Controllo si attiva automaticamente. Puoi passare a Sola lettura con l’interruttore.'),U.el('p','desk-note','Le modifiche vengono rilette dal banco. Se il collegamento si interrompe, l’avviso rimane visibile e Ricollega ripete la verifica e la lettura. I comandi in attesa vengono annullati; i valori della demo non vengono caricati sul mixer.')));
     const diagnostic=U.button('Esporta diagnostica',()=>{
-      const data={format:'sculpt-control-diagnostics',version:'0.6.0',createdAt:new Date().toISOString(),platform:native?.platform||'web',state:session.snapshot(),nodes:[...session.metadata.values()].map(n=>({path:n.path,type:n.type,min:n.min,max:n.max,revision:n.revision,readOnly:n.readOnly})),coverage:MapAPI.coverage||null};
+      const data={format:'sculpt-control-diagnostics',version:'0.7.1',createdAt:new Date().toISOString(),platform:native?.platform||'web',state:session.snapshot(),nodes:[...session.metadata.values()].map(n=>({path:n.path,type:n.type,min:n.min,max:n.max,revision:n.revision,readOnly:n.readOnly})),coverage:MapAPI.coverage||null};
       U.download('Sculpt-Wing-diagnostica.json',JSON.stringify(data,null,2));
     });container.append(diagnostic);
     const sync=s=>{
@@ -136,7 +190,7 @@
       if(s.error)state.append(U.el('p','live-error',s.error));state.dataset.mode=s.mode;
       const busy=['connecting','syncing','live'].includes(s.mode);connectButton.disabled=!available||busy;ip.disabled=!available||busy;disconnectButton.disabled=['demo','disconnected'].includes(s.mode);
       progress.hidden=s.mode!=='syncing';progress.value=s.syncDone;progress.max=s.syncTotal;
-      writable.disabled=s.mode!=='live';writable.setAttribute('aria-checked',String(s.writable));writable.classList.toggle('on',s.writable);writable.textContent=s.writable?'Controllo attivo':'Attiva controllo';
+      writable.disabled=s.mode!=='live';writable.setAttribute('aria-checked',String(s.writable));writable.classList.toggle('on',s.writable);writable.textContent=s.writable?'Controllo attivo · passa a Sola lettura':'Sola lettura · attiva Controllo';
       metrics.replaceChildren(U.el('span','',`${s.loaded} valori letti`),U.el('span','',`${s.pending} modifiche in attesa`),U.el('span','',s.mode==='live'?(s.meterAge!==null&&s.meterAge<1200?'Meter UDP ricevuti':'In attesa dei meter UDP'):available?'TCP + UDP diretti':'Anteprima web'));
     };sync(session.snapshot());listeners.add(sync);const timer=setInterval(()=>sync(session.snapshot()),1000);return()=>{listeners.delete(sync);clearInterval(timer);};
   }
@@ -157,9 +211,14 @@
       try{
         const own=await native.driver.describe(target);
         const definitions=own.type===0?await native.driver.list(target,{refresh}):[own];
-        session.assert(epoch);let values;
-        if(own.type===0)values=await native.driver.readTree(target);
-        else values={[target]:await native.driver.get(target)};
+        session.assert(epoch);const values={};
+        // Exploring a branch needs its direct fields, not a data response for
+        // every descendant (notably the entire show library or I/O tree).
+        for(const meta of definitions){
+          if(disposed||generation!==explorerGeneration||target!==explorerPath)return;
+          if(meta.type===0)continue;
+          values[meta.path]=await native.driver.get(meta.path);session.assert(epoch);
+        }
         session.assert(epoch);if(disposed||generation!==explorerGeneration||target!==explorerPath)return;
         for(const def of definitions)session.metadata.set(def.path,def);
         for(const [p,v]of Object.entries(values))session.receive(p,v);session.flush();

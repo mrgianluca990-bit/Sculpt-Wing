@@ -6,7 +6,7 @@
     window.SculptOffline={openHelp(){const U=window.SculptUI,box=U.el('div');box.append(U.el('p','desk-note','L’interfaccia è inclusa nell’app e funziona senza Internet. Per controllare la WING collega il dispositivo e il banco alla stessa rete del router.'),U.button('Connessione WING',()=>{modal.close();U.open('connection');},'desk-primary'));const modal=U.modal('Sculpt Wing installato',box);}};
     return;
   }
-  const VERSION = 'sculpt-control-v24';
+  const VERSION = 'sculpt-control-v26';
   let registration = null;
   let state = { mode: 'checking', message: 'Verifica offline…', detail: '' };
   let refreshTask = null;

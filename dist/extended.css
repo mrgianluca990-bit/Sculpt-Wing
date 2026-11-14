@@ -1,0 +1,87 @@
+/* The Compact layout remains the existing mixer. Extended decorates its actual
+   strip nodes, so pin rails, gestures, meters and SOF share one set of controls. */
+.mixer-view-controls { display: flex; align-items: center; gap: 7px; flex: 0 0 auto; margin-left: auto; }
+.mixer-view-switch, .mixer-bank-switch { display: flex; align-items: center; gap: 1px; padding: 2px; border: 1px solid #4e3c47; border-radius: 5px; background: #151217; }
+.mixer-view-button { height: 22px; padding: 0 9px; border-radius: 3px; background: transparent; color: #a79aa3; font-size: 9px; font-weight: 600; white-space: nowrap; }
+.mixer-view-button[aria-pressed=true] { background: #4b2937; color: #ffd0d7; box-shadow: inset 0 0 0 1px #865062; }
+.mixer-bank-switch .mixer-view-button[aria-pressed=true] { background: #36313a; color: #e9dfe5; box-shadow: inset 0 0 0 1px #62515e; }
+.mixer-view-controls + .bank-navigation { flex-shrink: 1; }
+.extended-rack, .extended-editor-host { display: none; }
+
+.console.mixer-extended { position: relative; --strip-width: 114px; --extended-rack-height: clamp(238px, 42dvh, 326px); }
+.console.mixer-extended > .mixer-row { flex: 1 1 0; order: 1; }
+.console.mixer-extended > .mixer-row.extended-row-hidden { display: none; }
+.console.mixer-extended > .console-divider { order: 2; }
+.console.mixer-extended > .macro-rail { order: 3; }
+.console.mixer-extended > .console-divider > .row-resize-handle { display: none; }
+.mixer-extended .strip > .strip-label { min-height: 43px; }
+.mixer-extended .strip-name { font-size: 11px; }
+.mixer-extended .extended-rack { display: flex; flex-direction: column; flex: 0 0 var(--extended-rack-height); min-height: 0; gap: 7px; padding: 3px 0 8px; }
+.extended-wing, .extended-vst { display: flex; flex-direction: column; min-height: 0; gap: 3px; }
+.extended-wing { flex: 6 1 0; }
+.extended-vst { flex: 4 1 0; }
+.extended-rack-heading { display: flex; align-items: center; justify-content: space-between; height: 17px; min-height: 17px; color: #a08c97; font-size: 7px; font-weight: 700; letter-spacing: 1.4px; padding: 0 2px; }
+.extended-rack-button { background: transparent; color: #c7a7b9; border-radius: 3px; font-size: 8px; letter-spacing: 0; padding: 1px 3px; }
+.extended-rack-button:hover { background: #47303c; color: #ffdae8; }
+.extended-slot { display: flex; align-items: center; flex: 1 1 0; min-height: 17px; width: 100%; gap: 4px; padding: 0 5px; border: 1px solid #44343f; border-radius: 3px; background: linear-gradient(#302630, #241d25); box-shadow: inset 0 1px #ffffff04, 0 1px #0005; text-align: left; overflow: hidden; }
+.extended-slot-label { flex: 0 0 23px; color: #a38f9b; font-size: 7px; font-weight: 650; }
+.extended-slot-name { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; color: #e0d1db; }
+.extended-slot-lamp { display: block; width: 4px; height: 4px; flex: none; border-radius: 50%; background: #5c4e59; }
+.extended-slot[data-state=active] .extended-slot-lamp { background: #adc395; box-shadow: 0 0 4px #b4cf8e33; }
+.extended-slot[data-state=bypass] .extended-slot-name { color: #92818c; }
+.extended-slot[data-state=bypass] .extended-slot-lamp { background: #c39458; }
+.extended-slot[data-state=unknown] .extended-slot-lamp { background: transparent; border: 1px solid #7c6c78; }
+.extended-slot[data-state=empty] { background: #19151c; }
+.extended-slot[data-state=empty] .extended-slot-name { color: #7d6a77; }
+.extended-slot[data-state=unavailable] { background: #19151a; border-color: #302731; opacity: .48; }
+.extended-slot[data-state=unavailable] .extended-slot-lamp { visibility: hidden; }
+.extended-slot[data-state=missing] { border-color: #a66454; }
+.extended-slot[data-state=missing] .extended-slot-name { color: #e0a98c; }
+.extended-slot[data-state=missing] .extended-slot-lamp { background: #d99772; }
+.extended-slot:hover:not(:disabled) { border-color: #936577; background: #3e2d3a; }
+.extended-vst-slot { border-color: #4c3b53; background: linear-gradient(#302834, #231e29); }
+.extended-vst-slot .extended-slot-label { flex-basis: 8px; color: #806a88; font-size: 8px; }
+.extended-vst-slot[data-state=active] .extended-slot-lamp { background: #baa0cf; }
+.extended-vst-slot[data-state=ready] .extended-slot-lamp { background: transparent; border: 1px solid #baa0cf; }
+.mixer-extended .fader:before { left: calc(50% - 2px); }
+.mixer-extended .fader-cap { left: calc(50% - 15px); width: 30px; }
+.mixer-extended .tick:after { width: calc(50% - 17px); }
+.mixer-extended .tick.zero:after { width: calc(50% - 15px); }
+.mixer-extended .dca-strip > .extended-rack { margin-bottom: 31px; }
+.mixer-extended .dca-strip .fader-well { margin-right: 0; }
+.mixer-extended .dca-strip > .dca-members-button { display: none; }
+.extended-group-button { min-height: 35px; margin: 2px 0; border: 1px solid #62476a; border-radius: 4px; background: #37283d; color: #dfc7e6; font-size: 10px; }
+.extended-group-note, .extended-dca-note { color: #8f798e; font-size: 9px; line-height: 1.5; margin: 6px 5px; }
+.extended-dca-note { flex: 4 1 0; border-top: 1px solid #3a2d3e; padding-top: 12px; }
+.mixer-extended .extended-editor-host.editor-host { display: block; position: absolute; z-index: 8; top: 79px; left: env(safe-area-inset-left); right: env(safe-area-inset-right); height: var(--extended-rack-height); min-height: 0; isolation: isolate; }
+.extended-editor-host > .editor-dialog { box-shadow: 0 6px 15px #0008; border-color: #986074; border-radius: 0; }
+
+@media (max-width: 760px) {
+  .mixer-view-controls { gap: 3px; }
+  .mixer-view-button { padding: 0 5px; font-size: 8px; }
+  .mixer-extended .row-header > .row-label { display: none; }
+  .mixer-extended .mixer-view-controls { margin-left: 0; }
+  .console.mixer-extended { --strip-width: 105px; }
+}
+@media (max-height: 620px) {
+  .mixer-view-button { height: 19px; }
+  .mixer-view-switch, .mixer-bank-switch { padding: 1px; }
+  .console.mixer-extended { --extended-rack-height: clamp(200px, 42dvh, 260px); }
+  .mixer-extended .strip > .strip-label { min-height: 35px; }
+  .mixer-extended .extended-rack { gap: 5px; padding-bottom: 6px; }
+  .extended-wing, .extended-vst { gap: 2px; }
+  .extended-rack-heading { height: 14px; min-height: 14px; font-size: 6px; }
+  .extended-slot { min-height: 14px; }
+  .extended-slot-name { font-size: 8px; }
+  .mixer-extended .dca-strip > .extended-rack { margin-bottom: 26px; }
+}
+@media (max-height: 440px) and (orientation: landscape) {
+  .console.mixer-extended { --extended-rack-height: 173px; }
+  .mixer-view-button { height: 17px; }
+  .mixer-extended .strip > .strip-label { min-height: 24px; }
+  .mixer-extended .extended-rack { gap: 3px; padding: 0 0 4px; }
+  .extended-wing, .extended-vst { gap: 1px; }
+  .extended-rack-heading { min-height: 12px; height: 12px; }
+  .extended-slot { min-height: 12px; }
+  .extended-slot-name { font-size: 7px; }
+}

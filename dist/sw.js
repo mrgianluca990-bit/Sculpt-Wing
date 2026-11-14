@@ -1,5 +1,5 @@
 /* Bump this version whenever the app shell or its assets change. */
-const CACHE_NAME = 'sculpt-control-v24';
+const CACHE_NAME = 'sculpt-control-v26';
 const CACHE_PREFIX = 'sculpt-control-';
 const LEGACY_CACHES = new Set(['sculpt-control-v1', 'sculpt-control-v2', 'sculpt-control-v3', 'sculpt-control-v4']);
 const BASE_URL = new URL('./', self.location.href);
@@ -16,6 +16,11 @@ const ASSETS = [
   ['row-layout.css', 'css'],
   ['strip-pins.js', 'js'],
   ['strip-pins.css', 'css'],
+  ['vst-rack-model.js', 'js'],
+  ['vst-rack.js', 'js'],
+  ['vst-rack.css', 'css'],
+  ['extended.js', 'js'],
+  ['extended.css', 'css'],
   ['desk.js', 'js'],
   ['shell.js', 'js'],
   ['shell.css', 'css'],
@@ -42,10 +47,12 @@ const ASSETS = [
   ['wing-map.js', 'js'],
   ['live-session.js', 'js'],
   ['live.js', 'js'],
+  ['local-scenes.js', 'js'],
   ['live-pages.js', 'js'],
   ['live.css', 'css'],
   ['editor.js', 'js'],
   ['editor.css', 'css'],
+  ['plugin-panels.css', 'css'],
   ['io.js', 'js'],
   ['osc.js', 'js'],
   ['osc.css', 'css'],

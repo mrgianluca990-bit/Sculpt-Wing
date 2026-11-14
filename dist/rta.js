@@ -7,7 +7,7 @@
   const svg=(name,attrs)=>{const node=document.createElementNS(NS,name);for(const [key,value]of Object.entries(attrs||{}))node.setAttribute(key,String(value));return node;};
   const setText=(node,text)=>{if(node.textContent!==text)node.textContent=text;};
   const sourceLabel=id=>{const strip=root.SculptController?.getStrip?.(id);return strip?`${strip.kind} ${strip.number} · ${strip.name}`:id||'Sorgente non identificata';};
-  const visible=mount=>!mount.disposed&&mount.enabled&&mount.container.isConnected&&document.visibilityState!=='hidden'&&(!mount.details||mount.details.open);
+  const visible=mount=>!mount.disposed&&mount.enabled&&mount.inViewport&&mount.container.isConnected&&document.visibilityState!=='hidden'&&(!mount.details||mount.details.open);
   function reconcile(){
     reconcileQueued=false;
     const next=[...mounts].filter(visible).at(-1)||null,live=root.SculptLive;
@@ -27,6 +27,7 @@
   function spectrumPath(bins,region={left:36,top:16,width:584,height:138}){
     if(!Array.isArray(bins)||bins.length!==120||bins.some(n=>!Number.isInteger(n)||n<-32768||n>32767))return '';
     const {left,top,width,height}=region,bottom=top+height;
+    if(![left,top,width,height].every(Number.isFinite)||width<=0||height<=0)return '';
     if(bins.every(n=>n===-32768))return '';
     const peak=Math.max(...bins),span=8192;
     const points=bins.map((value,index)=>{
@@ -37,7 +38,7 @@
     return points.join(' ')+` L${(left+width).toFixed(2)},${bottom} L${left},${bottom} Z`;
   }
   function mount(container,options={}){
-    const item={id:++nextMountId,container,sourceId:options.sourceId||'ch-1',followConsole:options.followConsole===true,tap:options.tap||'PREEQ',enabled:options.enabled!==false,details:options.details||null,disposed:false,error:'',timer:null,expiry:null,lastPaint:0,lastFrame:null};
+    const item={id:++nextMountId,container,sourceId:options.sourceId||'ch-1',followConsole:options.followConsole===true,tap:options.tap||'PREEQ',enabled:options.enabled!==false,details:options.details||null,inViewport:typeof root.IntersectionObserver!=='function',disposed:false,error:'',timer:null,expiry:null,lastPaint:0,lastFrame:null,lastRegion:''};
     const box=el('div','sculpt-rta'+(options.compact?' sculpt-rta-compact':'')+(options.overlay?' sculpt-rta-with-overlay':''));
     const toolbar=el('div','sculpt-rta-toolbar'),power=el('button','sculpt-rta-power','RTA'),tap=el('select','sculpt-rta-tap'),status=el('span','sculpt-rta-status'),source=el('span','sculpt-rta-source');
     power.type='button';power.setAttribute('aria-label','Analizzatore RTA');power.setAttribute('aria-pressed',String(item.enabled));
@@ -74,9 +75,12 @@
       tap.hidden=item.followConsole;bank.hidden=!options.compact||!active||!['unmapped','occupied','readonly'].includes(state.status);
       if(sourceSelect){const list=state.sources||[],nextOptions=list.map(item=>item.id+':'+item.label).join('|');if(nextOptions!==sourceOptionsSignature){sourceOptionsSignature=nextOptions;sourceSelect.replaceChildren();const follow=el('option','','RTA del banco');follow.value='console';sourceSelect.append(follow);for(const entry of list){const option=el('option','',sourceLabel(entry.id));option.value=entry.id;sourceSelect.append(option);}sourceSelect.value=item.followConsole?'console':item.sourceId;}}
       const nextSignature=[label,caption,state.error,item.error,item.enabled,valid].join('|');
-      if(nextSignature!==signature){signature=nextSignature;setText(status,label);setText(source,caption);status.title=caption+' · '+(item.error||state.error||(state.status==='unmapped'?'Il firmware riporta solo un indice numerico, senza identificazione verificata del canale. Apri Banco per vedere il flusso globale reale.':state.status==='occupied'?'Il RTA della console ha priorità. Chiudi il suo RTA oppure disattiva l’overlay Home dal menu del banco. Spegni e riaccendi RTA per riprovare.':'120 bande misurate dalla WING; la scala verticale è relativa, non una misura calibrata in dBFS.'));box.dataset.state=valid?'live':state.status;power.setAttribute('aria-pressed',String(item.enabled));options.onStatus?.({label,state:valid?'live':state.status});}
+      if(nextSignature!==signature){signature=nextSignature;setText(status,label);setText(source,caption);status.title=caption+' · '+(item.error||state.error||(state.status==='unmapped'?'Il firmware espone una numerazione RTA non riconosciuta. Apri Banco per vedere il flusso globale reale.':state.status==='occupied'?'Il RTA condiviso sta analizzando un’altra sorgente. Chiudi l’altro pannello RTA o spegni e riaccendi RTA per riprovare.':'120 bande misurate dalla WING; la scala verticale è relativa, non una misura calibrata in dBFS.'));box.dataset.state=valid?'live':state.status;power.setAttribute('aria-pressed',String(item.enabled));options.onStatus?.({label,state:valid?'live':state.status});}
       if(!valid){if(trace.getAttribute('d'))trace.setAttribute('d','');item.lastFrame=null;}
-      else if(item.lastFrame!==state.binsRaw){item.lastFrame=state.binsRaw;trace.setAttribute('d',spectrumPath(state.binsRaw,options.region));}
+      else{
+        const region=typeof options.region==='function'?options.region():options.region,regionKey=region?[region.left,region.top,region.width,region.height].join(':'):'';
+        if(item.lastFrame!==state.binsRaw||item.lastRegion!==regionKey){item.lastFrame=state.binsRaw;item.lastRegion=regionKey;trace.setAttribute('d',spectrumPath(state.binsRaw,region));}
+      }
       clearTimeout(item.expiry);item.expiry=null;
       if(valid&&Number.isFinite(state.receivedAt))item.expiry=setTimeout(()=>item.schedule(true),Math.max(1,1201-(Date.now()-state.receivedAt)));
     };
@@ -87,13 +91,26 @@
     };
     const live=root.SculptLive;
     const unsubscribe=live?.onRta?.(()=>item.schedule(false)),unsubscribeState=live?.subscribe?.(()=>{item.error='';queueReconcile();});
+    // A resized EQ shares its new plotting bounds with this overlay. Repaint
+    // the current frame without changing its source or resubscribing meters.
+    const resizeObserver=typeof root.ResizeObserver==='function'?new root.ResizeObserver(()=>{item.lastFrame=null;item.schedule(false);}):null;
+    resizeObserver?.observe(graph);
+    // Compact's processors stay mounted while their horizontal board scrolls.
+    // A graph outside the viewport must release the shared analyser too.
+    const intersectionObserver=typeof root.IntersectionObserver==='function'?new root.IntersectionObserver(entries=>{
+      if(item.disposed)return;
+      const entry=entries.filter(entry=>entry.target===graph).at(-1);if(!entry)return;
+      const next=entry.isIntersecting&&entry.intersectionRatio>0;
+      if(item.inViewport!==next){item.inViewport=next;item.lastFrame=null;queueReconcile();}
+    }):null;
+    intersectionObserver?.observe(graph);
     const visibility=()=>{clearTimeout(item.timer);clearTimeout(item.expiry);item.timer=null;item.expiry=null;queueReconcile();};
     const detailsToggle=()=>queueReconcile();
     document.addEventListener('visibilitychange',visibility);item.details?.addEventListener('toggle',detailsToggle);
     power.addEventListener('click',()=>{item.enabled=!item.enabled;item.error='';queueReconcile();});
     tap.addEventListener('change',()=>{item.tap=tap.value;item.error='';queueReconcile();});
     mounts.add(item);queueReconcile();paint();
-    return ()=>{if(item.disposed)return;item.disposed=true;mounts.delete(item);clearTimeout(item.timer);clearTimeout(item.expiry);unsubscribe?.();unsubscribeState?.();document.removeEventListener('visibilitychange',visibility);item.details?.removeEventListener('toggle',detailsToggle);group.remove();box.remove();queueReconcile();};
+    return ()=>{if(item.disposed)return;item.disposed=true;mounts.delete(item);clearTimeout(item.timer);clearTimeout(item.expiry);resizeObserver?.disconnect();intersectionObserver?.disconnect();unsubscribe?.();unsubscribeState?.();document.removeEventListener('visibilitychange',visibility);item.details?.removeEventListener('toggle',detailsToggle);group.remove();box.remove();queueReconcile();};
   }
   root.SculptRTA=Object.freeze({mount,frequencies,spectrumPath});
 })(typeof window!=='undefined'?window:globalThis);

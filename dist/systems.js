@@ -30,9 +30,15 @@
   const validWingPath=path=>typeof path==='string'&&path.length<=256&&/^\/(?:[A-Za-z0-9_$-]+\/)*[A-Za-z0-9_$-]+$/.test(path)&&path.split('/').length<=17;
   const definitionSignature=definition=>JSON.stringify(definition?{type:definition.type,readOnly:!!definition.readOnly,min:definition.min,max:definition.max,step:definition.step,steps:definition.steps,maxLength:definition.maxLength,items:definition.items,options:definition.options,revision:definition.revision,path:definition.path}:null);
   function assertMacroSession(env){
-    if(!env.live?.isLive?.())return;
+    const active=env.live?.isLive?.()===true;
+    if(env.macroLiveMode!==undefined&&(env.macroLiveMode!==active||env.currentLive&&env.currentLive()!==env.live))throw new Error('La sessione WING è cambiata: macro interrotta.');
+    if(!active)return;
     if(!env.live.isConnected?.()||!env.live.isWritable?.())throw new Error('Collega la WING e attiva Controllo prima della macro.');
     if(env.macroSessionToken!==undefined&&env.live.sessionToken?.()!==env.macroSessionToken)throw new Error('La sessione WING è cambiata: macro interrotta.');
+  }
+  function bindMacroSession(env){
+    if(env.macroLiveMode===undefined){env.macroLiveMode=env.live?.isLive?.()===true;env.macroSessionToken=env.live?.sessionToken?.();}
+    assertMacroSession(env);
   }
   function resolveValue(action,definition,current,wire=false){
     if(!definition||definition.readOnly)throw new Error('Parametro non disponibile o di sola lettura.');
@@ -80,9 +86,17 @@
       if(action.tab&&!MENU_SECTIONS[action.target]?.some(item=>item[0]===action.tab))throw new Error('Sezione del menu non disponibile.');
       if(action.target==='fx-editor'&&(!Number.isInteger(Number(action.slot))||Number(action.slot)<1||Number(action.slot)>16))throw new Error('Slot FX non valido.');
       if(action.target==='wing'&&action.path&&action.path!=='/'&&!validWingPath(action.path))throw new Error('Percorso WING non valido.');
+      const ui=env.ui||root.SculptUI;
+      if(!ui)throw new Error('Interfaccia non disponibile.');
+      if(action.target==='bank-menu'&&!ui.showMenu)throw new Error('Menu del banco non disponibile.');
+      if(action.target==='fx-editor'&&!(env.fx||root.SculptFX)?.open)throw new Error('Editor FX non disponibile.');
+      if(action.target==='dca-bank'&&!(env.dcaBank||root.SculptDcaBank)?.open)throw new Error('Banco DCA non disponibile.');
+      if(action.target==='channel-list'&&!(env.channelList||root.SculptChannelList)?.open)throw new Error('Importatore PDF non disponibile.');
+      if(action.target==='wing'&&action.path&&!env.live?.openExplorer)throw new Error('Parametri WING non disponibili.');
     }else if(action.type==='editor'){
       if(!env.controller.getStrip(action.target)||!EDITOR_TABS.some(item=>item[0]===(action.tab||'channel')))throw new Error('Canale o sezione editor non disponibile.');
       if(action.tab==='dynamics'&&action.block&&(!['gate','dyn'].includes(action.block)||!env.desk.processor({type:'strip',id:action.target,block:action.block})))throw new Error('Il processore dinamico non è disponibile su questo canale.');
+      if(!(env.editor||root.SculptEditor)?.openSection)throw new Error('Editor del canale non disponibile.');
     }else if(action.type==='sof'){
       if(action.target!=='off'&&!['BUS','MTX'].includes(env.controller.getStrip(action.target)?.kind))throw new Error('Scegli un BUS o una matrice per SOF.');
     }else if(action.type==='layer'&&action.target!=='all'&&!env.desk.get().layers?.some(layer=>layer.id===action.target))throw new Error('Il Custom Layer non è più disponibile.');
@@ -114,17 +128,61 @@
       if(action.mode&&!['set','toggle'].includes(action.mode))throw new Error('Operazione ON/OFF non valida.');
       if(action.mode!=='toggle'&&![true,false,0,1,'on','off'].includes(action.value))throw new Error('Scegli ON, OFF oppure Alterna.');
     }
+    if(action.type==='dca'&&action.mode==='mute'&&![true,false,0,1,'on','off'].includes(action.value))throw new Error('Scegli ON oppure OFF per il mute DCA.');
+  }
+  let nodeMap;
+  function macroMap(env){return env.map||root.SculptWingMap||(typeof require==='function'?(nodeMap||=(require('./wing-map.js'))):null);}
+  function legacyControls(action,env){
+    const map=macroMap(env),base=map?.stripPath(action.target),flag=current=>action.mode==='toggle'?!Number(current):action.value===true||action.value==='on'||action.value===1;
+    const binary=path=>({path,value:current=>Number(flag(current))}),level=value=>Number(value)<=-90?-144:Number(value);
+    switch(action.type){
+      case 'fader':return [{path:base&&base+'/fdr',value:current=>level(clamp(action.mode==='offset'?clamp(current,-90,10)+Number(action.value):action.value,-90,10))}];
+      case 'mute':return [binary(base&&base+'/mute')];
+      case 'solo':{
+        const controls=[binary(base&&base+'/$solo')];
+        if(env.desk.get().solo?.exclusive&&flag(env.live.value(base+'/$solo')))for(const [id,ch]of Object.entries(env.desk.get().channels||{}))if(id!==action.target&&ch.solo)controls.push({path:map.stripPath(id)+'/$solo',value:()=>0});
+        return controls;
+      }
+      case 'send':return action.mode==='toggle'?[binary(map?.sendPath(action.target,action.destination,'on'))]:[{path:map?.sendPath(action.target,action.destination,'on'),value:()=>1},{path:map?.sendPath(action.target,action.destination,'level'),value:()=>level(action.value)}];
+      case 'dca':return action.mode==='mute'?[{path:'/dca/'+action.target+'/mute',value:()=>Number(flag(0))}]:[{path:'/dca/'+action.target+'/fdr',value:()=>level(action.value)}];
+      case 'muteGroup':return [binary('/mgrp/'+action.target+'/mute')];
+      case 'talkback':return [binary('/cfg/talk/'+action.target.toUpperCase()+'/$on')];
+      case 'monitorDim':return [binary('/cfg/solo/$dim')];
+      case 'oscillator':return [{path:'/io/in/OSC/'+action.target+'/mute',value:current=>Number(!flag(!Number(current)))}];
+      case 'sourceAlt':return [binary(base&&base+'/in/set/altsrc')];
+      case 'fxBypass':{
+        const fx=env.desk.processor({type:'fx',slot:Number(action.target)}),path=fx?.stripId&&map?.stripPath(fx.stripId);
+        if(!path)throw new Error('FX '+action.target+' non assegnato a un insert del banco.');
+        const insert=path+'/'+(fx.position==='post'?'postins':'preins');
+        return [{path:insert+'/ins',assignment:'FX'+Number(action.target)},binary(insert+'/on')];
+      }
+      default:return [];
+    }
+  }
+  function validateLegacyControls(action,env,expected){
+    const controls=legacyControls(action,env),signatures=[];
+    for(const control of controls){
+      const meta=control.path&&env.live.metadata?.(control.path);
+      if(!meta||!env.live.hasValue?.(control.path))throw new Error('Parametro della macro non letto dalla WING: '+(control.path||action.type)+'.');
+      const current=env.live.value(control.path);
+      if(control.assignment){if(current!==control.assignment)throw new Error('L’assegnazione FX è cambiata: verifica la macro prima di eseguirla.');}
+      else resolveValue({mode:'set',value:control.value(current)},meta,current,true);
+      signatures.push({path:control.path,signature:definitionSignature(meta),assignment:control.assignment});
+    }
+    if(expected&&JSON.stringify(signatures)!==JSON.stringify(expected))throw new Error('I parametri WING della macro sono cambiati: esegui di nuovo la macro.');
+    return signatures;
   }
   async function prepareActions(actions,env){
     if(!Array.isArray(actions)||actions.length>32)throw new Error('La macro può contenere al massimo 32 azioni.');
     const supported=new Set([...UI_ACTIONS,'fader','mute','solo','send','dca','muteGroup','talkback','monitorDim','sourceAlt','fxBypass','oscillator','scene','recorder','wait','processorParam','wingParameter','osc']);
     for(const action of actions){if(!action||!supported.has(action.type))throw new Error('Tipo di azione non riconosciuto.');validateLocalAction(action,env);validateKnownAction(action,env);}
     const live=env.live,writing=actions.some(action=>!isLocalAction(action));env.preparedActions=new Map();
-    if(live?.isLive?.()&&writing){env.macroSessionToken=live.sessionToken?.();assertMacroSession(env);}
+    if(writing){env.macroLiveMode=live?.isLive?.()===true;env.macroSessionToken=live?.sessionToken?.();assertMacroSession(env);}
     const done=new Set();
-    const load=async(scope,args)=>{const key=scope+JSON.stringify(args||{});if(done.has(key))return;await live.loadScope(scope,args);done.add(key);assertMacroSession(env);};
+    const read=async(path,force=false)=>{if(done.has(path))return;if(!path||!live.readNode)throw new Error('Lettura dei parametri WING non disponibile.');await live.readNode(path,{force});done.add(path);if(env.cancelled?.())throw new Error('Macro interrotta');assertMacroSession(env);};
     for(const action of actions){
       if(env.cancelled?.())throw new Error('Macro interrotta');
+      if(writing)assertMacroSession(env);
       if(action.type==='osc'){
         const osc=env.osc||root.SculptOSC;if(!osc?.prepare||!osc?.sendPrepared)throw new Error('Invio OSC non disponibile.');
         env.preparedActions.set(action,{oscRequest:osc.prepare(action)});continue;
@@ -137,43 +195,41 @@
       if(action.type==='wingParameter'){
         if(!live?.isLive?.())throw new Error('I parametri WING diretti richiedono una connessione al banco; la macro resta configurabile in demo.');
         if(!validWingPath(action.path))throw new Error('Percorso WING non valido.');
-        await live.readNode(action.path,{force:true});assertMacroSession(env);const result=validateWingParameter(action,env);env.preparedActions.set(action,{signature:definitionSignature(result.definition)});continue;
+        await read(action.path,true);const result=validateWingParameter(action,env);env.preparedActions.set(action,{signature:definitionSignature(result.definition)});continue;
       }
       if(!live?.isLive?.())continue;
       switch(action.type){
-        case 'fader':case 'mute':case 'solo':if(!env.controller.getStrip(action.target))throw new Error('Canale non disponibile');break;
-        case 'send':await load('sends',{fromId:action.target,targetId:action.destination});break;
-        case 'dca':case 'muteGroup':await load('groups');break;
-        case 'talkback':case 'monitorDim':case 'oscillator':await load('monitor');break;
-        case 'sourceAlt':await load('strip',{id:action.target});break;
-        case 'fxBypass':{
-          const slot=Number(action.target);if(!Number.isInteger(slot)||slot<1||slot>16)throw new Error('Slot FX non valido');
-          await live.ensureProcessor({type:'fx',slot});assertMacroSession(env);await load('inserts');
-          const fx=env.desk.processor({type:'fx',slot});if(!fx?.stripId)throw new Error('FX '+slot+' non assegnato a un insert del banco.');
-          await load('strip',{id:fx.stripId});break;
-        }
         case 'scene':throw new Error('Le scene Sculpt locali non vengono richiamate sul banco. Usa lo Show WING.');
         case 'recorder':if(!env.nativeTransport)throw new Error('Trasporto recorder WING non disponibile per questa macro.');break;
-        default:throw new Error('Azione macro senza collegamento WING verificato.');
+        default:{
+          if(action.type==='solo'&&env.desk.get().solo?.exclusive)for(const id of Object.keys(env.desk.get().channels||{}))await read(macroMap(env)?.stripPath(id)+'/$solo');
+          const controls=legacyControls(action,env);if(!controls.length)throw new Error('Azione macro senza collegamento WING verificato.');
+          for(const control of controls)await read(control.path);
+          env.preparedActions.set(action,{controls:validateLegacyControls(action,env)});
+        }
       }
     }
   }
   async function executeAction(action,env){
     if(!action||typeof action!=='object')throw new Error('Azione non valida');
     if(['fader','send','dca','wait'].includes(action.type)&&!['toggle','mute'].includes(action.mode)&&!Number.isFinite(Number(action.value)))throw new Error('Valore numerico non valido');
-    const C=env.controller,D=env.desk,check=()=>{if(env.cancelled?.())throw new Error('Macro interrotta');};
+    const C=env.controller,D=env.desk,check=()=>{
+      if(env.cancelled?.())throw new Error('Macro interrotta');
+      if(env.macroLiveMode!==undefined)assertMacroSession(env);
+    };
     check();
     const live=env.live?.isLive?.()===true,writing=!isLocalAction(action),failureBefore=live&&writing?env.live.snapshot().failureVersion:undefined;
-    if(live&&writing)assertMacroSession(env);validateLocalAction(action,env);
+    if(writing)bindMacroSession(env);validateLocalAction(action,env);
+    if(live&&writing&&env.preparedActions?.get(action)?.controls)validateLegacyControls(action,env,env.preparedActions.get(action).controls);
     const accepted=(result,get,expected,strict=live)=>{if(result===false&&strict||get&&!Object.is(get(),expected))throw new Error('Il banco non ha accettato il controllo della macro.');};
     const target=action.target;
     const flag=(current)=>action.mode==='toggle'?!current:action.value===true||action.value==='on'||action.value===1;
     const fade=async(get,set,to,seconds)=>{
       const from=numeric(get()),duration=clamp(seconds||0,0,30)*1000;
-      if(!duration){set(to);return;}
+      if(!duration){check();set(to);return;}
       const started=(env.now||Date.now)();
-      let fraction=0;
-      while(fraction<1){check();fraction=Math.min(1,((env.now||Date.now)()-started)/duration);set(Math.round((from+(to-from)*fraction)*10)/10);if(fraction<1)await(env.sleep||((ms)=>new Promise(resolve=>setTimeout(resolve,ms))))(40);}
+      let fraction=0,previous=from;
+      while(fraction<1){check();if(live&&env.live.snapshot().failureVersion!==failureBefore)throw new Error(env.live.snapshot().failure||'La WING non ha confermato un comando della macro.');fraction=Math.min(1,((env.now||Date.now)()-started)/duration);const value=Math.round((from+(to-from)*fraction)*10)/10;if(!Object.is(value,previous)){set(value);previous=value;}if(fraction<1)await(env.sleep||((ms)=>new Promise(resolve=>setTimeout(resolve,ms))))(40);}
     };
     switch(action.type){
       case 'osc':{
@@ -213,9 +269,17 @@
       case 'send':{
         const send=C.getSend(target,action.destination);if(!send)throw new Error('Mandata non valida');
         if(action.mode==='toggle'){const value=!send.on;accepted(C.setSend(target,action.destination,{on:value}),()=>C.getSend(target,action.destination).on,value,true);}
-        else{accepted(C.setSend(target,action.destination,{on:true}),()=>C.getSend(target,action.destination).on,true,true);await fade(()=>C.getSend(target,action.destination).level,value=>accepted(C.setSend(target,action.destination,{level:value}),()=>C.getSend(target,action.destination).level,value,true),clamp(action.value,-90,10),action.duration);}break;
+        else if(!Number(action.duration)){
+          const value=clamp(action.value,-90,10);
+          if(live&&!send.on){
+            accepted(C.setSend(target,action.destination,{level:value}),()=>C.getSend(target,action.destination).level,value,true);
+            await env.live.settled();check();if(env.live.snapshot().failureVersion!==failureBefore)throw new Error(env.live.snapshot().failure||'La WING non ha confermato il livello della mandata.');
+          }
+          accepted(C.setSend(target,action.destination,{level:value,on:true}),()=>C.getSend(target,action.destination).level,value,true);
+          if(!C.getSend(target,action.destination).on)throw new Error('Il banco non ha attivato la mandata della macro.');
+        }else{accepted(C.setSend(target,action.destination,{on:true}),()=>C.getSend(target,action.destination).on,true,true);await fade(()=>C.getSend(target,action.destination).level,value=>accepted(C.setSend(target,action.destination,{level:value}),()=>C.getSend(target,action.destination).level,value,true),clamp(action.value,-90,10),action.duration);}break;
       }
-      case 'dca':{const index=D.get().dca.findIndex(g=>String(g.id)===String(target));if(index<0)throw new Error('DCA non disponibile');if(action.mode==='mute'){const value=flag(D.get().dca[index].mute);accepted(D.change(s=>{s.dca[index].mute=value;}),()=>D.get().dca[index].mute,value);}else await fade(()=>D.get().dca[index].level,value=>accepted(D.change(s=>{s.dca[index].level=value;}),()=>D.get().dca[index].level,value),clamp(action.value,-90,10),action.duration);break;}
+      case 'dca':{const index=D.get().dca.findIndex(g=>String(g.id)===String(target));if(index<0)throw new Error('DCA non disponibile');const options={paths:[['desk','dca',index]]};if(action.mode==='mute'){const value=flag(D.get().dca[index].mute);accepted(D.change(s=>{s.dca[index].mute=value;},'dca',options),()=>D.get().dca[index].mute,value);}else await fade(()=>D.get().dca[index].level,value=>accepted(D.change(s=>{s.dca[index].level=value;},'dca',options),()=>D.get().dca[index].level,value),clamp(action.value,-90,10),action.duration);break;}
       case 'muteGroup':{const index=D.get().muteGroups.findIndex(g=>String(g.id)===String(target));if(index<0)throw new Error('Gruppo non disponibile');const value=flag(D.get().muteGroups[index].on);accepted(D.change(s=>{s.muteGroups[index].on=value;}),()=>D.get().muteGroups[index].on,value);break;}
       case 'scene':{if(live)throw new Error('Le scene Sculpt locali non vengono inviate alla WING.');const scene=D.get().scenes.find(s=>s.id===target);if(!scene)throw new Error('Scena non disponibile');D.recall(scene.snapshot,scene.scope,D.get().safes);D.change(s=>s.activeScene=target);break;}
       case 'talkback':{if(!['a','b'].includes(target))throw new Error('Talkback non valido');const value=flag(D.get().talkback[target].on);accepted(D.change(s=>{s.talkback[target].on=value;}),()=>D.get().talkback[target].on,value);break;}
@@ -224,7 +288,7 @@
       case 'sourceAlt':{const channel=D.channel(target);if(!channel)throw new Error('Canale non disponibile');const value=flag(channel.useAlt);accepted(D.patchChannel(target,{useAlt:value}),()=>D.channel(target).useAlt,value);break;}
       case 'fxBypass':{const slot=Number(target);if(!Number.isInteger(slot)||slot<1||slot>16)throw new Error('Slot FX non valido');const ctx={type:'fx',slot},value=flag(D.processor(ctx).enabled);accepted(D.enableProcessor(ctx,value),()=>D.processor(ctx).enabled,value);break;}
       case 'recorder':{if(!['sdA','sdB','usb','player'].includes(target))throw new Error('Recorder non disponibile');const transport=live?env.nativeTransport:env.transport;if(!transport||await transport(target,action.value||'play')===false)throw new Error('Trasporto non disponibile nel profilo corrente');break;}
-      case 'wait':await(env.sleep||((ms)=>new Promise(resolve=>setTimeout(resolve,ms))))(clamp(action.value||0,0,30)*1000);check();break;
+      case 'wait':{let remaining=clamp(action.value||0,0,30)*1000;while(remaining>0){check();const step=Math.min(remaining,50);await(env.sleep||((ms)=>new Promise(resolve=>setTimeout(resolve,ms))))(step);remaining-=step;}check();break;}
       default:throw new Error('Tipo di azione non riconosciuto');
     }
     if(live&&writing){await env.live.settled();check();assertMacroSession(env);const snapshot=env.live.snapshot();if(!env.live.isConnected()||!env.live.isWritable())throw new Error('Connessione o controllo WING interrotto durante la macro.');if(snapshot.failureVersion!==failureBefore)throw new Error(snapshot.failure||'La WING non ha confermato un comando della macro.');}
@@ -283,7 +347,7 @@
   const wingButton=path=>btn('Parametri WING ↗',()=>L()?.openExplorer?.(path),'sys-small');
   const writeButton=(text,action,cls='')=>{const button=btn(text,action,cls);if(live())button.disabled=!L().isWritable();return button;};
   const selection={groups:'dca',monitor:'a',meters:'levels',scenes:'show',recorder:'sdA',setup:'audio',macro:1};
-  let currentPage=null,selectedScene=null,selectedSnippet=null,selectedPreset=null,projectCandidate=null,importUndo=null,activeMacro=null,macroUndo=null;
+  let currentPage=null,selectedScene=null,selectedSnippet=null,selectedPreset=null,projectCandidate=null,importUndo=null,activeMacro=null,macroUndo=null,lastMacroStatus=null;
   const SCOPES=[['levels','Livelli / mute'],['processing','Processing / FX'],['routing','I/O e mandate'],['groups','DCA e gruppi'],['monitor','Monitor / talkback'],['recorder','Recorder'],['setup','Setup']];
   let newSceneScope=['levels','processing','routing','groups','monitor'];
   function ensureState(){
@@ -731,33 +795,49 @@
       s.macros.slice(0,8).forEach((m,i)=>{if(!m.actions?.length)m.actions=(samples[i]||[]).map(a=>Object.assign(defaultAction(a.type),a));});s.macrosSeeded=true;
     });}
   }
+  function macroStatus(){return activeMacro?{id:activeMacro.id,name:activeMacro.name,running:true,phase:activeMacro.phase,completed:activeMacro.completed,total:activeMacro.total,cancelled:activeMacro.cancelled}:lastMacroStatus;}
+  function notifyMacro(run){lastMacroStatus={id:run.id,name:run.name,running:activeMacro===run,phase:run.phase,completed:run.completed,total:run.total,cancelled:run.cancelled};root.dispatchEvent(new CustomEvent('sculpt-macro-status',{detail:{...lastMacroStatus}}));}
   async function runMacro(id){
     const macro=D().get().macros.find(m=>String(m.id)===String(id));if(!macro){toast('Macro non trovata');return {ok:false};}if(activeMacro){toast('Una macro è già in esecuzione');return {ok:false};}if(!macro.actions?.length){U().open('macros',{id:macro.id});toast('Assegna le azioni della macro');return {ok:false};}
     if(live()&&(!L()?.allowMacro||!L().allowMacro(macro)))return {ok:false,error:'Macro WING non autorizzata dal controllo attivo.'};
-    const writing=macro.actions.some(action=>!isLocalAction(action)),run={id:macro.id,cancelled:false};activeMacro=run;if(writing)macroUndo=live()?null:D().capture();root.dispatchEvent(new CustomEvent('sculpt-macro-status',{detail:{id:macro.id,running:true}}));
+    const actions=copy(macro.actions),writing=actions.some(action=>!isLocalAction(action)),run={id:macro.id,name:macro.name||'Macro '+macro.id,cancelled:false,phase:'preparing',completed:0,total:actions.length};activeMacro=run;notifyMacro(run);let env;
     try{
-      const actions=copy(macro.actions),env={controller:C(),desk:D(),catalog:root.SculptCatalog,ui:U(),editor:root.SculptEditor,dcaBank:root.SculptDcaBank,channelList:root.SculptChannelList,fx:root.SculptFX,osc:root.SculptOSC,cancelled:()=>run.cancelled,transport,live:L(),nativeTransport:root.SculptLivePages?.transport};
+      env={controller:C(),desk:D(),catalog:root.SculptCatalog,ui:U(),editor:root.SculptEditor,dcaBank:root.SculptDcaBank,channelList:root.SculptChannelList,fx:root.SculptFX,osc:root.SculptOSC,cancelled:()=>run.cancelled,transport,live:L(),currentLive:L,nativeTransport:root.SculptLivePages?.transport,
+        sleep:ms=>new Promise(resolve=>{const finish=()=>{clearTimeout(timer);if(run.wake===finish)run.wake=null;resolve();},timer=setTimeout(finish,ms);run.wake=finish;})};
       await prepareActions(actions,env);const failureVersion=live()&&writing?L().snapshot().failureVersion:undefined;
-      if(writing){C().beginGesture?.('Macro '+(macro.name||macro.id));run.historyGesture=true;}
+      if(run.cancelled)throw new Error('Macro interrotta');
+      if(writing){if(!env.macroLiveMode)run.undoBefore=D().capture();else macroUndo=null;C().beginGesture?.('Macro '+run.name);run.historyGesture=true;}
       for(const action of actions){
         if(run.cancelled)throw new Error('Macro interrotta');
-        await executeAction(action,env);
+        if(writing)assertMacroSession(env);
+        run.phase=action.type==='wait'?'waiting':'running';notifyMacro(run);await executeAction(action,env);run.completed++;notifyMacro(run);
       }
       if(live()&&writing){await L().settled();assertMacroSession(env);if(run.cancelled)throw new Error('Macro interrotta');if(L().snapshot().failureVersion!==failureVersion)throw new Error(L().snapshot().failure||'Comando non confermato dalla WING.');}
-      const hasOSC=actions.some(action=>action.type==='osc');log('Macro: '+macro.name+' · '+macro.actions.length+' azioni'+(hasOSC?' · OSC inviato senza conferma di esecuzione':''));toast((hasOSC?'Inviata · ':'Eseguita · ')+macro.name);return {ok:true,count:macro.actions.length};
-    }catch(error){log('Macro '+macro.name+': '+error.message);toast(error.message);return {ok:false,error:error.message};}
-    finally{if(run.historyGesture)C().endGesture?.();activeMacro=null;root.dispatchEvent(new CustomEvent('sculpt-macro-status',{detail:{id:macro.id,running:false}}));}
+      const hasOSC=actions.some(action=>action.type==='osc');run.phase='done';log('Macro: '+run.name+' · '+actions.length+' azioni'+(hasOSC?' · OSC inviato senza conferma di esecuzione':''));toast((hasOSC?'Inviata · ':'Eseguita · ')+run.name);return {ok:true,count:actions.length};
+    }catch(error){run.phase=run.cancelled?'cancelled':'error';log('Macro '+run.name+': '+error.message);toast(error.message);return {ok:false,error:error.message,completed:run.completed};}
+    finally{
+      // A requested stop cannot retract a packet already sent. Keep the macro
+      // occupied until its current session has drained the remaining writes.
+      if(writing&&env?.macroLiveMode&&env.live?.isConnected?.()&&env.live.sessionToken?.()===env.macroSessionToken)try{await env.live.settled();}catch{}
+      if(run.historyGesture)C().endGesture?.();
+      if(run.undoBefore&&!live()){const after=JSON.stringify(D().capture());if(after!==JSON.stringify(run.undoBefore))macroUndo={before:run.undoBefore,after};}
+      activeMacro=null;notifyMacro(run);
+    }
   }
-  function stopMacros(){if(activeMacro){activeMacro.cancelled=true;toast('Interruzione macro richiesta');}}
+  function stopMacros(){if(activeMacro){activeMacro.cancelled=true;activeMacro.phase='stopping';activeMacro.wake?.();notifyMacro(activeMacro);toast('Interruzione macro richiesta');}}
   function renderMacros(container,args){
     if(args?.id)selection.macro=Number(args.id);
+    let disposed=false;
     const paint=()=>{container.replaceChildren();const d=D().get(),macro=d.macros.find(m=>Number(m.id)===selection.macro)||d.macros[0];selection.macro=Number(macro.id);
       const toolbar=h('div','sys-macro-bank');d.macros.forEach(m=>{const b=btn('M'+m.id+' · '+(m.name||'Vuota'),()=>{selection.macro=Number(m.id);paint();},'sys-macro-pick');b.setAttribute('aria-pressed',String(m.id===macro.id));toolbar.append(b);});container.append(toolbar);
-      const runButton=btn('▶ Esegui',async()=>{await runMacro(macro.id);if(U().current?.()==='macros')paint();},'desk-primary');runButton.disabled=!macro.actions?.length;
-      const controls=row(runButton,btn('■ Interrompi',stopMacros),btn('Svuota pulsante',()=>{changed(state=>{const item=state.macros.find(item=>item.id===macro.id);item.name='';item.actions=[];});paint();},'sys-small'));if(!live())controls.append(btn('Annulla ultima macro',()=>{if(macroUndo){D().recall(macroUndo,SCOPES.map(s=>s[0]),[]);macroUndo=null;toast('Stato precedente ripristinato');paint();}}));
+      const runButton=btn('▶ Esegui',async event=>{if(event.detail>1)return;await runMacro(macro.id);if(!disposed&&U().current?.()==='macros')paint();},'desk-primary');runButton.disabled=!macro.actions?.length||!!activeMacro;
+      const stopButton=btn('■ Interrompi',stopMacros);stopButton.disabled=!activeMacro||activeMacro.cancelled;
+      const clearButton=btn('Svuota pulsante',()=>{changed(state=>{const item=state.macros.find(item=>item.id===macro.id);item.name='';item.actions=[];});paint();},'sys-small');clearButton.disabled=!!activeMacro;
+      const controls=row(runButton,stopButton,clearButton);if(!live()){const undo=btn('Annulla ultima macro',()=>{if(!macroUndo)return;if(JSON.stringify(D().capture())!==macroUndo.after){toast('Il banco è cambiato dopo la macro. Usa la cronologia per annullare le modifiche successive.');return;}D().recall(macroUndo.before,SCOPES.map(s=>s[0]),[]);macroUndo=null;toast('Stato precedente ripristinato');paint();});undo.disabled=!macroUndo||!!activeMacro;controls.append(undo);}
       const nameField=textInput('Nome macro',macro.name,value=>changed(s=>s.macros.find(m=>m.id===macro.id).name=value));
       nameField.querySelector('input').addEventListener('input',event=>changed(s=>s.macros.find(m=>m.id===macro.id).name=event.target.value));
       const settings=card('MACRO '+macro.id,nameField,controls);
+      const status=macroStatus();if(status&&(status.running||String(status.id)===String(macro.id))){const line=note((status.running?'M'+status.id+' · ':'')+({preparing:'Verifica dei parametri…',running:'Esecuzione',waiting:'Attesa',stopping:'Interruzione in corso…',done:'Completata',cancelled:'Interrotta',error:'Non completata'}[status.phase]||'')+' · '+status.completed+'/'+status.total+' azioni');line.classList.add('sys-macro-status');line.setAttribute('role','status');settings.append(line);}
       if(live())settings.append(note('Prima dell’esecuzione vengono letti tutti i parametri coinvolti. Ogni azione attende il riscontro del banco; un errore interrompe la sequenza.'));
       const list=h('div','sys-actions');(macro.actions||[]).forEach((action,index)=>{
         const change=(key,value)=>changed(s=>{const a=s.macros.find(m=>m.id===macro.id).actions.find(a=>a.id===action.id);if(a)a[key]=value;});
@@ -820,8 +900,9 @@
       const add=btn(macro.actions.length?'+ Aggiungi azione':'Assegna azione',()=>{if(!newType)return;if(macro.actions.length>=32){toast('Massimo 32 azioni per macro');return;}changed(state=>{const item=state.macros.find(m=>m.id===macro.id);item.actions.push(defaultAction(newType));if(!item.name)item.name=newType==='menu'?'Menu del banco':ACTION_TYPES.find(([type])=>type===newType)?.[1]||'Macro '+item.id;});paint();},'desk-primary');add.disabled=true;
       const assign=card(macro.actions.length?'AGGIUNGI ALLA SEQUENZA':'PULSANTE LIBERO',note(macro.actions.length?'Puoi combinare più comandi e aperture di menu in ordine.':'Scegli una funzione del mixer, un parametro oppure il menu da aprire.'),choose,add);
       container.append(settings,list,assign,note('Le azioni vengono eseguite in ordine. I comandi WING richiedono Controllo; OSC usa la destinazione configurata anche senza WING. Un invio OSC non conferma l’esecuzione in Show e non si annulla con Cmd+Z.'));
+      if(activeMacro){nameField.querySelector('input').disabled=true;for(const node of [...list.querySelectorAll('input,select,button'),...assign.querySelectorAll('input,select,button')])node.disabled=true;}
 
-    };paint();
+    };const update=()=>{if(!disposed)paint();};root.addEventListener?.('sculpt-macro-status',update);paint();return()=>{disposed=true;root.removeEventListener?.('sculpt-macro-status',update);};
   }
   function renderSetup(container){
     const paint=()=>{container.replaceChildren();const d=D().get(),s=d.setup,patch=(key,value)=>changed(x=>x.setup[key]=value);
@@ -887,7 +968,7 @@
     D().subscribe(event=>{if(event.type==='restore'){ensureState();seedExamples();}if(['restore','reset','recall','console','layer-layout','layer','systems-init','undo','redo'].includes(event.type))syncLayer();});
     syncLayer();
     C().clearHistory?.();
-    root.SculptSystems={runMacro,stopMacros,transport,recallScene,formatTime,validateProject,executeAction,refresh:()=>U().refresh()};
+    root.SculptSystems={runMacro,stopMacros,macroStatus,transport,recallScene,formatTime,validateProject,executeAction,refresh:()=>U().refresh()};
     root.dispatchEvent(new CustomEvent('sculpt-systems-ready'));
   }
   if(root.SculptUI)init();else root.addEventListener('sculpt-ui-ready',init,{once:true});

@@ -32,7 +32,7 @@
   function download(filename,text,mime='application/json'){const blob=text instanceof Blob?text:new Blob([text],{type:mime}),url=URL.createObjectURL(blob),a=el('a');a.href=url;a.download=filename;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),10000);}
   const workspace=el('dialog','desk-workspace'),head=el('header','desk-page-header'),back=button('‹ Mixer',close,'desk-back'),title=el('h1'),subtitle=el('p'),titles=el('div','desk-page-titles'),badge=el('span','desk-badge','DEMO'),menuButton=button('☰',()=>showMenu(),'desk-page-menu');menuButton.setAttribute('aria-label','Menu del banco');titles.append(title,subtitle);head.append(back,titles,badge,menuButton);const body=el('div','desk-page-body');body.id='desk-page-body';workspace.append(head,body);document.body.append(workspace);
   workspace.addEventListener('close',()=>{if(cleanup){cleanup();cleanup=null;}current=null;const target=previousFocus?.isConnected?previousFocus:previousFocus?.dataset?.macroId?document.querySelector('.macro-action[data-macro-id="'+previousFocus.dataset.macroId+'"]'):null;target?.focus?.();});
-  function render(){const p=pages.get(current);if(!p)return;if(cleanup){cleanup();cleanup=null;}body.replaceChildren();title.textContent=p.title;const live=window.SculptLive?.isLive(),state=live?window.SculptLive.snapshot():null;badge.textContent=live?(state.mode==='live'?(state.writable?'LIVE':'LETTURA'):'WING'):'DEMO';subtitle.textContent=live?({scenes:'Show Control WING',recorder:'WING-LIVE · USB',setup:'Configurazione WING'}[current]||p.subtitle||'WING · controllo remoto'):(p.subtitle||'WING RACK · simulazione locale');body.scrollTop=0;const nativePage=live?window.SculptLivePages?.render(current,body,currentArgs):null;cleanup=nativePage?.handled?nativePage.cleanup:p.render(body,currentArgs)||null;}
+  function render(){const p=pages.get(current);if(!p)return;if(cleanup){cleanup();cleanup=null;}body.replaceChildren();title.textContent=p.title;const live=window.SculptLive?.isLive(),state=live?window.SculptLive.snapshot():null;badge.textContent=live?(state.mode==='live'?(state.writable?'LIVE':'LETTURA'):'WING'):'DEMO';subtitle.textContent=current==='scenes'?'Scene locali · Show WING':live?({recorder:'WING-LIVE · USB',setup:'Configurazione WING'}[current]||p.subtitle||'WING · controllo remoto'):(p.subtitle||'WING RACK · simulazione locale');body.scrollTop=0;const localPage=current==='scenes'?window.SculptLocalScenes?.render(body,currentArgs||{},p.render):null;const nativePage=localPage?.handled?localPage:live?window.SculptLivePages?.render(current,body,currentArgs):null;cleanup=nativePage?.handled?nativePage.cleanup:p.render(body,currentArgs)||null;}
   function open(id,args){if(id==='mixer'){close();return;}if(!pages.has(id)){C.toast('Sezione non disponibile');return;}window.SculptEditor?.close();if(!workspace.open)previousFocus=document.activeElement;current=id;currentArgs=args;render();window.SculptLive?.pageOpened?.(id,args);if(!workspace.open)workspace.showModal();}
   function close(){if(workspace.open)workspace.close();}
   let menu=null;
@@ -50,10 +50,14 @@
   }
   window.SculptUI={register:(id,config)=>pages.set(id,config),listPages:()=>[...pages].map(([id,config])=>({id,title:config.title||id,subtitle:config.subtitle||config.menuHint||''})),open,close,refresh:render,el,button,card,grid,field,select,number,toggle,tabs,toast,download,modal,showMenu,current:()=>current};
   pages.set('about',{title:'Sculpt Wing',menuHint:'Guida · Offline',render(container){
-    const p=el('div','desk-about');p.append(el('img','desk-app-icon'));p.firstChild.src='./icon-red-180.png';p.firstChild.alt='Sculpt Wing';p.append(el('h2','','Il banco, a portata di mano.'),el('p','desk-note','Sculpt Wing · 0.6.8. Pannelli dei processori, mixer e routing. Nel browser i controlli restano in demo; nelle app per iPhone/iPad, Mac e Windows la connessione WING legge e modifica i parametri del banco.'),card('Prova il flusso',el('p','desk-note','Assegna una sorgente in I/O, apri una strip, scegli un processore, regola le mandate in SOF. Salva una scena e richiama la configurazione. Le macro possono combinare più azioni.')),button('Installa / Offline',()=>window.SculptOffline?.openHelp(),'desk-primary'),button('Esporta progetto completo',()=>download('Sculpt-Wing-progetto.json',JSON.stringify({format:'sculpt-control-project',version:1,snapshot:C.capture()},null,2))));container.append(p);
+    const p=el('div','desk-about');p.append(el('img','desk-app-icon'));p.firstChild.src='./icon-red-180.png';p.firstChild.alt='Sculpt Wing';p.append(el('h2','','Il banco, a portata di mano.'),el('p','desk-note','Sculpt Wing · 0.7.1. Pannelli dei processori, mixer e routing. Nel browser i controlli restano in demo; nelle app per iPhone/iPad, Mac e Windows la connessione WING legge e modifica i parametri del banco.'),card('Prova il flusso',el('p','desk-note','Assegna una sorgente in I/O, apri una strip, scegli un processore, regola le mandate in SOF. Salva una scena e richiama la configurazione. Le macro possono combinare più azioni.')),button('Installa / Offline',()=>window.SculptOffline?.openHelp(),'desk-primary'),button('Esporta progetto completo',()=>download('Sculpt-Wing-progetto.json',JSON.stringify({format:'sculpt-control-project',version:1,snapshot:C.capture()},null,2))));container.append(p);
   }});
   document.getElementById('menu-button')?.addEventListener('click',showMenu);
   const rail=document.getElementById('macro-buttons');
+  function syncMacroStatus(){
+    if(!rail)return;const state=window.SculptSystems?.macroStatus?.();
+    for(const node of rail.querySelectorAll('.macro-action')){const running=!!state?.running,own=running&&String(state.id)===node.dataset.macroId;node.disabled=running&&!node.classList.contains('is-empty');node.setAttribute('aria-busy',String(own));node.dataset.running=String(own);const label=node.querySelector('small');if(label)label.textContent='M'+node.dataset.macroId+(own?' · '+state.completed+'/'+state.total:'');}
+  }
   function updateMacros(){
     if(!rail)return;const macros=D.get().macros||[],sig=macros.map(m=>m.id+':'+m.name+':'+(m.actions?.length||0)).join('|');
     if(rail.dataset.sig===sig)return;rail.dataset.sig=sig;
@@ -61,16 +65,17 @@
     rail.replaceChildren();
     for(const macro of macros){
       const assigned=!!macro.actions?.length,name=assigned?(macro.name?.trim()||'Macro '+macro.id):'+ Assegna',edit=()=>open('macros',{id:macro.id});
-      const buttonNode=button('',event=>{if(!assigned||event.shiftKey)edit();else window.SculptSystems?.runMacro(macro.id);},'macro-action'+(assigned?'':' is-empty'));
+      const buttonNode=button('',event=>{if(!assigned||event.shiftKey)edit();else if(event.detail<2||event.detail===undefined)window.SculptSystems?.runMacro(macro.id);},'macro-action'+(assigned?'':' is-empty'));
       buttonNode.dataset.macroId=String(macro.id);buttonNode.append(el('small','',`M${macro.id}`),el('span','',name));
       buttonNode.setAttribute('aria-label',`Macro ${macro.id} · ${assigned?name:'Assegna'}`);buttonNode.setAttribute('aria-keyshortcuts','F2 Shift+Enter');
       buttonNode.title=assigned?`${name} · Clic: esegui · Tasto destro o F2: modifica`:`M${macro.id} vuota · Clic: scegli cosa assegnare`;
       buttonNode.addEventListener('contextmenu',event=>{event.preventDefault();edit();});
-      buttonNode.addEventListener('keydown',event=>{if(event.key==='F2'||event.key==='ContextMenu'||event.shiftKey&&['Enter','F10'].includes(event.key)){event.preventDefault();event.stopPropagation();edit();}});
+      buttonNode.addEventListener('keydown',event=>{if(event.repeat&&['Enter',' '].includes(event.key)){event.preventDefault();return;}if(event.key==='F2'||event.key==='ContextMenu'||event.shiftKey&&['Enter','F10'].includes(event.key)){event.preventDefault();event.stopPropagation();edit();}});
       rail.append(buttonNode);if(String(macro.id)===focused)buttonNode.focus({preventScroll:true});
     }
-    rail.scrollLeft=position;
+    rail.scrollLeft=position;syncMacroStatus();
   }
+  window.addEventListener('sculpt-macro-status',syncMacroStatus);
   D.subscribe(updateMacros);updateMacros();
   const textEditing=target=>target?.isContentEditable||!!target?.closest?.('textarea,[contenteditable="true"],input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]):not([type="color"])');
   document.addEventListener('keydown',event=>{

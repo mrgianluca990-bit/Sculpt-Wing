@@ -139,15 +139,16 @@
   }
   function setSof(targetId){if(!M.setSof(state,targetId))return false;updateMode();emit('sof');return true;}
   function changeLevel(id,level,targetId,persist=true){
-    const strip=stripById(id);if(!strip)return;
-    if(!commit(()=>{if(targetId)M.setSend(state,id,targetId,{level});else M.patchStrip(strip,{level});},targetId?'send':'strip',id))return;
-    updateStrip(strip);updateSelection();if(persist){save();emit(targetId?'send':'strip',id);}
+    const strip=stripById(id);if(!strip)return false;
+    if((targetId?M.getSend(state,id,targetId).level:strip.level)===level)return true;
+    if(!commit(()=>{if(targetId)M.setSend(state,id,targetId,{level});else M.patchStrip(strip,{level});},targetId?'send':'strip',id,targetId?{paths:[['sends',id+'>'+targetId]]}:{}))return false;
+    updateStrip(strip);updateSelection();if(persist){save();emit(targetId?'send':'strip',id);}return true;
   }
   function changePan(id,value,targetId,persist=true){
     const strip=stripById(id);if(!strip)return false;
     const view=panView(strip);if(history?.busy||!view.writable||view.targetId!==targetId)return false;
     value=Math.round(clamp(value,-100,100));if(value===view.value)return true;
-    if(!commit(()=>{if(targetId)M.setSend(state,id,targetId,{pan:value});else M.patchStrip(strip,{pan:value});},targetId?'send':'strip',id))return false;
+    if(!commit(()=>{if(targetId)M.setSend(state,id,targetId,{pan:value});else M.patchStrip(strip,{pan:value});},targetId?'send':'strip',id,targetId?{paths:[['sends',id+'>'+targetId]]}:{}))return false;
     updateStrip(strip);if(persist){save();emit(targetId?'send':'strip',id);}return true;
   }
   function makeStrip(strip,index,row){
@@ -204,14 +205,14 @@
     });
     let drag=null;
     fader.addEventListener('pointerdown',event=>{
-      if(drag||event.button!==0||!event.target.closest('.fader-cap'))return;
+      if(drag||history?.busy||event.button!==0||!event.target.closest('.fader-cap')||window.SculptLive?.isLive?.()&&!window.SculptLive.isWritable?.())return;
       const view=M.display(state,strip.id);select(strip.id,false);
       const inset=parseFloat(getComputedStyle(fader).getPropertyValue('--fader-inset'))||12;
-      drag={pointer:event.pointerId,startY:event.clientY,startPosition:toPosition(view.level),targetId:view.targetId,travel:Math.max(20,fader.getBoundingClientRect().height-inset*2),moved:false};
+      drag={pointer:event.pointerId,startY:event.clientY,startPosition:toPosition(view.level),targetId:view.targetId,session:window.SculptLive?.sessionToken?.(),travel:Math.max(20,fader.getBoundingClientRect().height-inset*2),moved:false};
       history?.begin(view.send?'Mandata':'Fader');
       fader.focus({preventScroll:true});fader.setPointerCapture(event.pointerId);article.classList.add('dragging');event.preventDefault();
     });
-    fader.addEventListener('pointermove',event=>{if(!drag||drag.pointer!==event.pointerId)return;const fine=event.shiftKey?.2:1;if(event.clientY!==drag.startY)drag.moved=true;if(drag.moved)changeLevel(strip.id,toDb(drag.startPosition+(drag.startY-event.clientY)/drag.travel*fine),drag.targetId,false);event.preventDefault();});
+    fader.addEventListener('pointermove',event=>{if(!drag||drag.pointer!==event.pointerId)return;if(history?.busy||drag.session!==window.SculptLive?.sessionToken?.()||M.display(state,strip.id).targetId!==drag.targetId||window.SculptLive?.isLive?.()&&!window.SculptLive.isWritable?.()){endDrag(event);return;}const fine=event.shiftKey?.2:1;if(event.clientY!==drag.startY)drag.moved=true;if(drag.moved&&!changeLevel(strip.id,toDb(drag.startPosition+(drag.startY-event.clientY)/drag.travel*fine),drag.targetId,false)){endDrag(event);return;}event.preventDefault();});
     const endDrag=event=>{if(!drag||drag.pointer!==event.pointerId)return;const {targetId,moved,pointer}=drag;drag=null;article.classList.remove('dragging');if(fader.hasPointerCapture?.(pointer))fader.releasePointerCapture(pointer);history?.end();save();if(moved)emit(targetId?'send':'strip',strip.id);};
     fader.addEventListener('pointerup',endDrag);fader.addEventListener('pointercancel',endDrag);fader.addEventListener('lostpointercapture',endDrag);
     window.addEventListener('blur',()=>{if(drag)endDrag({pointerId:drag.pointer});});
@@ -355,7 +356,7 @@
   window.addEventListener('sculpt-offline-status',event=>document.getElementById('offline-button').classList.toggle('ready',event.detail.mode==='ready'));
   let editing=null;
   function openLevel(id){
-    const strip=stripById(id),view=M.display(state,id);editing={id,targetId:view.targetId};select(id);
+    const strip=stripById(id),view=M.display(state,id);editing={id,targetId:view.targetId,session:window.SculptLive?.sessionToken?.()};select(id);
     document.getElementById('level-target').textContent=label(strip);
     document.getElementById('level-heading').textContent=view.send?`Mandata → ${shortLabel(stripById(view.targetId))}`:'Livello';
     const input=document.getElementById('level-input');input.value=view.level.toFixed(1);levelDialog.showModal();input.focus();input.select();
@@ -364,6 +365,7 @@
   document.querySelectorAll('[data-level]').forEach(button=>button.addEventListener('click',()=>document.getElementById('level-input').value=button.dataset.level));
   document.getElementById('level-form').addEventListener('submit',event=>{
     event.preventDefault();const input=document.getElementById('level-input'),value=Number(input.value);if(!input.checkValidity()||!Number.isFinite(value)||!editing)return;
+    if(editing.session!==window.SculptLive?.sessionToken?.()){levelDialog.close();toast('La sessione WING è cambiata. Riapri il livello per modificarlo.');return;}
     changeLevel(editing.id,value,editing.targetId);levelDialog.close();
   });
   let toastTimer;
@@ -425,9 +427,9 @@
     faderScale:Object.freeze({toPosition,toDb,format}),
     bindStripPan:bindBankPan,
     getStrip:stripById,listStrips:all,
-    updateStrip(id,patch){const strip=stripById(id);if(!strip)return false;if(!commit(()=>M.patchStrip(strip,patch),'strip',id))return false;updateStrip(strip);updateSelection();if(state.sof===id)updateMode();save();emit('strip',id);return true;},
+    updateStrip(id,patch){const strip=stripById(id);if(!strip)return false;if(!patch?.eq){const next={...strip};M.patchStrip(next,patch);if(Object.keys(next).every(key=>Object.is(next[key],strip[key])))return true;}if(!commit(()=>M.patchStrip(strip,patch),'strip',id))return false;updateStrip(strip);updateSelection();if(state.sof===id)updateMode();save();emit('strip',id);return true;},
     getSend:(sourceId,targetId)=>M.getSend(state,sourceId,targetId),
-    setSend(sourceId,targetId,patch){if(!M.canRoute(stripById(sourceId),stripById(targetId)))return false;if(!commit(()=>M.setSend(state,sourceId,targetId,patch),'send',sourceId))return false;updateStrip(stripById(sourceId));updateSelection();save();emit('send',sourceId);return true;},
+    setSend(sourceId,targetId,patch){if(!M.canRoute(stripById(sourceId),stripById(targetId)))return false;if(!commit(()=>M.setSend(state,sourceId,targetId,patch),'send',sourceId,{paths:[['sends',sourceId+'>'+targetId]]}))return false;updateStrip(stripById(sourceId));updateSelection();save();emit('send',sourceId);return true;},
     canSend:(sourceId,targetId)=>M.canRoute(stripById(sourceId),stripById(targetId)),
     getSof:()=>state.sof,setSof,
     selectStrip(id){const result=select(id);if(result)emit('selection',id);return result;},

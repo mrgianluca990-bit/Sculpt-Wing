@@ -44,6 +44,10 @@
       '.live-pages .lp-explore{width:100%;text-align:left;margin-top:10px;display:flex;justify-content:space-between;align-items:center;gap:14px}',
       '.live-pages .lp-explore small{color:#b08294;font:10px ui-monospace,monospace}',
       '.live-pages .lp-scene-name{font-size:clamp(20px,4vw,32px);font-weight:650;line-height:1.3;overflow-wrap:anywhere;color:#f6dbe4;margin:15px 0 10px}',
+      '.live-pages .lp-scene-list{display:grid;gap:5px;max-height:48vh;overflow:auto}',
+      '.live-pages .lp-scene-row{display:grid;grid-template-columns:45px minmax(0,1fr) auto;gap:10px;text-align:left;align-items:center;padding:11px}',
+      '.live-pages .lp-scene-row[aria-pressed=true]{border-color:#ed657c;background:#3b202c}',
+      '.live-pages .lp-scene-row strong,.live-pages .lp-scene-row small{display:block;overflow-wrap:anywhere}.live-pages .lp-scene-row small{color:#bba5b5;font-size:11px}',
       '.live-pages .lp-connect{max-width:650px;margin:25px auto}',
       '.live-pages button:disabled,.live-pages input:disabled,.live-pages select:disabled{opacity:.45;cursor:not-allowed}',
       '@media(max-width:450px){.live-pages .lp-display{padding:14px}.live-pages .lp-transport{gap:6px}.live-pages .lp-transport>.desk-button{min-width:65px;font-size:11px;padding:9px 8px}.live-pages .lp-values{grid-template-columns:repeat(2,minmax(0,1fr))}.live-pages .lp-clock{font-size:38px}.live-pages .lp-toolbar>.desk-button{font-size:11px}}'
@@ -67,6 +71,7 @@
     let bindings = [], readPaths = [], pollPaths = [], statePath = null;
     let busy = false, reading = false, pendingRead = null, timer = null, scheduled = false;
     let readErrors = [];
+    let actionEpoch = null, sceneCatalog = { show: null, entries: [], error: '', loading: false }, sceneChoice = null;
 
     const read = path => L.hasValue(path) ? L.value(path) : undefined;
     const node = (tag, cls, text) => U.el(tag, cls, text);
@@ -175,15 +180,18 @@
     }
     async function write(path, value, trigger, token) {
       if (!alive || token !== generation) throw new Error('Pagina cambiata: operazione interrotta.');
+      if (actionEpoch !== null && L.sessionToken?.() !== actionEpoch) throw new Error('La sessione WING è cambiata: comando interrotto.');
       if (!L.isConnected() || !L.isWritable()) throw new Error('Controllo WING non disponibile.');
       const meta = L.metadata(path);
       if (!meta || meta.readOnly || meta.type === 0) throw new Error('Parametro non disponibile sul banco.');
       await L.write(path, value, { trigger });
       if (!alive || token !== generation) throw new Error('Pagina cambiata: operazione interrotta.');
+      if (actionEpoch !== null && L.sessionToken?.() !== actionEpoch) throw new Error('La sessione WING è cambiata: comando interrotto.');
     }
     async function perform(label, task, completed) {
       if (busy || !alive || !L.isConnected() || !L.isWritable()) return;
       const token = generation;
+      actionEpoch = L.sessionToken?.() ?? null;
       busy = true; showMessage('Invio ' + label + '…', 'busy'); paintBindings();
       try {
         if (pendingRead) await pendingRead;
@@ -208,22 +216,50 @@
       if (!alive || !L.isConnected()) return;
       if (pendingRead) return pendingRead;
       const token = generation, targets = [...new Set(paths || readPaths)];
+      const epoch = L.sessionToken?.(), isCurrent = () => alive && generation === token && L.isConnected() && (epoch === undefined || L.sessionToken?.() === epoch);
       reading = true; readErrors = [];
       if (!silent) showMessage('Lettura degli stati WING…', 'busy');
       paintBindings();
       const task = (async () => {
+        const catalogRefresh = id === 'scenes' && !paths;
+        let catalogShow;
+        if (catalogRefresh) {
+          sceneCatalog.loading = true; paintBindings();
+          try {
+            await L.readNode(LIB + '/$actshow', { force: true });
+            if (!isCurrent()) return;
+            catalogShow = actual(LIB + '/$actshow');
+            const definitions = await L.listNode(LIB, { refresh: true });
+            if (!isCurrent()) return;
+            const meta = definitions.find(item => item.path === LIB + '/$scenes' || item.name === '$scenes');
+            if (!Array.isArray(meta?.items)) throw new Error('Il firmware non ha fornito la definizione completa dell’elenco scene.');
+            if (meta.items.length > 4096) throw new Error('Il catalogo supera il limite di 4096 scene.');
+            const entries = meta.items.map((item, index) => {
+              const name = typeof item.value === 'string' ? item.value : item.label;
+              if (typeof name !== 'string' || name.length > 2048) throw new Error('Definizione di scena non valida.');
+              return { index: index + 1, name, label: item.label || name };
+            });
+            sceneCatalog = { show: catalogShow, entries, error: '', loading: true };
+          } catch (error) { sceneCatalog = { show: catalogShow, entries: [], error: messageOf(error), loading: true }; readErrors.push(messageOf(error)); }
+        }
         for (const path of targets) {
-          if (!alive || generation !== token || !L.isConnected()) return;
+          if (!isCurrent()) return;
           try { await L.readNode(path, { force: true }); }
           catch (error) { readErrors.push(messageOf(error)); }
         }
-        if (!alive || generation !== token) return;
+        if (!isCurrent()) return;
+        if (catalogRefresh && catalogShow !== actual(LIB + '/$actshow')) {
+          sceneCatalog = { show: null, entries: [], error: 'Lo Show è cambiato durante la lettura. Premi Aggiorna per leggerne le scene.', loading: false };
+          readErrors.push(sceneCatalog.error);
+        }
+        if (catalogRefresh) sceneCatalog.loading = false;
         if (!silent) showMessage(readErrors.length ? 'Lettura incompleta: ' + readErrors[0] : 'Stati letti dalla WING.', readErrors.length ? 'error' : '');
       })();
       pendingRead = task;
       try { await task; } finally {
         if (pendingRead === task) pendingRead = null;
         reading = false;
+        if (id === 'scenes') sceneCatalog.loading = false;
         if (alive && generation === token) paintBindings();
       }
     }
@@ -331,28 +367,85 @@
       ), rawCard('PLAYLIST · DATO RICEVUTO', base + '/$songs', base));
     }
     function scenes() {
-      readPaths = [LIB]; pollPaths = [LIB + '/$actidx', LIB + '/$active', LIB + '/$actshow']; statePath = LIB + '/$active';
+      // readTree(depth:0) limits metadata discovery, not the data response.
+      // Querying the whole library can also read storage/catalogue branches and
+      // hold the single WING TCP request until the control deadline expires.
+      readPaths = ['$actshow', '$active', '$actidx', '$activeid', '$actionidx', '$action'].map(name => LIB + '/' + name);
+      pollPaths = [LIB + '/$actidx', LIB + '/$active', LIB + '/$actshow']; statePath = LIB + '/$active';
       const display = node('div', 'lp-display'), show = node('div', 'lp-tag'), activeScene = node('div', 'lp-scene-name');
       display.append(show, activeScene, values(valueCard('Indice attivo', LIB + '/$actidx'), valueCard('Tag attivo', LIB + '/$activeid')));
       bind(() => { show.textContent = plain(actual(LIB + '/$actshow')); activeScene.textContent = plain(actual(LIB + '/$active')); });
       const opened = () => typeof actual(LIB + '/$actshow') === 'string' && actual(LIB + '/$actshow').length > 0;
       const input = inputField('Indice scena WING · 0 = selezione del banco', LIB + '/$actionidx');
+      async function sameShow(expected, token) {
+        if (!alive || token !== generation || actionEpoch !== null && L.sessionToken?.() !== actionEpoch) throw new Error('La sessione WING è cambiata: richiamo interrotto.');
+        await L.readNode(LIB + '/$actshow', { force: true });
+        if (!alive || token !== generation || !L.isConnected() || actionEpoch !== null && L.sessionToken?.() !== actionEpoch) throw new Error('La sessione WING è cambiata: richiamo interrotto.');
+        if (!expected || actual(LIB + '/$actshow') !== expected) throw new Error('Lo Show aperto è cambiato: aggiorna l’elenco prima del richiamo.');
+      }
+      async function showAction(token, expected, index, command) {
+        await sameShow(expected, token);
+        await write(LIB + '/$actionidx', index, false, token);
+        await sameShow(expected, token);
+        await write(LIB + '/$action', command, true, token);
+      }
       const go = U.button('GO', () => perform('GO', async token => {
-        await write(LIB + '/$actionidx', input.value(), false, token);
-        await write(LIB + '/$action', 'GO', true, token);
+        await showAction(token, actual(LIB + '/$actshow'), input.value(), 'GO');
       }, input.reset), 'desk-primary sys-go');
       bind(() => { go.disabled = !can(LIB + '/$actionidx', undefined, opened()) || !can(LIB + '/$action', 'GO', opened()); });
       const navigate = (label, command) => {
         const button = U.button(label, () => perform(command, async token => {
           // Documented special case: zero lets NEXT/PREV + GO follow the desk selection.
-          await write(LIB + '/$actionidx', 0, false, token);
-          await write(LIB + '/$action', command, true, token);
+          await showAction(token, actual(LIB + '/$actshow'), 0, command);
         }, input.reset));
         bind(() => { button.disabled = !can(LIB + '/$actionidx', 0, opened()) || !can(LIB + '/$action', command, opened()); });
         return button;
       };
       const openedNote = note('');
       bind(() => { openedNote.textContent = opened() ? 'GO richiama l’indice indicato. Con indice 0 usa la selezione del banco; NEXT / PREV spostano la selezione, GO NEXT / GO PREV richiamano subito.' : 'Apri uno Show sul banco per usare i richiami. I campi qui mostrati arrivano dalla WING.'; });
+      const list = node('div', 'lp-scene-list'), catalogNote = note(''), catalogTitle = node('h3'), selectedName = node('p', 'desk-note');
+      const search = node('input', 'desk-input'); search.type = 'search'; search.placeholder = 'Cerca nello Show'; search.setAttribute('aria-label', 'Cerca scene nello Show');
+      let listSignature = '';
+      const recall = U.button('Richiama selezionata', () => {
+        const chosen = sceneChoice, expected = sceneCatalog.show;
+        if (!chosen) return;
+        perform('Richiamo ' + chosen.name, async token => {
+          await sameShow(expected, token);
+          // The complete node definition is the ordered Show list (protocol
+          // footnotes 25–28). Never infer a list by splitting a scalar string.
+          const definitions = await L.listNode(LIB, { refresh: true });
+          await sameShow(expected, token);
+          const items = definitions.find(item => item.path === LIB + '/$scenes' || item.name === '$scenes')?.items;
+          const item = items?.[chosen.index - 1], name = typeof item?.value === 'string' ? item.value : item?.label;
+          if (name !== chosen.name) throw new Error('L’ordine o il nome delle scene è cambiato. Aggiorna e seleziona di nuovo la scena.');
+          for (const path of [LIB + '/$actionidx', LIB + '/$action']) await L.readNode(path, { force: true });
+          await showAction(token, expected, chosen.index, 'GO');
+        });
+      }, 'desk-primary');
+      bind(() => {
+        const stale = sceneCatalog.show !== actual(LIB + '/$actshow'), entries = stale ? [] : sceneCatalog.entries;
+        const signature = JSON.stringify([entries, sceneCatalog.loading, stale, search.value, actual(LIB + '/$actidx'), sceneChoice?.index, busy, reading]);
+        catalogTitle.textContent = 'SCENE DELLO SHOW · ' + entries.length;
+        catalogNote.textContent = !opened() ? 'Apri uno Show sulla WING per leggerne tutte le voci.' : sceneCatalog.loading ? 'Lettura della definizione completa dello Show…' : stale ? 'Lo Show è cambiato: premi Aggiorna per leggerne le scene.' : sceneCatalog.error || 'Elenco completo dello Show aperto. Ogni voce può richiamare Snap, Snippet, Preset, Audio clip o una loro combinazione. Gli altri Show e i file fuori dallo Show si aprono sulla WING.';
+        const valid = !stale && sceneChoice && entries.some(item => item.index === sceneChoice.index && item.name === sceneChoice.name);
+        if (!valid) sceneChoice = null;
+        selectedName.textContent = valid ? 'Selezionata: ' + sceneChoice.index + ' · ' + sceneChoice.name : 'Seleziona una scena per richiamarla.';
+        recall.disabled = !valid || sceneCatalog.loading || reading || !can(LIB + '/$action', 'GO', opened()) || !can(LIB + '/$actionidx', sceneChoice?.index);
+        if (signature === listSignature) return;
+        listSignature = signature; list.replaceChildren();
+        const filter = search.value.trim().toLocaleLowerCase();
+        for (const entry of entries) {
+          if (filter && !entry.name.toLocaleLowerCase().includes(filter)) continue;
+          const b = U.button('', () => { sceneChoice = { ...entry }; paintBindings(); }, 'lp-scene-row'), name = node('span'), parts = entry.name.split('~');
+          name.append(node('strong', '', parts[0])); if (parts.length > 1) name.append(node('small', '', parts.slice(1).join('~')));
+          b.append(node('span', '', entry.index), name, node('small', '', actual(LIB + '/$actidx') === entry.index ? 'ATTIVA' : ''));
+          b.setAttribute('aria-pressed', String(sceneChoice?.index === entry.index)); b.dataset.sceneIndex = entry.index; b.disabled = busy || reading;
+          list.append(b);
+        }
+        if (!list.children.length) list.append(note(filter ? 'Nessuna scena corrisponde alla ricerca.' : 'Nessuna voce disponibile.'));
+      });
+      search.addEventListener('input', paintBindings);
+      const catalog = U.card('', catalogTitle, catalogNote, search, list, selectedName, recall);
       body.append(U.grid(
         U.card('SHOW DEL BANCO', display, openedNote, row(input.wrap, go),
           row(navigate('‹ PREV', 'PREV'), navigate('NEXT ›', 'NEXT')),
@@ -360,7 +453,7 @@
         U.card('STATO LETTO', values(valueCard('Show aperto', LIB + '/$actshow'), valueCard('Scena attiva', LIB + '/$active'),
           valueCard('Indice comando', LIB + '/$actionidx')), note('Indice attivo 0: nessuna scena dello Show caricata.'),
           explorer('Esplora Show / Scene / Snap', LIB))
-      ), rawCard('SCENE · DATO RICEVUTO', LIB + '/$scenes', LIB));
+      ), catalog);
     }
     function setup() {
       readPaths = []; pollPaths = []; statePath = null;
@@ -379,6 +472,7 @@
     function build() {
       if (!alive) return;
       ++generation; bindings = []; readPaths = []; pollPaths = []; statePath = null; body.replaceChildren();
+      if (id === 'scenes') { sceneChoice = null; sceneCatalog = { show: null, entries: [], error: '', loading: false }; }
       connectedView = L.isConnected();
       if (!connectedView) {
         const snap = L.snapshot?.() || {};

@@ -7,8 +7,13 @@
   const message=e=>e?.message||String(e);
   const writeSchema=meta=>JSON.stringify([meta.path,meta.revision,meta.type,!!meta.readOnly,meta.min,meta.max,meta.maxLength,meta.unit,Array.isArray(meta.items)?meta.items.map(item=>item.value):null]);
   const keyFor=ctx=>ctx.type==='fx'?`fx:${ctx.slot}`:`${ctx.id}:${ctx.block}`;
-  // The public protocol gives a numeric RTA source range, but no verified
-  // source-index-to-strip table. Accept only explicit symbolic firmware labels.
+  // WING-Edit's strip RTA claims stripIndex + 1. The numeric profile is used
+  // only for the published integer domains (requested 0..76, actual 1..76).
+  // Original WING-Edit 3.3.4 analysis and the explicit strip order:
+  // floatingdino/wing-simulator@957b4061, docs/research/rta.md and
+  // crates/wing-engine/src/rta.rs. Firmware-labelled enums take precedence.
+  const rtaStrips=Object.freeze([['ch',40],['aux',8],['bus',16],['main',4],['mtx',8]].flatMap(([family,count])=>Array.from({length:count},(_,i)=>Object.freeze({id:family+'-'+(i+1),label:family.toUpperCase()+' '+(i+1)}))));
+  const rtaNumericDomain=(meta,min)=>meta?.type===4&&meta.min===min&&meta.max===76;
   const rtaReference=value=>{if(typeof value!=='string')return null;const match=/^\/?(CH|CHANNEL|AUX|BUS|MAIN|MTX|MATRIX)[.\s/_-]*(\d+)$/i.exec(value.trim());if(!match)return null;const family=({channel:'ch',matrix:'mtx'})[match[1].toLowerCase()]||match[1].toLowerCase(),n=Number(match[2]);return n>=1&&n<=({ch:40,aux:8,bus:16,main:4,mtx:8})[family]?family+'-'+n:null;};
   const localDeskKeys=new Set(['macros','scenes','snippets','stripPresets','safes','pluginPresets','pluginClipboard','customControls','layers','activeLayer','history','showName','activeScene','meterSettings','_wing']);
 
@@ -18,6 +23,7 @@
     constructor({driver,map,getState,mutate,onUpdate=()=>{},onError=()=>{}}){
       Object.assign(this,{driver,map,getState,mutate,onUpdate,onError});
       this.mode='demo';this.writable=false;this.epoch=0;this.info=null;this.error='';this.failureVersion=0;this.failure='';
+      this.lastHost='';this.connectionHost='';this.connectionLoss=null;
       this.values=new Map();this.metadata=new Map();this.pending=new Map();this.samples=new Map();
       this.inflight=null;this.nodeLoads=new Map();this.processors=new Map();this.schemaLocks=new Set();this.reloadTimers=new Map();
       this.loaded=new Set();this.batch=new Map();this.applying=false;
@@ -33,34 +39,48 @@
     networkActive(){return ['connecting','syncing','live'].includes(this.mode);}
     connected(){return this.mode==='live';}
     snapshot(){return {mode:this.mode,writable:this.writable,info:this.info,error:this.error,
+      host:this.connectionHost||this.lastHost,lastHost:this.lastHost,connectionLoss:this.connectionLoss?{...this.connectionLoss}:null,
       pending:this.pending.size+(this.inflight?1:0),loaded:this.values.size,failureVersion:this.failureVersion,failure:this.failure,
       syncDone:this.syncDone,syncTotal:this.syncTotal,meterAge:this.meters?Date.now()-this.meters.receivedAt:null};}
     notify(){this.onUpdate('state');}
     failed(error){this.error=message(error);this.failure=this.error;this.failureVersion++;this.onError(this.error);}
     async connect(host){
       if(this.networkActive())throw new Error('Chiudi prima la connessione corrente.');
-      const epoch=++this.epoch;this.clear();this.info=null;this.mode='connecting';this.error='';this.notify();
+      const epoch=++this.epoch;this.clear();this.info=null;this.connectionHost=String(host||'').trim();this.mode='connecting';this.error='';this.notify();
       try{
-        this.info=await this.driver.connect(host);this.assert(epoch);this.mode='syncing';this.notify();
+        const info=await this.driver.connect(this.connectionHost);this.assert(epoch);this.info=info;this.mode='syncing';this.notify();
         const state=this.getState(),strips=state.inputs?[...state.outputs,...state.inputs]:Object.values(state.values);
-        this.syncTotal=strips.length;this.syncDone=0;
+        const dcaPaths=[...new Set((state.desk?.dca||[]).filter(group=>Number.isInteger(group.id)&&group.id>=1&&group.id<=16).map(group=>'/dca/'+group.id))];
+        this.syncTotal=strips.length+dcaPaths.length;this.syncDone=0;
         for(const strip of strips){this.assert(epoch);const base=this.map.stripPath(strip.id);await this.loadNode(base);for(const stage of ['preins','postins'])if(this.metadata.get(base+'/'+stage)?.type===0)await this.loadNode(base+'/'+stage);this.syncDone++;this.notify();}
+        // DCA masters are part of the mixer row, not an optional Groups page.
+        // Channel tags above already hydrate their real #D membership lists.
+        for(const path of dcaPaths){this.assert(epoch);await this.loadNode(path);this.syncDone++;this.notify();}
         this.assert(epoch);this.flush();
         await this.driver.subscribeStripMeters({ch:Array.from({length:40},(_,i)=>i+1),aux:Array.from({length:8},(_,i)=>i+1),bus:Array.from({length:16},(_,i)=>i+1),main:[1,2,3,4],mtx:[1,2,3,4,5,6,7,8]});
-        this.assert(epoch);this.mode='live';this.writable=false;this.notify();return this.info;
+        // Only a verified, fully read console may accept new gestures. clear()
+        // invalidated the previous queue before any read; no local show is sent.
+        this.assert(epoch);this.lastHost=this.info?.host||this.connectionHost;this.connectionHost=this.lastHost;
+        this.mode='live';this.writable=true;this.connectionLoss=null;this.notify();return this.info;
       }catch(e){
         if(epoch===this.epoch){
           // Invalidate first. A failed sync must not leave a live socket feeding
           // values into an apparently disconnected interface.
           const failure=message(e),failedEpoch=++this.epoch;this.clear();this.mode='error';this.error=failure;
+          if(this.connectionLoss)this.connectionLoss={...this.connectionLoss,reason:failure,status:'error'};
           try{await this.driver.disconnect();}catch{}
           if(this.epoch===failedEpoch){this.mode='error';this.error=failure;this.notify();}
         }throw e;
       }
     }
     async disconnect(toDemo=false){
-      ++this.epoch;this.clear();this.mode=toDemo?'demo':'disconnected';this.info=null;this.notify();
+      ++this.epoch;this.clear();this.mode=toDemo?'demo':'disconnected';this.info=null;this.error='';this.connectionLoss=null;this.notify();
       await this.driver.disconnect();
+    }
+    reconnect(){
+      const host=this.connectionLoss?.host||this.lastHost;
+      if(!host)return Promise.reject(new Error('Inserisci prima l’indirizzo IP della WING.'));
+      return this.connect(host);
     }
     clear(){
       ++this.rtaGeneration;clearTimeout(this.rtaTimer);this.rtaTimer=null;this.rtaRequest=null;this.rtaFrame=null;this.rtaReportId=null;this.rtaVerifiedAt=0;this.rtaNeedsReport=true;this.rtaError='';this.rtaLoading=false;
@@ -75,8 +95,12 @@
     assertWritable(epoch){this.assert(epoch);if(!this.connected()||!this.writable)throw new Error('Attiva «Controllo» nella connessione WING.');}
     status(status,note){
       if(['error','suspended','disconnected'].includes(status)&&this.networkActive()){
+        const lost=this.connected()||!!this.connectionLoss,host=this.connectionLoss?.host||this.info?.host||this.lastHost||this.connectionHost;
+        const reason=note||(status==='suspended'?'L’app o il dispositivo è stato sospeso.':'Il collegamento con la WING si è interrotto.');
         ++this.epoch;this.clear();this.mode=status==='suspended'?'suspended':status==='error'?'error':'disconnected';
-        this.error=note||'';this.notify();
+        this.error=reason;
+        if(lost)this.connectionLoss={host,reason,status,at:this.connectionLoss?.at||Date.now()};
+        this.notify();
       }
     }
     setWritable(value){
@@ -106,23 +130,59 @@
       const entries=[...this.batch];this.batch.clear();
       entries.sort(([a],[b])=>Number(b.endsWith('/mdl'))-Number(a.endsWith('/mdl')));
       this.applying=true;
-      try{this.mutate(state=>{for(const [path,value] of entries)this.map.apply(state,path,value);},'live-values');}
+      try{this.mutate(state=>{if(this.map.applyMany)this.map.applyMany(state,entries);else for(const [path,value] of entries)this.map.apply(state,path,value);},'live-values');}
       finally{this.applying=false;}
     }
     flushAuthoritative(){for(const [p,v]of this.values)if(this.inflight?.path!==p)this.batch.set(p,v);this.flush();}
+    async listNode(path,{refresh=false}={}){
+      if(!path)throw new Error('Percorso WING non disponibile.');
+      const epoch=this.epoch;this.assert(epoch);
+      // Definitions include complete firmware enum catalogues. Do not replace
+      // this operation with readTree: that asks for every descendant's value.
+      const definitions=await this.driver.list(path,{refresh});this.assert(epoch);
+      for(const definition of definitions)this.metadata.set(definition.path,definition);
+      return definitions.map(clone);
+    }
+    async describeNode(path){
+      if(!path)throw new Error('Percorso WING non disponibile.');
+      const epoch=this.epoch;this.assert(epoch);
+      const definition=await this.driver.describe(path);this.assert(epoch);
+      this.metadata.set(definition.path,definition);return clone(definition);
+    }
+    async readValues(path,{depth=0}={}){
+      if(typeof path!=='string'||!path||path==='/'||/^\/[^/]+$/.test(path)||path==='/$ctl/lib')throw new Error('Seleziona un gruppo di parametri WING più piccolo.');
+      if(!Number.isInteger(depth)||depth<0||depth>8)throw new Error('Profondità di lettura WING non valida (0…8).');
+      const epoch=this.epoch;this.assert(epoch);
+      // The native reader enumerates at most 4096 nodes before requesting the
+      // data. Callers may read one preflighted audio unit (channel/FX/port).
+      const values=await this.driver.readTree(path,{depth});this.assert(epoch);
+      for(const [key,value]of Object.entries(values))this.receive(key,value);
+      this.flush();
+      // Snapshot callers must detect omitted leaves; never fill a fresh read
+      // with stale cached values or with the local/demo show.
+      return clone(values);
+    }
     async loadNode(path,{force=false}={}){
       if(!path)throw new Error('Percorso WING non disponibile.');
       const epoch=this.epoch;this.assert(epoch);
       const previous=this.nodeLoads.get(path);
       if(previous){if(previous.valid)return previous.promise;try{await previous.promise;}catch{}this.assert(epoch);return this.loadNode(path,{force});}
       if(this.loaded.has(path)&&!force)return;
+      // A subtree read also loaded its scalar children. Reopening DCA members
+      // must not issue 76 duplicate tag reads unless an explicit refresh asks.
+      if(!force&&this.metadata.has(path)&&this.metadata.get(path).type!==0&&this.values.has(path)){this.loaded.add(path);return;}
       const token={path,epoch,valid:true,refresh:force,promise:null};
       const guard=()=>{this.assert(epoch);if(!token.valid)throw new Error('Lo schema del processore è cambiato durante la lettura.');};
       this.nodeLoads.set(path,token);
       token.promise=Promise.resolve().then(async()=>{
         const own=await this.driver.describe(path);guard();
         const definitions=own.type===0?await this.driver.list(path,{refresh:force}):[own];guard();
-        const values=await this.driver.readTree(path);guard();
+        let values;
+        // High-level catalogues can contain thousands of descendants. The UI
+        // needs their immediate fields, so never ask for the complete data tree.
+        if(own.type===0&&(/^\/[^/]+$/.test(path)||path==='/'||path==='/$ctl/lib')){
+          values={};for(const definition of definitions){if(definition.type===0)continue;values[definition.path]=await this.driver.get(definition.path);guard();}
+        }else values=await this.driver.readTree(path);guard();
         // Commit metadata and values together, after the whole read completed.
         for(const def of definitions)this.metadata.set(def.path,def);
         for(const [p,v]of Object.entries(values))this.receive(p,v);
@@ -198,8 +258,64 @@
       }
       this.notify();
     }
-    explainedMutation(before,after,changes,bases){
-      const projected=clone(before),next=this.map.capture(after),descriptors=this.map.descriptors?.(after)||[];
+    gestureScope(before,after,type,id){
+      if(!['strip','send','parameter','dca'].includes(type))return null;
+      const changed=[],path=[],keys=Object.keys,isArray=Array.isArray;
+      const sameTree=(a,b)=>{
+        if(a===b)return true;
+        if(!a||!b||typeof a!=='object'||typeof b!=='object')return equal(a,b);
+        if(isArray(a)!==isArray(b)||isArray(a)&&a.length!==b.length)return false;
+        const ak=keys(a),bk=keys(b);if(ak.length!==bk.length)return false;
+        for(let i=0;i<ak.length;i++)if(ak[i]!==bk[i]||!sameTree(a[ak[i]],b[bk[i]]))return false;
+        return true;
+      };
+      const visit=(a,b)=>{
+        if(a===b||path.length===1&&['selected','sof','meters'].includes(path[0])||path[0]==='desk'&&localDeskKeys.has(path[1]))return;
+        if(changed.length>32)return;
+        if(a&&b&&typeof a==='object'&&typeof b==='object'&&isArray(a)===isArray(b)){
+          // Reuse the traversal path. A full console contains thousands of
+          // unchanged leaves; allocating a Set and an array at every node was
+          // more expensive than preparing the actual fader command.
+          if(isArray(a)&&a.length!==b.length){changed.push([...path]);return;}
+          if(path.length>0&&!(path.length===1&&path[0]==='desk')&&sameTree(a,b))return;
+          for(const key of new Set([...keys(a),...keys(b)])){path.push(key);visit(a[key],b[key]);path.pop();if(changed.length>32)return;}
+        }else if(!equal(a,b))changed.push([...path]);
+      };
+      // Verify the entire mutation before narrowing its map. The caller's type
+      // and strip id alone are not proof that no other audio state was changed.
+      visit(before,after);if(changed.length>32)return null;
+      const paths=new Set(),bases=new Set();
+      for(const path of changed){
+        if(['inputs','outputs','values'].includes(path[0])&&path.length===3){
+          const old=before[path[0]]?.[path[1]],item=after[path[0]]?.[path[1]],suffix={level:'fdr',mute:'mute',pan:'pan',trim:'in/set/trim',polarity:'in/set/inv'}[path[2]];
+          if(!suffix||!item||old?.id!==item.id||id&&item.id!==id)return null;
+          const base=this.map.stripPath(item.id);if(!base)return null;paths.add(base+'/'+suffix);
+        }else if(path[0]==='sends'&&path.length>=2){
+          const pair=path[1].split('>');if(pair.length!==2||!this.map.sendBasePath)return null;
+          const base=this.map.sendBasePath(pair[0],pair[1]);if(!base||id&&pair[0]!==id)return null;
+          // Include the whole send: pre/mode and pan/link have coupled fields,
+          // and a first gesture may materialize an implicit default send.
+          bases.add(base);
+        }else if(path[0]==='desk'&&path[1]==='processing'&&path.length>=5&&['params','mix','enabled'].includes(path[4])){
+          const old=before.desk?.processing?.[path[2]]?.[path[3]],next=after.desk?.processing?.[path[2]]?.[path[3]];
+          if(!old||old.model!==next?.model)return null;
+          const spec=this.map.processorSpec({type:'strip',id:path[2],block:path[3]},next.model);if(!spec)return null;
+          bases.add(spec.basePath);if(spec.parametersBasePath)bases.add(spec.parametersBasePath);
+        }else if(path[0]==='desk'&&path[1]==='fx'&&path.length>=4&&['params','mix'].includes(path[3])){
+          const index=Number(path[2]),old=before.desk?.fx?.[index],next=after.desk?.fx?.[index];
+          if(!Number.isInteger(index)||!old||old.model!==next?.model)return null;
+          const spec=this.map.processorSpec({type:'fx',slot:index+1},next.model);if(!spec)return null;
+          bases.add(spec.basePath);if(spec.parametersBasePath)bases.add(spec.parametersBasePath);
+        }else if(path[0]==='desk'&&path[1]==='dca'&&path.length===4){
+          const old=before.desk?.dca?.[path[2]],group=after.desk?.dca?.[path[2]],suffix={level:'fdr',mute:'mute',solo:'$solo'}[path[3]];
+          if(!suffix||!group||old?.id!==group.id||!Number.isInteger(group.id)||group.id<1||group.id>16||id&&id!==`dca-${group.id}`)return null;
+          paths.add(`/dca/${group.id}/${suffix}`);
+        }else return null;
+      }
+      return {paths:[...paths],bases:[...bases],mutations:changed};
+    }
+    explainedMutation(before,after,changes,bases,mapping){
+      const projected=clone(before),next=mapping?.next||this.map.capture(after),descriptors=mapping?.descriptors||this.map.descriptors?.(after)||[];
       // Replay only the changed, mapped leaves into a projection. This detects
       // a compound UI operation that would otherwise silently keep an unmapped
       // half while transmitting its mapped half.
@@ -222,14 +338,22 @@
         if(a&&b&&typeof a==='object'&&typeof b==='object')return [...new Set([...Object.keys(a),...Object.keys(b)])].every(key=>check(a[key],b[key],p?.[key],[...path,key]));
         return same(b,p)||JSON.stringify(b)===JSON.stringify(p);
       };
+      // gestureScope has already compared the complete state. Recheck every
+      // changed branch against the real map projection, without walking the
+      // unchanged console a second time. Unrecognised edits use the full path.
+      if(mapping?.scope?.mutations){
+        const at=(state,path)=>path.reduce((value,key)=>value?.[key],state);
+        return mapping.scope.mutations.every(path=>check(at(before,path),at(after,path),at(projected,path),path));
+      }
       return check(before,after,projected);
     }
-    review(before,after,type){
+    review(before,after,type,id){
       if(!this.active()||this.applying)return {ok:true};
-      const previous=this.map.capture(before),next=this.map.capture(after),changes=[];
-      const readOnly=new Set((this.map.descriptors?.(after)||[]).filter(d=>d.readOnly).map(d=>d.path));
+      const scope=this.gestureScope(before,after,type,id),previous=this.map.capture(before,scope),next=this.map.capture(after,scope),changes=[];
+      const descriptors=this.map.descriptors?.(after,scope)||[],readOnly=new Set(descriptors.filter(d=>d.readOnly).map(d=>d.path));
       for(const [path,value]of next)if(!readOnly.has(path)&&previous.has(path)&&!equal(value,previous.get(path)))changes.push({path,value});
       if(!changes.length){
+        if(scope)return scope.mutations.length?{ok:false,reason:'Questo controllo non ha ancora un collegamento verificato. Apri «Parametri WING» per il valore del banco.'}:{ok:true};
         const a=clone(before),b=clone(after);
         for(const s of [a,b]){delete s.selected;delete s.sof;delete s.meters;if(s.desk)for(const k of localDeskKeys)delete s.desk[k];}
         return JSON.stringify(a)===JSON.stringify(b)?{ok:true}:{ok:false,reason:'Questo controllo non ha ancora un collegamento verificato. Apri «Parametri WING» per il valore del banco.'};
@@ -246,7 +370,18 @@
         if(meta.items){const item=meta.items.find(item=>equal(item.value,change.value))||meta.items.find(item=>String(item.value)===String(change.value));if(!item)return {ok:false,reason:'Questa opzione non è disponibile nel firmware collegato.'};change.value=item.value;}
         if(typeof change.value==='number'&&((meta.min!==undefined&&change.value<meta.min)||(meta.max!==undefined&&change.value>meta.max)))return {ok:false,reason:'Il valore supera i limiti dichiarati dal banco.'};
       }
-      if(!this.explainedMutation(before,after,filtered,bases))return {ok:false,reason:'Questa azione contiene un parametro senza collegamento verificato. Nessuna modifica è stata inviata.'};
+      if(!this.explainedMutation(before,after,filtered,bases,{next,descriptors,scope}))return {ok:false,reason:'Questa azione contiene un parametro senza collegamento verificato. Nessuna modifica è stata inviata.'};
+      if(type==='channel-list'){
+        // Order only the requested changes. Never insert temporary mutes or
+        // additional routing writes when applying a prepared channel list.
+        const priority=change=>{
+          if(/^\/(?:ch|aux|bus|main|mtx|dca)\/\d+\/mute$/.test(change.path))return Number(change.value)===1?0:6;
+          if(/\/(?:send\/(?:MX)?\d+|main\/\d+)\/on$/.test(change.path))return Number(change.value)===0?1:5;
+          if(/\/(?:send\/(?:MX)?\d+|main\/\d+)\/pon$/.test(change.path))return Number(change.value)===0?2:4;
+          return 3;
+        };
+        filtered.sort((a,b)=>priority(a)-priority(b));
+      }
       for(const base of bases){
         this.schemaLocks.add(base);
         // Drop parameter gestures before queueing mdl. They belong to the old
@@ -259,7 +394,7 @@
     }
     enqueue(path,value){
       const meta=this.metadata.get(path);this.pending.set(path,{path,value,revision:meta?.revision,epoch:this.epoch});
-      if(!this.writeTimer)this.writeTimer=setTimeout(()=>{this.writeTimer=null;this.drain();},35);
+      if(!this.writeTimer)this.writeTimer=setTimeout(()=>{this.writeTimer=null;this.drain();},16);
     }
     async recover(path,sample,epoch){
       if(epoch!==this.epoch||!this.connected())return;
@@ -332,11 +467,14 @@
       // FXIN/FXOUT reuse the source number for an FX slot. SOLO and monitor
       // taps are also not an EQ strip, even if a future enum has strip labels.
       const stripTap=['IN','POST','FILT','PREEQ','POSTEQ','PREFDR','GATEK','DYNK','DYNXO','PRETAP'].includes(this.values.get('/cfg/rta/$tap'));
-      const id=stripTap?(rtaReference(value)||rtaReference(item?.label)):null;
-      return {id,label:id?(item?.label||String(value)):Number.isInteger(value)?'Sorgente WING #'+value:'Sorgente WING non identificata'};
+      const numeric=stripTap&&rtaNumericDomain(meta,1)&&Number.isInteger(value)?rtaStrips[value-1]:null;
+      const id=stripTap?(rtaReference(value)||rtaReference(item?.label)||numeric?.id||null):null;
+      return {id,label:id?(item?.label||numeric?.label||String(value)):Number.isInteger(value)?'Sorgente WING #'+value:'Sorgente WING non identificata'};
     }
     rtaSources(){
-      const actual=this.metadata.get('/cfg/rta/$src')?.items||[],requested=this.metadata.get('/cfg/rta/rtasrc')?.items||[];
+      const actualMeta=this.metadata.get('/cfg/rta/$src'),requestedMeta=this.metadata.get('/cfg/rta/rtasrc');
+      if(rtaNumericDomain(actualMeta,1)&&rtaNumericDomain(requestedMeta,0))return rtaStrips.map((strip,i)=>({...strip,value:i+1}));
+      const actual=actualMeta?.items||[],requested=requestedMeta?.items||[];
       const known=new Set(actual.map(item=>rtaReference(item.value)||rtaReference(item.label)).filter(Boolean));
       return requested.map(item=>({id:rtaReference(item.value)||rtaReference(item.label),label:item.label,value:item.value})).filter(item=>item.id&&known.has(item.id));
     }
@@ -349,7 +487,8 @@
       const identity=this.rtaIdentity(sourceIndex),sourceId=identity.id,matches=this.rtaMatches();
       const age=this.rtaFrame?now-this.rtaFrame.receivedAt:null,verifiedAge=now-this.rtaVerifiedAt;
       const fresh=matches&&!this.rtaNeedsReport&&verifiedAge>=0&&verifiedAge<2500&&age!==null&&age>=0&&age<1200;
-      let status=!this.active()?'offline':!this.connected()?'disconnected':!request?'inactive':this.rtaError?'unavailable':this.rtaLoading?'loading':!request.followConsole&&!sourceId?'unmapped':!matches?(this.writable?'occupied':'readonly'):fresh?'live':age!==null?'stale':'waiting';
+      const mappingKnown=sourceId===request?.id||this.rtaSources().some(item=>item.id===request?.id);
+      let status=!this.active()?'offline':!this.connected()?'disconnected':!request?'inactive':this.rtaError?'unavailable':this.rtaLoading?'loading':!request.followConsole&&!mappingKnown?'unmapped':!matches?(this.writable?'occupied':'readonly'):fresh?'live':age!==null?'stale':'waiting';
       return {status,requestedId:request?.id||null,requestedTap:request?.tap||null,sourceId,sourceIndex:Number.isInteger(sourceIndex)?sourceIndex:null,tap:typeof tap==='string'?tap:null,
         sourceLabel:identity.label,mappingVerified:!!sourceId,followConsole:!!request?.followConsole,sources:this.rtaSources(),
         error:this.rtaError,binsRaw:fresh?this.rtaFrame.binsRaw:null,receivedAt:fresh?this.rtaFrame.receivedAt:null,reportId:this.rtaReportId,age,scale:'relative'};

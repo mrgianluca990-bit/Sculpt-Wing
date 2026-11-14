@@ -5,7 +5,14 @@
   const live=()=>window.SculptLive?.isLive?.()===true;
   const liveState=ctx=>live()?(window.SculptLive?.processorState?.(ctx)||{ready:false}):{ready:true};
   const effectiveParameter=(ctx,p)=>live()?{...p,...(window.SculptLive?.parameterDefinition?.(ctx,p.key)||{})}:p;
-  const editable=(ctx,p)=>!live()||!!(liveState(ctx).ready&&!liveState(ctx).loading&&!liveState(ctx).error&&!effectiveParameter(ctx,p).readOnly);
+  const parameterKnown=(ctx,p)=>{
+    if(!live())return true;
+    const state=liveState(ctx);if(!state.ready||state.loading||state.error)return false;
+    const source=window.SculptLive,definition=source?.parameterDefinition?.(ctx,p.key);
+    return !source?.hasValue||!!(definition?.path&&source.hasValue(definition.path));
+  };
+  const editable=(ctx,p)=>!live()||!!(parameterKnown(ctx,p)&&window.SculptLive?.isConnected?.()!==false&&window.SculptLive?.isWritable?.()!==false&&!effectiveParameter(ctx,p).readOnly);
+  const gestureSession=()=>live()?`wing:${window.SculptLive?.sessionToken?.()}`:'offline';
 
   const desk=()=>window.SculptDesk;
   const ctrl=()=>window.SculptController;
@@ -16,6 +23,7 @@
   const groupNames={'Input / output':'Input / Output','Controls':'Controlli','Master':'Master','Engine':'Engine','Reverb engine':'Riverbero','Reverb tail':'Coda del riverbero','Early reflections':'Prime riflessioni','Tone / decay':'Tono / Decay','Modulation / diffusion':'Modulazione / Diffusione','Tone / mix':'Tono / Mix','Multiband decay':'Decay per banda','Preset / display':'Preset / Vista','Crossover / alignment':'Crossover / Allineamento','Modulation':'Modulazione'};
   let opened=null;
   function el(tag,cls,text){const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;}
+  function text(node,value){const next=String(value);if(node.textContent!==next)node.textContent=next;}
   function btn(text,action,cls=''){const n=el('button',cls,text);n.type='button';if(action)n.addEventListener('click',action);return n;}
   function pretty(v,p){
     if(p?.type==='enum')return String(v);
@@ -81,9 +89,12 @@
     if(model.id!=='STD'&&model.layout!=='geq')return null;
     const box=el('div','fx-visual fx-eq-display');
     const svg=svgElement('svg',{viewBox:'0 0 640 190',role:'img','aria-label':model.id==='STD'?'Equalizzatore: trascina i punti per frequenza e guadagno':'Bande impostate dell’equalizzatore grafico'});
-    const X=f=>36+Math.log(clamp(f,20,20000)/20)/Math.log(1000)*584,Y=g=>85-clamp(g,-18,18)*3.5;
-    [20,50,100,200,500,1000,2000,5000,10000,20000].forEach(f=>{const x=X(f);svg.append(svgElement('line',{x1:x,y1:16,x2:x,y2:154,class:'fx-plot-grid'}));if([20,100,1000,10000,20000].includes(f)){const t=svgElement('text',{x,y:178,'text-anchor':'middle',class:'fx-axis-label'});t.textContent=f>=1000?`${f/1000}k`:f;svg.append(t);}});
-    [-15,0,15].forEach(g=>{const y=Y(g);svg.append(svgElement('line',{x1:36,y1:y,x2:620,y2:y,class:g===0?'fx-plot-zero':'fx-plot-grid'}));const t=svgElement('text',{x:27,y:y+3,'text-anchor':'end',class:'fx-axis-label'});t.textContent=g>0?`+${g}`:g;svg.append(t);});
+    let width=640,height=190,geometryVersion=0;
+    const region=()=>({left:36,top:16,width:width-56,height:height-52}),middle=()=>16+region().height/2,gainScale=()=>region().height/138*3.5;
+    const X=f=>36+Math.log(clamp(f,20,20000)/20)/Math.log(1000)*region().width,Y=g=>middle()-clamp(g,-18,18)*gainScale();
+    const frequencyGrid=[],gainGrid=[];box.plotRegion=region;
+    [20,50,100,200,500,1000,2000,5000,10000,20000].forEach(f=>{const x=X(f);svg.append(svgElement('line',{x1:x,y1:16,x2:x,y2:154,class:'fx-plot-grid'}));const grid=svg.lastElementChild;let label=null;if([20,100,1000,10000,20000].includes(f)){label=svgElement('text',{x,y:178,'text-anchor':'middle',class:'fx-axis-label'});label.textContent=f>=1000?`${f/1000}k`:f;svg.append(label);}frequencyGrid.push({frequency:f,grid,label});});
+    [-15,0,15].forEach(g=>{const y=Y(g);svg.append(svgElement('line',{x1:36,y1:y,x2:620,y2:y,class:g===0?'fx-plot-zero':'fx-plot-grid'}));const grid=svg.lastElementChild,t=svgElement('text',{x:27,y:y+3,'text-anchor':'end',class:'fx-axis-label'});t.textContent=g>0?`+${g}`:g;svg.append(t);gainGrid.push({gain:g,grid,label:t});});
     const fill=svgElement('path',{class:'fx-plot-fill'}),line=svgElement('path',{fill:'none',class:'fx-plot-line'});svg.append(fill,line);box.append(svg);
     const freq=value=>{const t=String(value).toLowerCase();if(t.includes('k')){const [a,b]=t.split('k');return Number(a)*1000+(b?Number(`0.${b}`)*1000:0);}return Number(t);};
     const defs=Object.fromEntries(model.parameters.map(p=>[p.key,p]));
@@ -95,27 +106,27 @@
       if(band.type==='high'&&eq==='SHV'){const s=2*Math.sqrt(A)*alpha;return [A*((A+1)+(A-1)*c+s),-2*A*((A-1)+(A+1)*c),A*((A+1)+(A-1)*c-s),(A+1)-(A-1)*c+s,2*((A-1)-(A+1)*c),(A+1)-(A-1)*c-s];}
       return [1+alpha*A,-2*c,1-alpha*A,1+alpha/A,-2*c,1-alpha/A];
     }
-    const samples=Array.from({length:193},(_,i)=>{const f=20*1000**(i/192),w=2*Math.PI*f/48000;return {x:X(f),c:Math.cos(w),s:Math.sin(w),c2:Math.cos(2*w),s2:Math.sin(2*w)};});
-    const bandResponses=new Map();
+    const samples=Array.from({length:193},(_,i)=>{const f=20*1000**(i/192),w=2*Math.PI*f/48000;return {frequency:f,x:X(f),c:Math.cos(w),s:Math.sin(w),c2:Math.cos(2*w),s2:Math.sin(2*w)};});
+    const bandResponses=new Map(),bandLines=model.id==='STD'?bands.map(b=>{const path=svgElement('path',{class:'fx-plot-band','data-band-curve':b.label,fill:'none'});svg.insertBefore(path,line);return path;}):[];
     function response(coeff,{c,s,c2,s2}){const [b0,b1,b2,a0,a1,a2]=coeff;const nr=(b0+b1*c+b2*c2)**2+(-b1*s-b2*s2)**2,dr=(a0+a1*c+a2*c2)**2+(-a1*s-a2*s2)**2;return 10*Math.log10(Math.max(nr,1e-15)/Math.max(dr,1e-15));}
     function plotPoint(event){
       // Client pixels are not viewBox coordinates: the responsive SVG keeps
       // its aspect ratio and can have margins on either axis.
       const matrix=svg.getScreenCTM?.();
       if(matrix){try{const m=matrix.inverse(),x=m.a*event.clientX+m.c*event.clientY+m.e,y=m.b*event.clientX+m.d*event.clientY+m.f;if(Number.isFinite(x)&&Number.isFinite(y))return {x,y};}catch{}return null;}
-      const rect=svg.getBoundingClientRect(),scale=Math.min(rect.width/640,rect.height/190);if(!(scale>0))return null;
-      return {x:(event.clientX-rect.left-(rect.width-640*scale)/2)/scale,y:(event.clientY-rect.top-(rect.height-190*scale)/2)/scale};
+      const rect=svg.getBoundingClientRect(),scale=Math.min(rect.width/width,rect.height/height);if(!(scale>0))return null;
+      return {x:(event.clientX-rect.left-(rect.width-width*scale)/2)/scale,y:(event.clientY-rect.top-(rect.height-height*scale)/2)/scale};
     }
     const markers=bands.map((b,i)=>{const group=svgElement('g',{class:'fx-eq-point','data-band':b.label,tabindex:'0',role:'slider','aria-label':`Banda ${b.label}`,style:`--band-color:${['#e58664','#d1b159','#8ebc80','#62b5af','#6e9dce','#9b8bd0','#ba83ad','#cf7983'][i%8]}`});const label=svgElement('text',{'text-anchor':'middle',y:3});label.textContent=b.label;group.append(svgElement('circle',{r:9}),label);svg.append(group);
       if(model.id==='STD'){
         let drag=null,active=true;
         const change=event=>{
-          if(!active||ctrl()?.historyState?.().busy||!editable(ctx,b.f)||!editable(ctx,b.g)){end();return;}
+          if(!active||drag.session!==gestureSession()||ctrl()?.historyState?.().busy||!editable(ctx,b.f)||!editable(ctx,b.g)){end();return;}
           const point=plotPoint(event);if(!point)return;
           const fine=event.shiftKey?.2:1,df=effectiveParameter(ctx,b.f),dg=effectiveParameter(ctx,b.g);
           drag.x=clamp(drag.x+(point.x-drag.last.x)*fine,X(df.min),X(df.max));
           drag.y=clamp(drag.y+(point.y-drag.last.y)*fine,Y(dg.max),Y(dg.min));drag.last=point;
-          if(desk().setParams(ctx,{[b.f.key]:normalize(df,20*1000**clamp((drag.x-36)/584,0,1)),[b.g.key]:normalize(dg,(85-drag.y)/3.5)})===false){end();return;}
+          if(desk().setParams(ctx,{[b.f.key]:normalize(df,20*1000**clamp((drag.x-36)/region().width,0,1)),[b.g.key]:normalize(dg,(middle()-drag.y)/gainScale())})===false){end();return;}
           update();
         };
         group.addEventListener('pointerdown',event=>{
@@ -123,13 +134,13 @@
           const point=plotPoint(event);if(!point)return;
           group.focus?.({preventScroll:true});
           const values=instance(ctx)?.params||{};
-          drag={pointer:event.pointerId,last:point,x:X(Number(values[b.f.key]??b.f.default)),y:Y(Number(values[b.g.key]??b.g.default))};
+          drag={pointer:event.pointerId,session:gestureSession(),last:point,x:X(Number(values[b.f.key]??b.f.default)),y:Y(Number(values[b.g.key]??b.g.default))};
           ctrl()?.beginGesture?.(`EQ ${b.label}`);group.setPointerCapture(event.pointerId);event.preventDefault();
         });
         group.addEventListener('pointermove',event=>{if(drag?.pointer===event.pointerId){event.preventDefault();change(event);}});
         const end=event=>{if(!drag||(event&&event.pointerId!==undefined&&event.pointerId!==drag.pointer))return;const pointer=drag.pointer;drag=null;if(group.hasPointerCapture?.(pointer))group.releasePointerCapture(pointer);ctrl()?.endGesture?.();};
         for(const name of ['pointerup','pointercancel','lostpointercapture'])group.addEventListener(name,end);
-        const blur=()=>end();window.addEventListener('blur',blur);bindings.cleanups?.push(()=>{active=false;end();window.removeEventListener('blur',blur);});
+        const blur=()=>end();window.addEventListener('blur',blur);bindings.cancelGestures?.push(end);bindings.cleanups?.push(()=>{active=false;end();window.removeEventListener('blur',blur);});
         group.style.touchAction='none';group.setAttribute('aria-description','Trascina per frequenza e guadagno. Maiusc per regolazione fine.');
         group.addEventListener('keydown',event=>{if(!active||ctrl()?.historyState?.().busy)return;const v=instance(ctx)?.params||{};if(['ArrowUp','ArrowDown'].includes(event.key)){event.preventDefault();setParam(ctx,b.g,Number(v[b.g.key]??b.g.default)+(event.key==='ArrowUp'?.1:-.1));}else if(['ArrowRight','ArrowLeft'].includes(event.key)){event.preventDefault();setParam(ctx,b.f,Number(v[b.f.key]??b.f.default)*(event.key==='ArrowRight'?1.03:1/1.03));}});
       }else{group.removeAttribute('tabindex');group.removeAttribute('role');}
@@ -137,15 +148,20 @@
     });
     const plotKeys=bands.flatMap(b=>[b.g.key,b.f?.key,b.q?.key,b.prefix&&b.prefix+'eq']).filter(Boolean);
     let plotSignature='';
-    function update(){const values=instance(ctx)?.params||{},signature=plotKeys.map(key=>values[key]).join('|');if(signature===plotSignature)return;plotSignature=signature;let points;
+    function update(){const values=instance(ctx)?.params||{},known=plotKeys.every(key=>!defs[key]||parameterKnown(ctx,defs[key])),signature=known+':'+plotKeys.map(key=>values[key]).join('|');if(signature===plotSignature)return;plotSignature=signature;box.dataset.known=String(known);let points;
       if(model.id==='STD'){
-        const curves=bands.map(b=>{const signature=[values[b.g.key],values[b.f.key],values[b.q.key],values[b.prefix+'eq']].join('|');let cached=bandResponses.get(b);if(!cached||cached.signature!==signature){const coeff=biquad(b,values);cached={signature,values:samples.map(sample=>response(coeff,sample))};bandResponses.set(b,cached);}return cached.values;});
+        const curves=bands.map((b,index)=>{const signature=[values[b.g.key],values[b.f.key],values[b.q.key],values[b.prefix+'eq']].join('|');let cached=bandResponses.get(b);if(!cached||cached.signature!==signature){const coeff=biquad(b,values);cached={signature,values:samples.map(sample=>response(coeff,sample))};bandResponses.set(b,cached);}if(cached.geometry!==geometryVersion){cached.geometry=geometryVersion;bandLines[index].setAttribute('d',samples.map((sample,i)=>`${i?'L':'M'}${sample.x.toFixed(2)},${Y(cached.values[i]).toFixed(2)}`).join(' '));}return cached.values;});
         points=samples.map((sample,i)=>[sample.x,Y(curves.reduce((sum,curve)=>sum+curve[i],0))]);
       }
       else points=bands.map(b=>[X(b.fixed),Y(Number(values[b.g.key]??b.g.default))]);
-      const d=points.map(([x,y],i)=>`${i?'L':'M'}${x.toFixed(2)},${y.toFixed(2)}`).join(' ');line.setAttribute('d',d);fill.setAttribute('d',`${d} L620,${Y(0)} L36,${Y(0)} Z`);
+      const d=points.map(([x,y],i)=>`${i?'L':'M'}${x.toFixed(2)},${y.toFixed(2)}`).join(' ');line.setAttribute('d',d);fill.setAttribute('d',`${d} L${width-20},${Y(0)} L36,${Y(0)} Z`);
       bands.forEach((b,i)=>{const f=b.fixed||Number(values[b.f.key]??b.f.default),g=Number(values[b.g.key]??b.g.default);markers[i].setAttribute('transform',`translate(${X(f)},${Y(g)})`);markers[i].setAttribute('aria-valuetext',`${Math.round(f)} Hz, ${g.toFixed(1)} dB`);});
     }
+    if(typeof ResizeObserver!=='undefined'){
+      const resize=new ResizeObserver(entries=>{const rect=entries.find(entry=>entry.target===svg)?.contentRect;if(!rect||rect.width<160||rect.height<90)return;const nextWidth=Math.round(rect.width),nextHeight=Math.round(rect.height);if(nextWidth===width&&nextHeight===height)return;for(const cancel of bindings.cancelGestures||[])cancel();width=nextWidth;height=nextHeight;geometryVersion++;svg.setAttribute('viewBox',`0 0 ${width} ${height}`);for(const item of frequencyGrid){const x=X(item.frequency);item.grid.setAttribute('x1',x);item.grid.setAttribute('x2',x);item.grid.setAttribute('y2',height-36);if(item.label){item.label.setAttribute('x',x);item.label.setAttribute('y',height-12);}}for(const item of gainGrid){const y=Y(item.gain);item.grid.setAttribute('x2',width-20);item.grid.setAttribute('y1',y);item.grid.setAttribute('y2',y);item.label.setAttribute('y',y+3);}for(const sample of samples)sample.x=X(sample.frequency);plotSignature='';update();});
+      resize.observe(svg);bindings.cleanups?.push(()=>resize.disconnect());
+    }
+    if(model.id==='STD'){let available='';bindings.push(()=>{const next=bands.map(b=>editable(ctx,b.f)&&editable(ctx,b.g)).join(':');if(next===available)return;available=next;bands.forEach((b,index)=>{const enabled=editable(ctx,b.f)&&editable(ctx,b.g);markers[index].setAttribute('aria-disabled',String(!enabled));markers[index].tabIndex=enabled?0:-1;});});}
     bindings.push(update);update();box.append(el('span','fx-plot-caption',model.id==='STD'?`Curva EQ calcolata a 48 kHz · nessun analizzatore audio${defs.tilt?' · tilt escluso dal grafico':''}`:'BANDE IMPOSTATE · nessun analizzatore audio'));return box;
   }
 
@@ -157,82 +173,134 @@
     return parameterControl(model,ctx,p,bindings,false,numericEnum?{kind:'knob'}:p.type==='enum'?{kind:'digital'}:{});
   }
 
-  function makeWingEq(model,ctx,bindings){
+  let surfaceId=0;
+  function makeWingEq(model,ctx,bindings,viewState){
     const layout=el('div','fx-wing-eq-layout'),display=el('section','fx-wing-display'),head=el('div','fx-wing-display-heading');
-    head.append(el('strong','','CURVA EQ'),el('span','fx-wing-analysis-status','RTA non disponibile'));display.append(head);
+    head.append(el('strong','','RISPOSTA EQ'),el('span','fx-wing-analysis-status','RTA non disponibile'));display.append(head);
     const plot=makePlot(model,ctx,bindings);display.append(plot);layout.append(display);
-    const editor=el('section','fx-wing-band-editor'),tabs=el('div','fx-wing-band-tabs'),panes=el('div','fx-wing-band-panes');
+    const editor=el('section','fx-wing-band-editor'),tabs=el('div','fx-wing-band-tabs'),panes=el('div','fx-wing-band-panes'),uid=`fx-eq-${++surfaceId}`;
     tabs.setAttribute('role','tablist');tabs.setAttribute('aria-label','Bande EQ');
-    const colors=['#e58664','#d1b159','#8ebc80','#62b5af','#6e9dce','#9b8bd0','#ba83ad','#cf7983'];
+    const colors=['#e99b73','#d9bb67','#8ecb98','#62c5c0','#83ace8','#b09aeb','#d491c4','#ed949f'];
     const bands=['l','1','2','3','4','5','6','h'].filter(id=>model.parameters.some(p=>p.key===id+'g')),entries=[];
     const choose=id=>{
-      if(!bands.includes(id))return;
+      if(!bands.includes(id))return;viewState.eqBand=id;
+      layout.style.setProperty('--active-band-color',colors[bands.indexOf(id)]);
       for(const entry of entries){const active=entry.id===id;entry.button.setAttribute('aria-selected',String(active));entry.button.tabIndex=active?0:-1;entry.pane.hidden=!active;}
       for(const point of plot.querySelectorAll('.fx-eq-point')){const active=point.dataset.band.toLowerCase()===id;point.classList.toggle('fx-eq-point-selected',active);point.setAttribute('aria-current',String(active));}
+      for(const curve of plot.querySelectorAll('.fx-plot-band'))curve.classList.toggle('fx-plot-band-selected',curve.dataset.bandCurve.toLowerCase()===id);
     };
     bands.forEach((id,index)=>{
-      const name=id==='l'?'LOW':id==='h'?'HIGH':`B${id}`,pane=el('section','fx-wing-band-pane'),row=el('div','fx-wing-knob-row'),button=btn(name,()=>choose(id),'fx-wing-band-tab');
-      pane.setAttribute('role','tabpanel');pane.setAttribute('aria-label',`Banda ${name}`);pane.style.setProperty('--band-color',colors[index]);button.style.setProperty('--band-color',colors[index]);
-      button.setAttribute('role','tab');button.setAttribute('aria-label',`Banda ${name}`);
-      const title=el('h4','fx-wing-control-heading',id==='l'?'LOW · banda bassa':id==='h'?'HIGH · banda alta':`BANDA ${id}`);pane.append(title);
+      const name=id==='l'?'LOW':id==='h'?'HIGH':`B${id}`,pane=el('section','fx-wing-band-pane'),row=el('div','fx-wing-knob-row'),button=btn('',()=>choose(id),'fx-wing-band-tab'),gain=el('output','fx-wing-band-gain');
+      pane.id=uid+'-pane-'+id;pane.setAttribute('role','tabpanel');pane.setAttribute('aria-labelledby',uid+'-tab-'+id);pane.setAttribute('aria-label',`Banda ${name}`);pane.style.setProperty('--band-color',colors[index]);button.style.setProperty('--band-color',colors[index]);
+      button.id=uid+'-tab-'+id;button.setAttribute('role','tab');button.setAttribute('aria-controls',pane.id);button.setAttribute('aria-label',`Banda ${name}`);button.append(el('span','fx-wing-band-name',name),gain);
+      const g=model.parameters.find(p=>p.key===id+'g'),f=model.parameters.find(p=>p.key===id+'f');
+      bindings.push(()=>{const known=parameterKnown(ctx,g),value=Number(rawValue(ctx,g));text(gain,known?`${value>0?'+':''}${pretty(value,g)}`:'—');const next=known?`${name} · ${pretty(rawValue(ctx,f),f)} Hz · ${value>0?'+':''}${pretty(value,g)} dB`:`${name} · valore non disponibile`;if(button.title!==next)button.title=next;});
+      const title=el('h4','fx-wing-control-heading',id==='l'?'BANDA BASSA':id==='h'?'BANDA ALTA':`BANDA ${id}`);pane.append(title);
       for(const key of [id+'f',id+'g',id+'q']){const control=wingControl(model,ctx,key,bindings);if(control)row.append(control);}
       pane.append(row);const shape=wingControl(model,ctx,id+'eq',bindings);if(shape){shape.classList.add('fx-wing-band-shape');pane.append(shape);}panes.append(pane);tabs.append(button);entries.push({id,pane,button});
       button.addEventListener('keydown',event=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;event.preventDefault();const next=event.key==='Home'?0:event.key==='End'?bands.length-1:(index+(event.key==='ArrowRight'?1:-1)+bands.length)%bands.length;choose(bands[next]);entries[next].button.focus();});
     });
     const selectPoint=event=>{const point=event.target.closest?.('.fx-eq-point');if(point)choose(point.dataset.band.toLowerCase());};
     plot.addEventListener('pointerdown',selectPoint);plot.addEventListener('focusin',selectPoint);
-    editor.append(tabs,panes);const tilt=wingControl(model,ctx,'tilt',bindings);if(tilt){tilt.classList.add('fx-wing-tilt');editor.append(tilt);}layout.append(editor);choose(bands.includes('1')?'1':bands[0]);
+    editor.append(tabs,panes);const tilt=wingControl(model,ctx,'tilt',bindings);if(tilt){tilt.classList.add('fx-wing-tilt');editor.append(tilt);}layout.append(editor);choose(bands.includes(viewState.eqBand)?viewState.eqBand:bands.includes('1')?'1':bands[0]);
     return layout;
   }
 
   function makeWingDynamicsPlot(model,ctx,bindings,kind){
-    const box=el('section',`fx-wing-chart fx-wing-chart-${kind}`),envelope=kind==='envelope',title=el('div','fx-wing-display-heading');
-    title.append(el('strong','',envelope?'INVILUPPO':'CURVA IN / OUT'),el('span','',envelope?'A · H · R':'Soglia / rapporto'));box.append(title);
-    const svg=svgElement('svg',{viewBox:envelope?'0 0 400 140':'0 0 400 220',role:'img','aria-label':envelope?'Inviluppo impostato: attack, hold, release':'Curva statica di riferimento: soglia e rapporto'}),curve=svgElement('path',{class:'fx-wing-dynamics-line'});
+    const box=el('section',`fx-wing-chart fx-wing-chart-${kind}`),envelope=kind==='envelope',title=el('div','fx-wing-display-heading'),readout=el('output','fx-wing-chart-value');
+    title.append(el('strong','',envelope?'ATTACK · HOLD · RELEASE':'INGRESSO / USCITA'),readout);box.append(title);
+    const svg=svgElement('svg',{viewBox:'0 0 400 240',role:'img','aria-label':envelope?'Inviluppo impostato: attack, hold, release':'Curva statica di riferimento: soglia e rapporto'}),curve=svgElement('path',{class:'fx-wing-dynamics-line'});
     const read=(key,fallback)=>{const p=model.parameters.find(parameter=>parameter.key===key);return p?rawValue(ctx,p):fallback;};
+    const required=(envelope?['att','hld','rel']:['thr','ratio','range']).map(key=>model.parameters.find(parameter=>parameter.key===key)).filter(Boolean);let knownBefore;
+    bindings.push(()=>{const known=required.every(parameter=>parameterKnown(ctx,parameter));if(known===knownBefore)return;knownBefore=known;box.dataset.known=String(known);});
+    const caption=(value,x,y,anchor='middle')=>{const node=svgElement('text',{x,y,'text-anchor':anchor,class:'fx-axis-label'});node.textContent=value;svg.append(node);};
     let signature='';
     if(envelope){
-      for(const y of [24,72,120])svg.append(svgElement('line',{x1:16,y1:y,x2:384,y2:y,class:'fx-plot-grid'}));svg.append(curve);
-      bindings.push(()=>{const values=['att','hld','rel'].map(key=>Math.max(0,Number(read(key,0))||0)),next=values.join('|');if(next===signature)return;signature=next;const total=Math.max(1,values.reduce((a,b)=>a+b,0)),attack=16+values[0]/total*368,hold=attack+values[1]/total*368;curve.setAttribute('d',`M16,120 L${attack},24 L${hold},24 L384,120`);});
+      for(const y of [36,118,200])svg.append(svgElement('line',{x1:28,y1:y,x2:378,y2:y,class:'fx-plot-grid'}));
+      caption('TEMPO',203,228);svg.append(curve);
+      const attackMark=svgElement('line',{y1:36,y2:200,class:'fx-wing-threshold'}),holdMark=svgElement('line',{y1:36,y2:200,class:'fx-wing-threshold'});svg.insertBefore(attackMark,curve);svg.insertBefore(holdMark,curve);
+      bindings.push(()=>{const values=['att','hld','rel'].map(key=>Math.max(0,Number(read(key,0))||0)),next=values.join('|');if(next===signature)return;signature=next;const total=Math.max(1,values.reduce((a,b)=>a+b,0)),attack=28+values[0]/total*350,hold=attack+values[1]/total*350;curve.setAttribute('d',`M28,200 L${attack},36 L${hold},36 L378,200`);for(const [mark,x]of [[attackMark,attack],[holdMark,hold]]){mark.setAttribute('x1',x);mark.setAttribute('x2',x);}text(readout,values.map(value=>pretty(value,{step:.1})).join(' / ')+' ms');});
     }else{
-      const min=-80,max=0,X=value=>35+(value-min)/(max-min)*340,Y=value=>190-(clamp(value,min,max)-min)/(max-min)*174;
-      for(let value=min;value<=max;value+=20){svg.append(svgElement('line',{x1:X(value),y1:16,x2:X(value),y2:190,class:'fx-plot-grid'}),svgElement('line',{x1:35,y1:Y(value),x2:375,y2:Y(value),class:'fx-plot-grid'}));const text=svgElement('text',{x:X(value),y:210,'text-anchor':'middle',class:'fx-axis-label'});text.textContent=value;svg.append(text);}
-      const threshold=svgElement('line',{y1:16,y2:190,class:'fx-wing-threshold'});svg.append(svgElement('line',{x1:35,y1:190,x2:375,y2:16,class:'fx-wing-unity'}),threshold,curve);
+      const min=-80,max=0,X=value=>44+(value-min)/(max-min)*334,Y=value=>200-(clamp(value,min,max)-min)/(max-min)*172;
+      for(let value=min;value<=max;value+=20){svg.append(svgElement('line',{x1:X(value),y1:28,x2:X(value),y2:200,class:'fx-plot-grid'}),svgElement('line',{x1:44,y1:Y(value),x2:378,y2:Y(value),class:'fx-plot-grid'}));caption(value,X(value),218);caption(value,35,Y(value)+3,'end');}
+      caption('IN dB',378,236,'end');caption('OUT dB',44,17,'start');
+      const threshold=svgElement('line',{y1:28,y2:200,class:'fx-wing-threshold'});svg.append(svgElement('line',{x1:44,y1:200,x2:378,y2:28,class:'fx-wing-unity'}),threshold,curve);
       bindings.push(()=>{const t=Number(read('thr',-20)),rawRatio=String(read('ratio',2)),ratio=Math.max(1,parseFloat(rawRatio.split(':').at(-1))||1),range=Number(read('range',60)),gate=rawRatio.toLowerCase()==='gate',next=[t,rawRatio,range].join('|');if(next===signature)return;signature=next;
-        const path=Array.from({length:161},(_,i)=>{const x=min+i/160*(max-min);let y=x;if(model.id==='EXP'&&x<t)y=t+(x-t)*ratio;else if(model.id==='GATE'&&x<t)y=x-Math.min(range,gate?range:(t-x)*(ratio-1));else if(model.id==='DUCK'&&x>=t)y=x-range;else if(model.id==='COMP'&&x>t)y=t+(x-t)/ratio;return `${i?'L':'M'}${X(x).toFixed(2)},${Y(y).toFixed(2)}`;}).join(' ');curve.setAttribute('d',path);threshold.setAttribute('x1',X(t));threshold.setAttribute('x2',X(t));});
+        const path=Array.from({length:161},(_,i)=>{const x=min+i/160*(max-min);let y=x;if(model.id==='EXP'&&x<t)y=t+(x-t)*ratio;else if(model.id==='GATE'&&x<t)y=x-Math.min(range,gate?range:(t-x)*(ratio-1));else if(model.id==='DUCK'&&x>=t)y=x-range;else if(model.id==='COMP'&&x>t)y=t+(x-t)/ratio;return `${i?'L':'M'}${X(x).toFixed(2)},${Y(y).toFixed(2)}`;}).join(' ');curve.setAttribute('d',path);threshold.setAttribute('x1',X(t));threshold.setAttribute('x2',X(t));text(readout,`Soglia ${pretty(t,{step:.1,unit:'dB'})} dB`);});
     }
     box.append(svg);box.title=envelope?'Inviluppo ricavato dai tempi impostati, non misurato sul segnale.':'Curva statica di riferimento: knee, makeup, inviluppo e audio non sono rappresentati.';return box;
   }
 
-  function makeWingDynamics(model,ctx,bindings){
-    const layout=el('div','fx-wing-dynamics-layout'),graphs=el('div','fx-wing-dynamics-graphs'),controls=el('div','fx-wing-dynamics-controls');
-    graphs.append(makeWingDynamicsPlot(model,ctx,bindings,'transfer'),makeWingDynamicsPlot(model,ctx,bindings,'envelope'),el('p','fx-wing-reference-note','Curve dei parametri · nessuna misura audio'));
-    const used=new Set(),groups=[['Dinamica',['thr','ratio','knee','range','acc'],'detection'],['Uscita',['gain','mix'],'output'],['Tempi',['att','hld','rel'],'timing'],['Detector / Envelope',['det','env','auto'],'options']];
+  function makeWingDynamics(model,ctx,bindings,viewState){
+    const layout=el('div','fx-wing-dynamics-layout'),graphs=el('div','fx-wing-dynamics-graphs'),controls=el('div','fx-wing-dynamics-controls'),tabs=el('div','fx-wing-graph-tabs'),uid=`fx-dynamics-${++surfaceId}`,charts=[];
+    tabs.setAttribute('role','tablist');tabs.setAttribute('aria-label','Grafico della dinamica');
+    const choose=kind=>{viewState.dynamicsGraph=kind;for(const entry of charts){const selected=entry.kind===kind;entry.chart.hidden=!selected;entry.button.setAttribute('aria-selected',String(selected));entry.button.tabIndex=selected?0:-1;}};
+    for(const [kind,label]of [['transfer','Curva'],['envelope','Inviluppo']]){
+      const chart=makeWingDynamicsPlot(model,ctx,bindings,kind),button=btn(label,()=>choose(kind),'fx-wing-graph-tab');chart.id=uid+'-'+kind;chart.setAttribute('role','tabpanel');chart.setAttribute('aria-labelledby',chart.id+'-tab');button.id=chart.id+'-tab';button.setAttribute('role','tab');button.setAttribute('aria-controls',chart.id);tabs.append(button);charts.push({kind,chart,button});
+      button.addEventListener('keydown',event=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;event.preventDefault();const next=event.key==='Home'?'transfer':event.key==='End'?'envelope':kind==='transfer'?'envelope':'transfer';choose(next);charts.find(entry=>entry.kind===next).button.focus();});
+    }
+    graphs.append(tabs,...charts.map(entry=>entry.chart),el('p','fx-wing-reference-note','Curve dei parametri · nessuna misura audio'));choose(viewState.dynamicsGraph||'transfer');
+    const used=new Set(),groups=[['Soglia e rapporto',['thr','ratio','knee','range','acc'],'detection'],['Tempi',['att','hld','rel'],'timing'],['Uscita',['gain','mix'],'output'],['Rilevamento',['det','env','auto'],'options']];
     for(const [title,keys,group]of groups){const section=el('section',`fx-wing-control-group fx-wing-group-${group}`),row=el('div','fx-wing-knob-row');for(const key of keys){const control=wingControl(model,ctx,key,bindings);if(control){row.append(control);used.add(key);}}if(row.childElementCount){section.append(el('h4','fx-wing-control-heading',title),row);controls.append(section);}}
     const remaining=model.parameters.filter(p=>!used.has(p.key));if(remaining.length){const section=el('section','fx-wing-control-group'),row=el('div','fx-wing-knob-row');for(const p of remaining)row.append(wingControl(model,ctx,p.key,bindings));section.append(el('h4','fx-wing-control-heading','Altri parametri'),row);controls.append(section);}
     layout.append(graphs,controls);return layout;
+  }
+
+  function makeWingFilter(model,ctx,bindings){
+    const layout=el('div','fx-wing-filter-layout'),overview=el('section','fx-wing-filter-overview'),controls=el('section','fx-wing-control-group'),row=el('div','fx-wing-knob-row');
+    const allPass=['AP1','AP2'].includes(model.id),descriptions={TILT:'Bilanciamento fra frequenze basse e alte.',MAX:'Contorno delle basse e definizione delle alte.',AP1:'Filtro all pass a un polo.',AP2:'Filtro all pass a due poli.'};
+    overview.append(el('span','fx-wing-filter-kicker','FILTRO WING'),el('h4','fx-wing-filter-name',model.name.replace(' Filter','').replace(' (all pass)','')),el('p','fx-wing-filter-description',descriptions[model.id]||'Parametri del filtro.'));
+    if(allPass){
+      const svg=svgElement('svg',{viewBox:'0 0 420 128',role:'img','aria-label':'Frequenza impostata del filtro all pass'}),X=value=>24+Math.log(clamp(value,20,20000)/20)/Math.log(1000)*372;
+      for(const frequency of [20,100,1000,10000,20000]){const x=X(frequency);svg.append(svgElement('line',{x1:x,y1:12,x2:x,y2:94,class:'fx-plot-grid'}));const label=svgElement('text',{x,y:117,'text-anchor':'middle',class:'fx-axis-label'});label.textContent=frequency>=1000?frequency/1000+'k':frequency;svg.append(label);}
+      const marker=svgElement('g',{class:'fx-wing-filter-marker'}),value=svgElement('text',{x:0,y:22,'text-anchor':'middle',class:'fx-wing-filter-frequency'});marker.append(svgElement('line',{x1:0,y1:32,x2:0,y2:94}),svgElement('circle',{cx:0,cy:70,r:5}),value);svg.append(marker);overview.append(svg,el('small','fx-wing-filter-note','Frequenza impostata · la fase non è rappresentata'));
+      const frequency=model.parameters.find(p=>p.unit==='Hz');let last;
+      bindings.push(()=>{const known=parameterKnown(ctx,frequency),current=rawValue(ctx,frequency),signature=String(known)+':'+current;if(signature===last)return;last=signature;marker.setAttribute('visibility',known?'visible':'hidden');if(known){marker.setAttribute('transform',`translate(${X(Number(current))},0)`);text(value,pretty(current,frequency)+' Hz');}});
+    }else{
+      const labels=el('div','fx-wing-filter-values');
+      for(const parameter of model.parameters){const cell=el('div'),value=el('output');cell.append(el('span','',parameter.label),value);labels.append(cell);bindings.push(()=>text(value,parameterKnown(ctx,parameter)?pretty(rawValue(ctx,parameter),parameter)+(parameter.unit?' '+parameter.unit:''):'—'));}
+      overview.append(labels,el('small','fx-wing-filter-note','Valori del filtro · nessuna misura audio'));
+    }
+    controls.append(el('h4','fx-wing-control-heading','Regolazione'));for(const parameter of model.parameters)row.append(wingControl(model,ctx,parameter.key,bindings));controls.append(row);layout.append(overview,controls);return layout;
   }
 
   function parameterControl(model,ctx,p,bindings,compact=false,presentation={}){
     p=effectiveParameter(ctx,p);
     if(presentation.optionLabels&&!p.optionLabels)p={...p,optionLabels:presentation.optionLabels};
     const wrap=el('div',`fx-control fx-control-${p.type}${compact?' fx-control-fader':''}`);wrap.dataset.parameter=p.key;
-    const gestureAllowed=()=>editable(ctx,p)&&!wrap.closest('[hidden],details:not([open])');
+    let active=true;const mountedSession=gestureSession();
+    const canEdit=()=>active&&wrap.isConnected&&gestureSession()===mountedSession&&editable(ctx,p);
+    const commitValue=value=>{if(canEdit())setParam(ctx,p,value);};
+    const parentBindings=bindings;
+    // Only this value and its availability can change this control. Meter,
+    // routing and neighbouring parameter notifications leave its DOM alone.
+    bindings={cleanups:parentBindings.cleanups,cancelGestures:parentBindings.cancelGestures,push(update){
+      let previous;
+      parentBindings.push(()=>{
+        const value=rawValue(ctx,p),known=parameterKnown(ctx,p),writable=editable(ctx,p),next=[value,known,writable];
+        if(previous&&next.every((item,index)=>Object.is(item,previous[index])))return;previous=next;
+        wrap.classList.toggle('fx-control-readonly',!writable);wrap.classList.toggle('fx-control-unknown',!known);update();
+        if(!known){for(const node of wrap.querySelectorAll('input,select')){node.value='';node.disabled=true;if(node.tagName==='INPUT')node.placeholder='—';}for(const slider of wrap.querySelectorAll('[role=slider]')){slider.removeAttribute('aria-valuenow');slider.setAttribute('aria-valuetext','Valore non disponibile');}const value=wrap.querySelector('.fx-toggle span');if(value)text(value,'—');}
+      });
+    }};
+    bindings.cleanups?.push(()=>{active=false;});
+    const gestureAllowed=()=>canEdit()&&!ctrl()?.historyState?.().busy&&!wrap.closest('[hidden],details:not([open])');
     if(p.readOnly)wrap.classList.add('fx-control-readonly');
     const label=el('label','fx-control-label',p.label);wrap.append(label);
     if(p.type==='string'){
-      const input=el('input','fx-select fx-text');input.type='text';input.maxLength=p.maxLength||256;input.setAttribute('aria-label',p.label);input.addEventListener('change',()=>{if(editable(ctx,p))desk().setParam(ctx,p.key,input.value);});wrap.append(input);const sync=()=>{input.disabled=!editable(ctx,p);if(document.activeElement!==input)input.value=String(rawValue(ctx,p)??'');};bindings.push(sync);sync();return wrap;
+      const input=el('input','fx-select fx-text');input.type='text';input.maxLength=p.maxLength||256;input.setAttribute('aria-label',p.label);input.addEventListener('change',()=>{if(canEdit())desk().setParam(ctx,p.key,input.value);});wrap.append(input);const sync=()=>{input.disabled=!editable(ctx,p);if(document.activeElement!==input)input.value=String(rawValue(ctx,p)??'');};bindings.push(sync);sync();return wrap;
     }
     if(p.type==='boolean'){
       if(presentation.kind==='buttons'){
         const choices=el('div','fx-enum-buttons');choices.setAttribute('role','group');choices.setAttribute('aria-label',p.label);
-        const buttons=[0,1].map(value=>{const label=p.optionLabels?.[value]||(value?'ON':'OFF'),button=btn(label,()=>setParam(ctx,p,value),'fx-enum-button');button.setAttribute('aria-label',label);button.dataset.choice=label;choices.append(button);return button;});wrap.append(choices);
+        const buttons=[0,1].map(value=>{const label=p.optionLabels?.[value]||(value?'ON':'OFF'),button=btn(label,()=>commitValue(value),'fx-enum-button');button.setAttribute('aria-label',label);button.dataset.choice=label;choices.append(button);return button;});wrap.append(choices);
         const sync=()=>{const current=Number(rawValue(ctx,p))?1:0;buttons.forEach((button,value)=>{button.disabled=!editable(ctx,p);button.setAttribute('aria-pressed',String(current===value));});};bindings.push(sync);sync();return wrap;
       }
       const isTrigger=p.key==='load';
       const toggle=btn(isTrigger?'LOAD':'',()=>{
+        if(!canEdit())return;
         if(isTrigger){if(live()){if(editable(ctx,p))Promise.resolve(window.SculptLive?.triggerProcessor?.(ctx,p.key)).catch(error=>ui().toast(error.message||String(error)));}else loadFactoryDemo(ctx,model);return;}
-        setParam(ctx,p,!Number(rawValue(ctx,p)));
+        commitValue(!Number(rawValue(ctx,p)));
       },'fx-toggle');toggle.setAttribute('aria-label',p.label);toggle.setAttribute('role',isTrigger?'button':'switch');
       const lamp=el('i');const text=el('span','',isTrigger?'LOAD':'OFF');toggle.replaceChildren(lamp,text);wrap.append(toggle);
       const sync=()=>{toggle.disabled=!editable(ctx,p);const on=!!Number(rawValue(ctx,p));toggle.classList.toggle('on',on);if(!isTrigger){toggle.setAttribute('aria-checked',String(on));text.textContent=p.optionLabels?.[on?1:0]||(on?'ON':'OFF');}};
@@ -240,27 +308,27 @@
     }
     if(p.type==='enum'){
       if(presentation.kind==='switch'){
-        const toggle=btn('',()=>{if(!editable(ctx,p))return;const index=Math.max(0,p.options.findIndex(value=>String(value)===String(rawValue(ctx,p))));setParam(ctx,p,p.options[(index+1)%p.options.length]);},'fx-toggle');toggle.setAttribute('role','switch');toggle.setAttribute('aria-label',p.label);toggle.append(el('i'),el('span'));wrap.append(toggle);
+        const toggle=btn('',()=>{if(!editable(ctx,p))return;const index=Math.max(0,p.options.findIndex(value=>String(value)===String(rawValue(ctx,p))));commitValue(p.options[(index+1)%p.options.length]);},'fx-toggle');toggle.setAttribute('role','switch');toggle.setAttribute('aria-label',p.label);toggle.append(el('i'),el('span'));wrap.append(toggle);
         const sync=()=>{const index=Math.max(0,p.options.findIndex(value=>String(value)===String(rawValue(ctx,p)))),on=index>0;toggle.disabled=!editable(ctx,p);toggle.classList.toggle('on',on);toggle.setAttribute('aria-checked',String(on));toggle.querySelector('span').textContent=p.optionLabels?.[index]||String(p.options[index]);};bindings.push(sync);sync();return wrap;
       }
       const select=el('select','fx-select');select.setAttribute('aria-label',p.label);
       for(const [index,value]of p.options.entries()){const option=el('option','',p.optionLabels?.[index]||String(value));option.value=String(value);select.append(option);}
-      select.addEventListener('change',()=>setParam(ctx,p,select.value));wrap.append(select);
+      select.addEventListener('change',()=>commitValue(select.value));wrap.append(select);
       let enumButtons=[];
       if(presentation.kind==='knob'||presentation.kind==='ring'){
         const rotary=el('div','fx-knob fx-rotary-choice');rotary.tabIndex=0;rotary.setAttribute('role','slider');rotary.setAttribute('aria-label',p.label);rotary.setAttribute('aria-valuemin','0');rotary.setAttribute('aria-valuemax',String(p.options.length-1));rotary.append(el('i','fx-knob-pointer'));wrap.insertBefore(rotary,select);
         const selectedIndex=()=>Math.max(0,p.options.findIndex(value=>String(value)===String(rawValue(ctx,p))));
-        const choose=index=>setParam(ctx,p,p.options[clamp(Math.round(index),0,p.options.length-1)]);
+        const choose=index=>commitValue(p.options[clamp(Math.round(index),0,p.options.length-1)]);
         let gesture=null;
-        rotary.addEventListener('pointerdown',event=>{if(!gestureAllowed()||(event.pointerType==='mouse'&&event.button!==0))return;ctrl()?.beginGesture?.(p.label);gesture={pointer:event.pointerId,y:event.clientY,index:selectedIndex()};rotary.setPointerCapture(event.pointerId);rotary.classList.add('dragging');event.preventDefault();});
-        rotary.addEventListener('pointermove',event=>{if(!gesture||gesture.pointer!==event.pointerId)return;if(!gestureAllowed()){release(event);return;}choose(gesture.index+(gesture.y-event.clientY)/18*(event.shiftKey?.25:1));event.preventDefault();});
-        const release=event=>{if(gesture?.pointer!==event.pointerId)return;gesture=null;rotary.classList.remove('dragging');if(rotary.hasPointerCapture?.(event.pointerId))rotary.releasePointerCapture(event.pointerId);ctrl()?.endGesture?.();};bindings.cleanups?.push(()=>{if(gesture)release({pointerId:gesture.pointer});});for(const type of ['pointerup','pointercancel','lostpointercapture'])rotary.addEventListener(type,release);
-        rotary.addEventListener('keydown',event=>{const delta={ArrowUp:1,ArrowRight:1,ArrowDown:-1,ArrowLeft:-1}[event.key];if(delta!==undefined){event.preventDefault();choose(selectedIndex()+delta);}else if(event.key==='Home'||event.key==='End'){event.preventDefault();choose(event.key==='Home'?0:p.options.length-1);}});
+        rotary.addEventListener('pointerdown',event=>{if(!gestureAllowed()||(event.pointerType==='mouse'&&event.button!==0))return;ctrl()?.beginGesture?.(p.label);gesture={pointer:event.pointerId,session:gestureSession(),y:event.clientY,index:selectedIndex()};rotary.setPointerCapture(event.pointerId);rotary.classList.add('dragging');event.preventDefault();});
+        rotary.addEventListener('pointermove',event=>{if(!gesture||gesture.pointer!==event.pointerId)return;if(gesture.session!==gestureSession()||!gestureAllowed()){release(event);return;}choose(gesture.index+(gesture.y-event.clientY)/18*(event.shiftKey?.25:1));event.preventDefault();});
+        const release=event=>{if(!gesture||event?.pointerId!==undefined&&gesture.pointer!==event.pointerId)return;const pointer=gesture.pointer;gesture=null;rotary.classList.remove('dragging');if(rotary.hasPointerCapture?.(pointer))rotary.releasePointerCapture(pointer);ctrl()?.endGesture?.();};bindings.cancelGestures?.push(release);bindings.cleanups?.push(release);for(const type of ['pointerup','pointercancel','lostpointercapture'])rotary.addEventListener(type,release);
+        rotary.addEventListener('keydown',event=>{if(!gestureAllowed())return;const delta={ArrowUp:1,ArrowRight:1,ArrowDown:-1,ArrowLeft:-1}[event.key];if(delta!==undefined){event.preventDefault();choose(selectedIndex()+delta);}else if(event.key==='Home'||event.key==='End'){event.preventDefault();choose(event.key==='Home'?0:p.options.length-1);}});
         bindings.push(()=>{const index=selectedIndex(),writable=editable(ctx,p),pos=index/Math.max(1,p.options.length-1);rotary.style.setProperty('--turn',`${-135+(presentation.reverse?1-pos:pos)*270}deg`);rotary.setAttribute('aria-valuenow',String(index));rotary.setAttribute('aria-valuetext',p.optionLabels?.[index]||String(p.options[index]));rotary.title=`${p.label}: ${p.optionLabels?.[index]||String(p.options[index])}${p.unit?' '+p.unit:''}`;rotary.setAttribute('aria-disabled',String(!writable));rotary.tabIndex=writable?0:-1;});
       }else if((p.options.length<=6||presentation.kind==='buttons')&&!['value','digital','preset'].includes(presentation.kind)){
         const choices=el('div','fx-enum-buttons');select.classList.add('fx-select-with-buttons');
         const ordered=presentation.order?[...p.options].sort((a,b)=>{const ai=presentation.order.findIndex(v=>String(v)===String(a)),bi=presentation.order.findIndex(v=>String(v)===String(b));return (ai<0?999:ai)-(bi<0?999:bi);}):p.options;
-        enumButtons=ordered.map(value=>{const index=p.options.indexOf(value),b=btn(p.optionLabels?.[index]||String(value),()=>setParam(ctx,p,value),'fx-enum-button');b.setAttribute('aria-label',`${p.label}: ${value}`);b.dataset.choice=p.optionLabels?.[index]||String(value);choices.append(b);return [b,value];});wrap.append(choices);
+        enumButtons=ordered.map(value=>{const index=p.options.indexOf(value),b=btn(p.optionLabels?.[index]||String(value),()=>commitValue(value),'fx-enum-button');b.setAttribute('aria-label',`${p.label}: ${value}`);b.dataset.choice=p.optionLabels?.[index]||String(value);choices.append(b);return [b,value];});wrap.append(choices);
       }
       const sync=()=>{select.disabled=!editable(ctx,p);const current=String(rawValue(ctx,p));if(document.activeElement!==select)select.value=current;for(const [b,value]of enumButtons){b.disabled=!editable(ctx,p);b.setAttribute('aria-pressed',String(current===String(value)));}};bindings.push(sync);sync();return wrap;
     }
@@ -272,18 +340,18 @@
     const limits=el('div','fx-control-limits');limits.append(el('span','',pretty(p.min,p)),el('span','',pretty(p.max,p)));wrap.append(limits);
     const sync=()=>{const writable=editable(ctx,p);input.disabled=!writable;knob.setAttribute('aria-disabled',String(!writable));knob.tabIndex=writable?0:-1;const value=Number(rawValue(ctx,p)),pos=position(p,value);knob.style.setProperty('--turn',`${-135+(presentation.reverse?1-pos:pos)*270}deg`);knob.style.setProperty('--position',pos);knob.setAttribute('aria-valuenow',String(value));knob.setAttribute('aria-valuetext',`${pretty(value,p)} ${p.unit||''}`);knob.title=`${p.label}: ${pretty(value,p)} ${p.unit||''}`;if(document.activeElement!==input)input.value=String(Number(value.toFixed(3)));};
     let drag=null;
-    knob.addEventListener('pointerdown',event=>{if(!gestureAllowed())return;if(event.pointerType==='mouse'&&event.button!==0)return;if(compact&&event.target!==pointer&&!pointer.contains(event.target))return;const rect=knob.getBoundingClientRect(),capRect=pointer.getBoundingClientRect();ctrl()?.beginGesture?.(p.label);drag={id:event.pointerId,y:event.clientY,x:event.clientX,pos:position(p,rawValue(ctx,p)),travel:compact?Math.max(20,horizontal?rect.width-capRect.width-10:rect.height-capRect.height-10):130};knob.setPointerCapture(event.pointerId);knob.classList.add('dragging');event.preventDefault();});
-    knob.addEventListener('pointermove',event=>{if(!drag||drag.id!==event.pointerId)return;if(!gestureAllowed()){end(event);return;}const sensitivity=event.shiftKey?.2:1,delta=horizontal?event.clientX-drag.x:drag.y-event.clientY;setParam(ctx,p,atPosition(p,drag.pos+delta/drag.travel*sensitivity));sync();event.preventDefault();});
-    const end=event=>{if(drag?.id!==event.pointerId)return;drag=null;knob.classList.remove('dragging');if(knob.hasPointerCapture?.(event.pointerId))knob.releasePointerCapture(event.pointerId);ctrl()?.endGesture?.();};bindings.cleanups?.push(()=>{if(drag)end({pointerId:drag.id});});knob.addEventListener('pointerup',end);knob.addEventListener('pointercancel',end);knob.addEventListener('lostpointercapture',end);
-    if(!compact)knob.addEventListener('dblclick',()=>{setParam(ctx,p,p.default);sync();});
+    knob.addEventListener('pointerdown',event=>{if(!gestureAllowed())return;if(event.pointerType==='mouse'&&event.button!==0)return;if(compact&&event.target!==pointer&&!pointer.contains(event.target))return;const rect=knob.getBoundingClientRect(),capRect=pointer.getBoundingClientRect();ctrl()?.beginGesture?.(p.label);drag={id:event.pointerId,session:gestureSession(),y:event.clientY,x:event.clientX,pos:position(p,rawValue(ctx,p)),travel:compact?Math.max(20,horizontal?rect.width-capRect.width-10:rect.height-capRect.height-10):130};knob.setPointerCapture(event.pointerId);knob.classList.add('dragging');event.preventDefault();});
+    knob.addEventListener('pointermove',event=>{if(!drag||drag.id!==event.pointerId)return;if(drag.session!==gestureSession()||!gestureAllowed()){end(event);return;}const sensitivity=event.shiftKey?.2:1,delta=horizontal?event.clientX-drag.x:drag.y-event.clientY;commitValue(atPosition(p,drag.pos+delta/drag.travel*sensitivity));sync();event.preventDefault();});
+    const end=event=>{if(!drag||event?.pointerId!==undefined&&drag.id!==event.pointerId)return;const pointer=drag.id;drag=null;knob.classList.remove('dragging');if(knob.hasPointerCapture?.(pointer))knob.releasePointerCapture(pointer);ctrl()?.endGesture?.();};bindings.cancelGestures?.push(end);bindings.cleanups?.push(end);knob.addEventListener('pointerup',end);knob.addEventListener('pointercancel',end);knob.addEventListener('lostpointercapture',end);
+    if(!compact)knob.addEventListener('dblclick',()=>{if(!gestureAllowed())return;commitValue(p.default);sync();});
     knob.addEventListener('keydown',event=>{
-      if(!editable(ctx,p))return;const current=Number(rawValue(ctx,p));let next;
+      if(!gestureAllowed())return;const current=Number(rawValue(ctx,p));let next;
       if(event.key==='ArrowUp'||event.key==='ArrowRight')next=p.log?atPosition(p,position(p,current)+.01):current+p.step*(event.shiftKey?10:1);
       else if(event.key==='ArrowDown'||event.key==='ArrowLeft')next=p.log?atPosition(p,position(p,current)-.01):current-p.step*(event.shiftKey?10:1);
       else if(event.key==='Home')next=p.min;else if(event.key==='End')next=p.max;else return;
-      event.preventDefault();setParam(ctx,p,next);sync();
+      event.preventDefault();commitValue(next);sync();
     });
-    const commit=()=>{if(input.value.trim()!==''&&Number.isFinite(input.valueAsNumber))setParam(ctx,p,input.valueAsNumber);input.value=String(rawValue(ctx,p));sync();};
+    const commit=()=>{if(input.value.trim()!==''&&Number.isFinite(input.valueAsNumber))commitValue(input.valueAsNumber);input.value=String(rawValue(ctx,p));sync();};
     input.addEventListener('change',commit);input.addEventListener('blur',commit);input.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();commit();input.blur();}});
     bindings.push(sync);sync();return wrap;
   }
@@ -422,40 +490,74 @@
   }
 
   function renderProcessor(container,context,options={}){
-    const ctx={...context};let alive=true,bindings=[],surfaceCleanups=[],modelId=null,activeGroup='Tutti',building=false,hydrating=false,hydratedModel=null,liveMode=live(),stateSignature='',processorSignature='';
+    const ctx={...context};let alive=true,bindings=[],surfaceCleanups=[],modelId=null,activeGroup='Tutti',building=false,hydrating=false,hydratedModel=null,liveMode=live(),mountedSession=gestureSession(),stateSignature='',modelSchema='',modelKeys=[],processorValues=[],viewState={};
     const presentationState=()=>JSON.stringify([liveState(ctx),live()?window.SculptLive?.isConnected?.():null,live()?window.SculptLive?.isWritable?.():null,live()?window.SculptLive?.sessionToken?.():null]);
+    const schemaState=()=>JSON.stringify((Cat.get(ctx,instance(ctx)?.model)?.parameters||[]).map(parameter=>{const p=effectiveParameter(ctx,parameter);return [p.key,p.type,p.path,p.revision,p.min,p.max,p.step,p.log,p.unit,p.maxLength,p.options,p.optionLabels];}));
+    const valuesFor=proc=>[proc.enabled,proc.mix,proc.stripId,proc.position,...modelKeys.map(key=>proc.params?.[key])];
+    const cancelGestures=()=>{for(const cancel of bindings.cancelGestures||[])cancel();};
     function hydrate(){
       if(!alive||!live()||hydrating||!window.SculptLive?.ensureProcessor||window.SculptLive.isConnected&& !window.SculptLive.isConnected())return;
       const current=instance(ctx)?.model;if(hydratedModel===current&&liveState(ctx).ready)return;
       hydratedModel=current;hydrating=true;
-      Promise.resolve(window.SculptLive.ensureProcessor(ctx)).then(()=>{hydrating=false;if(alive)build();},error=>{hydrating=false;if(alive){build();ui().toast(error.message||String(error));}});
+      Promise.resolve(window.SculptLive.ensureProcessor(ctx)).then(()=>{hydrating=false;if(alive)synchronize();},error=>{hydrating=false;if(alive){synchronize();ui().toast(error.message||String(error));}});
     }
     const synchronize=()=>{
       if(!alive||building)return;
       const proc=instance(ctx);if(!proc)return;
       const nextSignature=presentationState();
-      if(proc.model!==modelId||liveMode!==live()||nextSignature!==stateSignature){activeGroup='Tutti';build();hydrate();return;}
-      const nextProcessorSignature=JSON.stringify(proc);if(nextProcessorSignature===processorSignature)return;processorSignature=nextProcessorSignature;
+      if(proc.model!==modelId||liveMode!==live()||mountedSession!==gestureSession()){if(proc.model!==modelId||liveMode!==live()){activeGroup='Tutti';viewState={};}build();hydrate();return;}
+      const presentationChanged=nextSignature!==stateSignature;
+      if(presentationChanged){cancelGestures();if(liveState(ctx).ready&&schemaState()!==modelSchema){build();hydrate();return;}stateSignature=nextSignature;}
+      const nextValues=valuesFor(proc);if(!presentationChanged&&nextValues.length===processorValues.length&&nextValues.every((value,index)=>Object.is(value,processorValues[index])))return;processorValues=nextValues;
       for(const update of bindings)update();
     };
     function build(){
-      building=true;for(const dispose of surfaceCleanups)dispose();surfaceCleanups=[];bindings=[];bindings.cleanups=surfaceCleanups;container.replaceChildren();
+      const focused=document.activeElement,focusControl=container.contains(focused)?focused.closest?.('[data-parameter]'):null;
+      const restoreFocus=focusControl&&modelId===instance(ctx)?.model?{key:focusControl.dataset.parameter,tag:focused.tagName,type:focused.type,role:focused.getAttribute('role')}:null;
+      const oldScroll=[container.scrollLeft,container.scrollTop],oldFace=container.querySelector('.fx-face'),faceScroll=oldFace?[oldFace.scrollLeft,oldFace.scrollTop]:null;
+      building=true;for(const dispose of surfaceCleanups)dispose();surfaceCleanups=[];bindings=[];bindings.cleanups=surfaceCleanups;bindings.cancelGestures=[];container.replaceChildren();
+      const complete=face=>{
+        building=false;for(const update of bindings)update();
+        container.scrollLeft=oldScroll[0];container.scrollTop=oldScroll[1];if(faceScroll&&face){face.scrollLeft=faceScroll[0];face.scrollTop=faceScroll[1];}
+        if(restoreFocus){const control=[...container.querySelectorAll('[data-parameter]')].find(node=>node.dataset.parameter===restoreFocus.key),target=control&&[...control.querySelectorAll('input,select,button,[role=slider]')].find(node=>node.tagName===restoreFocus.tag&&node.type===restoreFocus.type&&node.getAttribute('role')===restoreFocus.role);if(target&&!target.disabled&&target.getAttribute('aria-disabled')!=='true'&&!target.closest('[hidden]'))target.focus({preventScroll:true});}
+      };
       const proc=instance(ctx),available=Cat.list(ctx);
       if(!proc||!available.length){container.append(el('p','desk-note','Questo blocco non è presente su questa famiglia di canali.'));building=false;return;}
       modelId=proc.model;let model=Cat.get(ctx,modelId);
       if(!model){if(live()){container.append(el('p','desk-note',`Modello ${modelId}: il banco espone questo processore, ma non è presente nel catalogo grafico locale. Usa l’esploratore dei parametri WING.`));building=false;return;}model=available[0];desk().setModel(ctx,model.id);modelId=model.id;}
       const panel=Panels?.forModel(model)||{face:model.layout,sections:[...new Set(model.parameters.map(p=>p.group||'Controls'))].map(title=>({title,keys:model.parameters.filter(p=>(p.group||'Controls')===title).map(p=>p.key)})),heroes:[],subtitle:model.name};
-      stateSignature=presentationState();liveMode=live();processorSignature=JSON.stringify(proc);
-      const wingEditor=options.rotaryBank&&((model.id==='STD'&&model.layout==='eq')||(model.category==='gate_dynamics'&&['GATE','DUCK','COMP','EXP'].includes(model.id)));
-      const wrapper=el('div',`fx-processor fx-theme-${model.theme} fx-layout-${model.layout} fx-panel-${panel.face}`);wrapper.dataset.model=model.id;wrapper.dataset.context=keyFor(ctx);if(wingEditor)wrapper.classList.add('fx-wing-editor',model.id==='STD'?'fx-wing-eq':'fx-wing-dynamics');container.append(wrapper);
+      stateSignature=presentationState();liveMode=live();mountedSession=gestureSession();modelSchema=schemaState();modelKeys=model.parameters.map(parameter=>parameter.key);processorValues=valuesFor(proc);
+      const wingEditor=panel.native||(model.id==='STD'&&model.layout==='eq'?'eq':model.category==='gate_dynamics'&&['GATE','DUCK','COMP','EXP'].includes(model.id)?'dynamics':model.category==='filter'?'filter':null);
+      const wrapper=el('div',`fx-processor fx-theme-${model.theme} fx-layout-${model.layout} fx-panel-${panel.face}`);wrapper.dataset.model=model.id;wrapper.dataset.context=keyFor(ctx);if(wingEditor)wrapper.classList.add('fx-wing-editor');if(wingEditor&&!options.principal)wrapper.classList.add('fx-wing-'+wingEditor);container.append(wrapper);
+      const surfaceSession=gestureSession();
+      // A browser can deliver blur/change after a card was collapsed or after
+      // reconnect. Obsolete surfaces never commit into a replacement session.
+      const rejectObsolete=event=>{if(!alive||!wrapper.isConnected||surfaceSession!==gestureSession()){event.preventDefault();event.stopImmediatePropagation();}};
+      for(const type of ['click','change','input','blur','keydown','pointerdown'])wrapper.addEventListener(type,rejectObsolete,true);
+      if(options.principal){
+        wrapper.classList.add('fx-principal');
+        const priorities=model.category==='eq'?['1f','1g','1q','tilt','lf','lg','lq']:model.category==='filter'?model.parameters.map(parameter=>parameter.key):model.layout==='dynamics'?['thr','ratio','att','rel','gain','in','out','mix']:['dcy','time','pdel','feed','size','mix','gain','in','out'];
+        const candidates=[...(model.category==='eq'?[]:panel.heroes||[]),...priorities,...model.parameters.map(parameter=>parameter.key)];
+        const keys=[...new Set(candidates)].filter(key=>model.parameters.some(parameter=>parameter.key===key&&parameter.key!=='load')).slice(0,model.category==='eq'&&!model.parameters.some(parameter=>parameter.key==='tilt')?3:4);
+        const controls=el('section','fx-principal-controls');controls.setAttribute('aria-label',`Parametri principali · ${model.name}`);
+        for(const key of keys)controls.append(wingControl(model,ctx,key,bindings));
+        if(!keys.length)controls.append(el('p','fx-principal-empty',model.id==='NONE'?'Slot disponibile':'Espandi per aprire il processore.'));
+        wrapper.append(controls);
+        if(live()){const note=el('p','fx-principal-note');wrapper.append(note);bindings.push(()=>{const state=liveState(ctx);text(note,state.error?String(state.error):!state.ready||state.loading?'Lettura WING…':window.SculptLive?.isConnected?.()===false?'WING non collegata':window.SculptLive?.isWritable?.()===false?'Solo lettura':'');note.hidden=!note.textContent;});}
+        complete(controls);return;
+      }
       const toolbar=el('div','fx-processor-toolbar');
+      if(wingEditor)toolbar.append(el('span','fx-processor-family','WING'));
       const select=el('select','fx-model-select');select.setAttribute('aria-label',`Modello ${ctx.type==='fx'?'FX '+ctx.slot:ctx.block}`);
       let category='';let group;
       available.forEach(item=>{if(item.category!==category){category=item.category;group=el('optgroup');group.label=categoryNames[category]||category;select.append(group);}const opt=el('option','',item.name);opt.value=item.id;group.append(opt);});select.value=model.id;
-      select.addEventListener('change',()=>{desk().setModel(ctx,select.value);activeGroup='Tutti';hydratedModel=null;build();hydrate();});toolbar.append(select);
-      const power=btn('',()=>desk().enableProcessor(ctx,!instance(ctx).enabled),'fx-power');power.setAttribute('aria-label','Processore attivo');power.setAttribute('role','switch');toolbar.append(power);bindings.push(()=>{const on=!!instance(ctx).enabled;power.textContent=on?'IN':'BYPASS';power.classList.toggle('active',on);power.setAttribute('aria-checked',String(on));wrapper.classList.toggle('fx-bypassed',!on);});
+      select.addEventListener('change',()=>{hydratedModel=null;const accepted=desk().setModel(ctx,select.value);if(accepted===false)select.value=instance(ctx).model;else synchronize();hydrate();});toolbar.append(select);
+      const power=btn('',()=>desk().enableProcessor(ctx,!instance(ctx).enabled),'fx-power');power.setAttribute('aria-label','Processore attivo');power.setAttribute('role','switch');toolbar.append(power);let powerSignature='';bindings.push(()=>{const state=liveState(ctx),on=!!instance(ctx).enabled,writable=!live()||state.ready&&!state.loading&&!state.error&&window.SculptLive?.isConnected?.()!==false&&window.SculptLive?.isWritable?.()!==false,signature=[on,writable].join(':');if(signature===powerSignature)return;powerSignature=signature;text(power,on?'IN':'BYPASS');power.classList.toggle('active',on);power.setAttribute('aria-checked',String(on));power.disabled=!writable;select.disabled=!writable;wrapper.classList.toggle('fx-bypassed',!on);});
       wrapper.append(toolbar);
-      if(live()){const state=liveState(ctx),status=el('div',`fx-connection-status ${state.ready?'ready':''}`);status.append(el('i'),el('span','',window.SculptLive.isConnected&&!window.SculptLive.isConnected()?'WING non collegata':state.error?String(state.error):state.loading||!state.ready?'Lettura del processore dalla WING…':'Parametri sincronizzati con WING'));wrapper.append(status);}
+      if(live()){
+        const status=el('div','fx-connection-status'),label=el('span');status.append(el('i'),label);if(wingEditor)toolbar.insertBefore(status,power);else wrapper.append(status);let statusSignature='';
+        bindings.push(()=>{const state=liveState(ctx),connected=window.SculptLive?.isConnected?.()!==false,writable=window.SculptLive?.isWritable?.()!==false,signature=[state.ready,state.loading,state.error,connected,writable].join(':');if(signature===statusSignature)return;statusSignature=signature;const ready=connected&&state.ready&&!state.loading&&!state.error;status.classList.toggle('ready',!!ready);status.classList.toggle('readonly',!writable);text(label,!connected?'WING non collegata':state.error?String(state.error):!ready?'Lettura WING…':!writable?'Solo lettura':'Sincronizzato');status.title=label.textContent;wrapper.classList.toggle('fx-awaiting',!ready);});
+      }
       if(ctx.type==='fx'){
         const routing=el('div','fx-routing');const assign=el('select','fx-assignment');assign.setAttribute('aria-label',`Assegna FX ${ctx.slot}`);
         const empty=el('option','','Non assegnato');empty.value='';assign.append(empty);
@@ -471,18 +573,19 @@
       }else{
         const reference=referenceFor(model);let used=new Set(),sectionParent=face;
         if(wingEditor){
-          face.append(model.id==='STD'?makeWingEq(model,ctx,bindings):makeWingDynamics(model,ctx,bindings));used=new Set(model.parameters.map(p=>p.key));
+          face.append(wingEditor==='eq'?makeWingEq(model,ctx,bindings,viewState):wingEditor==='dynamics'?makeWingDynamics(model,ctx,bindings,viewState):makeWingFilter(model,ctx,bindings));used=new Set(model.parameters.map(p=>p.key));
         }else if(reference){
           wrapper.classList.add('fx-original-enabled');const original=makeReferenceSurface(model,ctx,reference,bindings,surfaceCleanups,options.rotaryBank?{minScale:.35,fitWithin:container.closest?.('.editor-panel')}:{ });face.append(original.element);used=original.used;
           if(model.parameters.some(p=>!used.has(p.key))){const extras=el('details','fx-original-extras');extras.append(el('summary','','Altri controlli del processore'));face.append(extras);sectionParent=extras;if(model.id==='VSS3'){bindings.push(()=>{extras.open=!!Number(instance(ctx)?.params?.view);});}}
         }else{const plot=makePlot(model,ctx,bindings);if(plot)face.append(plot);}
         const sections=panel.sections.map(part=>({...part,keys:part.keys.filter(key=>!used.has(key))})).filter(part=>part.keys.length);
-        const tabs=el('div','fx-section-tabs');
-        if(sections.length>1&&!reference){for(const name of ['Tutti',...sections.map(s=>s.title)]){const b=btn(groupNames[name]||name,()=>{activeGroup=name;build();},'fx-section-tab');b.setAttribute('aria-pressed',String(activeGroup===name));tabs.append(b);}sectionParent.append(tabs);}
+        const tabs=el('div','fx-section-tabs'),sectionNodes=[],sectionButtons=[];
+        const selectGroup=name=>{cancelGestures();activeGroup=name;for(const [button,title]of sectionButtons)button.setAttribute('aria-pressed',String(title===name));for(const [section,title]of sectionNodes)section.hidden=name!=='Tutti'&&title!==name;};
+        if(sections.length>1&&!reference){for(const name of ['Tutti',...sections.map(s=>s.title)]){const b=btn(groupNames[name]||name,()=>selectGroup(name),'fx-section-tab');b.setAttribute('aria-pressed',String(activeGroup===name));tabs.append(b);sectionButtons.push([b,name]);}sectionParent.append(tabs);}
         const surface=el('div','fx-panel-sections');if(sections.length)sectionParent.append(surface);
         for(const [index,part] of sections.entries()){
-          if(activeGroup!=='Tutti'&&activeGroup!==part.title)continue;
           const section=el('section','fx-panel-section');section.dataset.section=part.title;section.style.setProperty('--section-hue',[25,43,105,163,207,258,305,345][index%8]);
+          if(!reference){section.hidden=activeGroup!=='Tutti'&&activeGroup!==part.title;sectionNodes.push([section,part.title]);}
           const heading=el('h4','fx-section-title');heading.append(el('span','fx-section-index',String(index+1).padStart(2,'0')),el('span','',groupNames[part.title]||part.title));section.append(heading);
           const isBands=model.layout==='geq'&&part.title==='Bands',isKeys=model.id==='PCORR'&&part.title==='Notes';
           const grid=el('div',isBands?'fx-geq-bank':isKeys?'fx-piano-keyboard':'fx-knob-grid');
@@ -502,9 +605,9 @@
         if(graph&&heading){
           const host=el('div','fx-rta-inline'),oldStatus=heading.querySelector('.fx-wing-analysis-status');
           if(oldStatus)oldStatus.replaceWith(host);else heading.append(host);
-          surfaceCleanups.push(window.SculptRTA.mount(host,{sourceId:ctx.id,tap:'PREEQ',overlay:graph,compact:true,region:{left:36,top:16,width:584,height:138}}));
+          surfaceCleanups.push(window.SculptRTA.mount(host,{sourceId:ctx.id,tap:'PREEQ',overlay:graph,compact:true,region:()=>face.querySelector('.fx-eq-display')?.plotRegion?.()||{left:36,top:16,width:584,height:138}}));
         }else{
-          const details=el('details','fx-rta-detail'),host=el('div');details.append(el('summary','','RTA · spettro WING'),host);wrapper.append(details);
+          const details=el('details','fx-rta-detail'),host=el('div');details.open=true;details.append(el('summary','','RTA · spettro WING'),host);wrapper.append(details);
           surfaceCleanups.push(window.SculptRTA.mount(host,{sourceId:ctx.id,tap:'PREEQ',compact:true,details}));
         }
       }
@@ -524,23 +627,23 @@
       }
       const tools=el('div','fx-tools');
       tools.append(btn('Preset',()=>browsePresets(ctx)),btn('Salva',()=>savePreset(ctx,model)),btn('Copia',()=>{desk().change(s=>s.pluginClipboard={...clone(instance(ctx)),bucket:presetBucket(ctx)});ui().toast('Processore copiato');}),btn('Incolla',()=>{const clip=desk().get().pluginClipboard;if(!clip){ui().toast('Copia prima un processore');return;}if(clip.bucket!==presetBucket(ctx)){ui().toast('Copia un processore della stessa sezione');return;}if(applyParams(ctx,clip.model,clip.params,clip.enabled,clip.mix))ui().toast('Processore incollato');}),btn('Reset',()=>{const params=Cat.defaults(ctx,model.id);if(applyParams(ctx,model.id,params,true,100))ui().toast('Parametri ripristinati');}));
+      let toolsWritable;bindings.push(()=>{const state=liveState(ctx),writable=!live()||state.ready&&!state.loading&&!state.error&&window.SculptLive?.isWritable?.()!==false&&window.SculptLive?.isConnected?.()!==false;if(writable===toolsWritable)return;toolsWritable=writable;for(const button of [...tools.children].filter(node=>['Incolla','Reset','TAP'].includes(node.textContent)))button.disabled=!writable;});
       if(['delay','reverb'].includes(model.layout)){
         const time=model.parameters.find(p=>/^(time|delay|tl|dl|pdel|rvpdly)$/.test(p.key)&&p.type==='number');
         if(time){let lastTap=0;const tap=btn('TAP',()=>{const now=performance.now();if(lastTap&&now-lastTap<3000){setParam(ctx,time,now-lastTap);ui().toast(`${time.label}: ${pretty(rawValue(ctx,time),time)} ${time.unit}`);}lastTap=now;},'fx-tap');tap.setAttribute('aria-label','Tap tempo');tools.append(tap);}
       }
-      wrapper.append(tools);
+      toolbar.append(tools);
       if(ctx.type==='fx'&&model.id!=='NONE'){
         const mix=el('div','fx-wetdry');mix.append(el('label','','DRY / WET'));
         const range=el('input');range.type='range';range.min='0';range.max='100';range.step='1';range.setAttribute('aria-label','Mix dello slot FX');const output=el('output');
         range.addEventListener('input',()=>desk().setProcessorMix(ctx,Number(range.value)));mix.append(range,output);wrapper.append(mix);
-        bindings.push(()=>{range.value=String(instance(ctx).mix??100);output.textContent=`${instance(ctx).mix??100}%`;});
+        bindings.push(()=>{range.disabled=live()&&(!liveState(ctx).ready||window.SculptLive?.isWritable?.()===false||window.SculptLive?.isConnected?.()===false);range.value=String(instance(ctx).mix??100);text(output,`${instance(ctx).mix??100}%`);});
       }
       wrapper.append(el('p','fx-demo-caption',live()?`${model.parameters.length} controlli · valori e disponibilità letti dal banco. L’elaborazione audio avviene sulla WING.`:`${model.parameters.length} controlli · modalità offline: parametri locali, nessuna elaborazione audio.`));
-      if(live()&&!liveState(ctx).ready){wrapper.classList.add('fx-awaiting');wrapper.querySelectorAll('button,input,select').forEach(node=>{node.disabled=true;});wrapper.querySelectorAll('[role=slider]').forEach(node=>{node.setAttribute('aria-disabled','true');node.tabIndex=-1;});}
-      building=false;for(const update of bindings)update();
+      complete(face);
     }
-    build();hydrate();const unsubscribe=desk().subscribe(synchronize),unsubscribeLive=window.SculptLive?.subscribe?.(synchronize);
-    return ()=>{alive=false;unsubscribe?.();unsubscribeLive?.();for(const dispose of surfaceCleanups)dispose();surfaceCleanups=[];bindings=[];};
+    build();hydrate();const unsubscribe=desk().subscribe(synchronize),unsubscribeLive=window.SculptLive?.subscribe?.(synchronize);window.addEventListener('blur',cancelGestures);
+    return ()=>{alive=false;unsubscribe?.();unsubscribeLive?.();window.removeEventListener('blur',cancelGestures);for(const dispose of surfaceCleanups)dispose();surfaceCleanups=[];bindings=[];};
   }
 
   function open(context){
@@ -578,6 +681,6 @@
     if(args?.slot)open({type:'fx',slot:Number(args.slot)});
     return ()=>unsubscribe?.();
   }
-  window.SculptFX={renderProcessor,open};
+  window.SculptFX={renderProcessor,renderPrincipal:(container,context)=>renderProcessor(container,context,{principal:true}),open};
   ui().register('fx',{title:'FX Rack',subtitle:'16 processori stereo',render:rack});
 })();

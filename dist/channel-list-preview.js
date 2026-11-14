@@ -1,4 +1,5 @@
-/* Editable local scene preparation. The preview never writes mixer state until Apply. */
+/* Editable scene preparation. The preview writes only after explicit Apply;
+ * a connected WING uses verified parameters and authoritative readback. */
 (function(root){
   'use strict';
   const labelFor=id=>String(id||'').replace(/^ch-/,'CH ').replace(/^aux-/,'AUX ').replace(/^bus-/,'BUS ');
@@ -25,7 +26,7 @@
     if(!U?.modal||!I||!S?.prepareDraft||!C?.getState)throw new Error('L’anteprima della scena non è disponibile. Riapri l’app aggiornata.');
     const el=U.el,button=U.button,pane=el('section','cl-import cl-scene-import');
     const getState=()=>C.getState();
-    let draft=null,tab='channels',renderedTab=null,sendRowId='',sendScope='instrument',generation=0,abort=null,busy=false,closed=false,sourceName='',rowNodes=new Map(),monitorNodes=new Map(),remainingNodes=new Map(),monitorSequence=0;
+    let draft=null,tab='channels',renderedTab=null,sendRowId='',sendScope='instrument',generation=0,abort=null,busy=false,applyingLive=false,closed=false,sourceName='',rowNodes=new Map(),monitorNodes=new Map(),remainingNodes=new Map(),monitorSequence=0;
     const positions=new Map();
     // These checkboxes select an editing operation, independently of the rows to import.
     let groupSelection=new Set(),activeGroupKey='',newGroupName='',groupReferenceId='',moveTargetKey='',groupView='group';
@@ -34,13 +35,19 @@
     const importLine=el('div','cl-import-line'),file=el('input','desk-input cl-file');file.type='file';file.accept='.pdf,application/pdf';file.setAttribute('aria-label','Scegli channel list PDF');
     const details=el('details','cl-paste'),summary=el('summary','','Incolla testo'),textarea=el('textarea','desk-input');textarea.rows=4;textarea.placeholder='1 Kick\n2 Snare\n3 Bass';textarea.setAttribute('aria-label','Testo della channel list');
     const parseButton=button('Leggi il testo',()=>{
+      if(applyingLive)return;
       if(!textarea.value.trim()){status.textContent='Incolla almeno una riga.';return;}
       cancelRead();try{install(I.parseText(textarea.value),'Lista incollata');details.open=false;}catch(error){status.textContent=error.message;}
     },'cl-parse');details.append(summary,textarea,parseButton);importLine.append(file,details);
     const status=el('p','cl-status','Scegli un PDF, incolla la lista oppure aggiungi un canale vuoto. La lettura avviene sul dispositivo.');status.setAttribute('role','status');
     const preview=el('div','cl-preview'),footer=el('div','cl-footer'),selectionSummary=el('p','cl-selection'),validationNote=el('p','cl-live-note'),editedNote=el('p','cl-edited-note');
     const apply=button('Applica scena',()=>{
-      if(!draft)return;let result;
+      if(!draft||busy)return;
+      if(live()){
+        const available=S.liveAvailability(environment());if(!available.ok){status.textContent=available.message;refreshStatus();return;}
+        void applyLive();return;
+      }
+      let result;
       try{result=S.applyDraft(draft,environment());}catch(error){result={ok:false,message:error.message||'Non è stato possibile applicare la scena.'};}
       status.textContent=result.message;
       if(result.ok){if(result.undo?.length)lastUndo=result.undo;handle.close();U.toast(result.message);return;}
@@ -52,13 +59,29 @@
     undo.title='Annulla l’ultima importazione applicata in questa sessione, se i suoi valori non sono stati modificati.';
     const actions=el('div','cl-actions'),close=button('Chiudi',()=>handle.close());actions.append(undo,close,apply);footer.append(selectionSummary,editedNote,validationNote,actions);pane.append(intro,importLine,status,preview,footer);
     const handle=active=U.modal('Importa channel list',pane);handle.dialog.classList.add('cl-modal','cl-scene-modal');
+    async function applyLive(){
+      const disabled=[...handle.dialog.querySelectorAll('button,input,select,textarea')].map(node=>[node,node.disabled]);
+      applyingLive=true;busy=true;pane.setAttribute('aria-busy','true');for(const [node]of disabled)node.disabled=true;
+      status.textContent='Preparazione dei parametri della scena sulla WING…';
+      let result;
+      try{result=await S.applyDraftLive(draft,environment(),{onProgress:progress=>{if(!closed)status.textContent=progress.message;}});}
+      catch(error){result={ok:false,message:error.message||'Non è stato possibile applicare la scena alla WING.'};}
+      finally{applyingLive=false;busy=false;pane.removeAttribute('aria-busy');for(const [node,value]of disabled)if(node.isConnected)node.disabled=value;}
+      if(closed){U.toast(result.message);return;}
+      status.textContent=result.message;
+      if(result.ok){handle.close();U.toast(result.message);return;}
+      refreshStatus();
+    }
+    handle.dialog.addEventListener('cancel',event=>{if(applyingLive)event.preventDefault();});
+    handle.dialog.addEventListener('click',event=>{if(applyingLive&&event.target===handle.dialog){event.preventDefault();event.stopImmediatePropagation();}},{capture:true});
     function cancelRead(){generation++;abort?.abort();abort=null;busy=false;}
     function validation(){return draft?S.validateDraft(draft,getState()):{ok:false,errors:[],warnings:[],rowErrors:{},selectedCount:0,remainingCount:0,sendCount:0};}
     function refreshStatus(){
-      if(closed)return;const v=validation(),blocked=live();
+      if(closed)return;if(applyingLive){apply.disabled=true;undo.disabled=true;return;}
+      const v=validation(),blocked=live(),availability=blocked?S.liveAvailability(environment()):{ok:true};
       selectionSummary.textContent=draft?`${v.selectedCount??draft.rows.filter(row=>row.selected).length} canali importati · ${draft.monitors.length} monitor · ${v.remainingCount||0} canali rimanenti da inizializzare`:'';
-      validationNote.textContent=blocked?'Modalità WING attiva: puoi preparare l’anteprima. Passa alla demo offline per applicare la scena.':v.errors?.[0]||v.warnings?.[0]||'';
-      apply.disabled=busy||blocked||!v.ok;undo.hidden=!lastUndo?.length;undo.disabled=blocked||busy||!lastUndo?.length;
+      validationNote.textContent=blocked?(availability.ok?(v.errors?.[0]||'Applica invia questa scena alla WING e attende la conferma dei valori. I nomi collegati seguono CLINK; eventuali conflitti con sorgenti condivise vengono segnalati prima dell’invio.'):availability.message):v.errors?.[0]||v.warnings?.[0]||'';
+      apply.disabled=busy||!availability.ok||!v.ok;apply.title=blocked?'Applica al banco collegato i valori mostrati nell’anteprima':'Applica al progetto locale';undo.hidden=!lastUndo?.length;undo.disabled=blocked||busy||!lastUndo?.length;
       const selected=draft?.rows.filter(row=>row.selected)||[],opened=selected.filter(row=>row.mute===false).length,raised=selected.filter(row=>Number.isFinite(row.level)&&row.level>-90).length;
       const independent=selected.reduce((count,row)=>count+Object.values(row.sends||{}).filter(send=>send.on&&send.followMute===false).length,0);
       editedNote.textContent=[opened||raised?`Hai modificato i valori iniziali: ${opened} canali con mute disattivato, ${raised} fader sopra −∞.`:'',independent?`${independent} mandate attive non seguono il mute del canale.`:''].filter(Boolean).join(' ');
@@ -331,6 +354,7 @@
     }
     function install(result,label){draft=S.prepareDraft(result,getState());sourceName=label;tab='channels';sendRowId='';sendScope='instrument';groupSelection.clear();activeGroupKey='';newGroupName='';groupReferenceId='';moveTargetKey='';groupView='group';positions.clear();renderedTab=null;status.textContent=result.warnings?.length?result.warnings.join(' '):`${draft.rows.length} righe lette. Controlla le quattro schede prima di applicare.`;paint();}
     file.addEventListener('change',async()=>{
+      if(applyingLive)return;
       const selected=file.files?.[0];if(!selected)return;cancelRead();const ticket=generation;abort=new AbortController();busy=true;draft=null;sourceName='';status.textContent='Lettura del PDF…';paint();
       try{if(!root.SculptPdfReader?.readFile)throw new Error('Il lettore PDF non è disponibile. Riapri l’app aggiornata.');const data=await root.SculptPdfReader.readFile(selected,{signal:abort.signal,onProgress:progress=>{if(ticket===generation&&!closed)status.textContent=typeof progress==='string'?progress:progress?.totalPages?'Lettura del PDF · pagina '+progress.pageNumber+' di '+progress.totalPages+'…':'Lettura del PDF…';}});if(ticket!==generation||closed)return;install(I.parseDocument(data),selected.name);}
       catch(error){if(ticket===generation&&!closed&&error.name!=='AbortError')status.textContent=error.message||'Non è stato possibile leggere il PDF.';}

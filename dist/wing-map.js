@@ -16,7 +16,7 @@
   // Console colour indices; these RGB values are an application palette.
   const COLORS=['#89949c','#4969b7','#0089ff','#5b33fa','#2bdfa6','#00b43d','#9acc00','#f6e100','#bd6a1b','#e31b44','#ff7679','#f129e7','#a52ff6','#ffb71b','#21bff0','#ff5a2d','#00c6ca','#707070','#e0e0e0'];
   const indexes=new WeakMap(),sendDefaults=new WeakMap(),sendViews=new WeakMap();
-  let cachedSignature='',cachedEntries=[],cachedByPath=new Map();
+  let cachedSignature='',cachedEntries=[],cachedByPath=new Map(),cachedScopes=new Map();
   const own=(obj,key)=>Object.prototype.hasOwnProperty.call(obj||{},key);
   const num=value=>Number.isFinite(Number(value))?Number(value):undefined;
   const flag=value=>!!Number(value);
@@ -266,15 +266,44 @@
     return {entries,byPath};
   }
   function signature(state){return list(state).map(s=>s.id+':'+Object.entries(desk(state).processing?.[s.id]||{}).map(([b,p])=>b+'='+p.model).join(',')).join('|')+';'+(desk(state).fx||[]).map(p=>p.model).join('|')+';'+Object.keys(desk(state).sources||{}).join(',')+';'+Object.keys(desk(state).outputs||{}).join(',');}
-  function registry(state){const key=signature(state);if(key!==cachedSignature){const result=makeEntries(state);cachedSignature=key;cachedEntries=result.entries;cachedByPath=result.byPath;}return {entries:cachedEntries,byPath:cachedByPath};}
-  function capture(state){const result=new Map();for(const e of registry(state).entries){if(e.trigger)continue;const value=e.get(state);if(typeof value==='string'||typeof value==='number'&&Number.isFinite(value))result.set(e.path,value);}return result;}
+  function registry(state){const key=signature(state);if(key!==cachedSignature){const result=makeEntries(state);cachedSignature=key;cachedEntries=result.entries;cachedByPath=result.byPath;cachedScopes.clear();}return {entries:cachedEntries,byPath:cachedByPath};}
+  function selectedEntries(state,scope){
+    const index=registry(state);if(!scope)return index.entries;
+    const selected=new Map();
+    for(const path of scope.paths||[]){const entry=index.byPath.get(path);if(entry)selected.set(path,entry);}
+    for(const base of scope.bases||[]){
+      let entries=cachedScopes.get(base);
+      if(!entries){entries=index.entries.filter(entry=>entry.path===base||entry.path.startsWith(base+'/'));if(cachedScopes.size>=1024)cachedScopes.clear();cachedScopes.set(base,entries);}
+      for(const entry of entries)selected.set(entry.path,entry);
+    }
+    return [...selected.values()];
+  }
+  function capture(state,scope){const result=new Map();for(const e of selectedEntries(state,scope)){if(e.trigger)continue;const value=e.get(state);if(typeof value==='string'||typeof value==='number'&&Number.isFinite(value))result.set(e.path,value);}return result;}
   function apply(state,path,value){
     if(typeof value!=='string'&&!(typeof value==='number'&&Number.isFinite(value)))return false;
     const entry=registry(state).byPath.get(path);if(!entry)return false;
     if(['integer','float'].includes(entry.type)&&!Number.isFinite(Number(value)))return false;
     remember(state,path,value);entry.set(state,value);return true;
   }
-  function descriptors(state){return registry(state).entries.map(({get,set,...meta})=>meta);}
+  function applyMany(state,values){
+    // Incoming packets often carry a whole processor or strip. Resolve the map
+    // once for the batch instead of rebuilding its model signature per leaf.
+    // Model setters themselves are stable; all dependent parameters use the
+    // rebuilt registry after those model changes have been applied.
+    const entries=Array.isArray(values)?values:Object.entries(values),index=registry(state),models=[],remaining=[];
+    for(const item of entries)(item[0].endsWith('/mdl')?models:remaining).push(item);
+    let applied=0,modelChanged=false;
+    const write=(map,path,value)=>{
+      if(typeof value!=='string'&&!(typeof value==='number'&&Number.isFinite(value)))return false;
+      const entry=map.byPath.get(path);if(!entry||['integer','float'].includes(entry.type)&&!Number.isFinite(Number(value)))return false;
+      remember(state,path,value);entry.set(state,value);applied++;return true;
+    };
+    for(const [path,value]of models){const previous=index.byPath.get(path)?.get(state);if(write(index,path,value)&&previous!==value)modelChanged=true;}
+    const current=modelChanged?registry(state):index;
+    for(const [path,value]of remaining)write(current,path,value);
+    return applied;
+  }
+  function descriptors(state,scope){return selectedEntries(state,scope).map(({get,set,...meta})=>meta);}
   function readPaths(state,scope='core',args){
     if(scope==='processor'){const ctx=args?.ctx||args,spec=processorSpec(ctx,processor(state,ctx)?.model);return spec?[spec.basePath]:[];}
     if(scope==='strip'){
@@ -291,6 +320,7 @@
     }
     if(scope==='source'){const id=typeof args==='string'?args:args?.id,path=sourcePath(id);if(path)return [path,...(String(id).startsWith('USR:')?[path+'/user']:String(id).startsWith('OSC:')?[path+'/osc']:[])];const parts=sourceParts(id),base=stripPath(parts.group.toLowerCase()+'-'+parts.index);return base?[base]:[];}
     if(scope==='inserts')return list(state).flatMap(s=>[stripPath(s.id)+'/preins',...(s.kind==='AUX'?[]:[stripPath(s.id)+'/postins'])]);
+    if(scope==='dca')return [...Array.from({length:16},(_,i)=>'/dca/'+(i+1)),...list(state).map(s=>stripPath(s.id)+'/tags')];
     if(scope==='groups')return [...Array.from({length:16},(_,i)=>'/dca/'+(i+1)),...Array.from({length:8},(_,i)=>'/mgrp/'+(i+1)),'/cfg/amix',...list(state).map(s=>stripPath(s.id)),...list(state).filter(s=>s.kind==='CH').map(s=>stripPath(s.id)+'/postins')];
     if(scope==='monitor')return ['/cfg/mon/1','/cfg/mon/1/eq','/cfg/mon/1/dly','/cfg/mon/2','/cfg/mon/2/eq','/cfg/mon/2/dly','/cfg/solo','/cfg/talk','/cfg/talk/A','/cfg/talk/B','/io/in/OSC/1','/io/in/OSC/1/osc','/io/in/OSC/2','/io/in/OSC/2/osc'];
     if(scope==='fx')return Array.from({length:16},(_,i)=>`/fx/${i+1}`);
@@ -300,6 +330,6 @@
   const coverage={mapped:['76 strip fader/mute/pan/solo and source-linked names/colours','CH/AUX Main/Alt routing and physical preamp gain/phantom','BUS/MTX/MAIN sends with family-specific PRE/POST paths','All unambiguous catalog processor model/parameter paths','Channel filters, sidechains, pre-send EQ, insert assignment and delay','Physical I/O and USER signal/patch routing','DCA controls and #D tags; mute-group controls','Automix X/Y assignment and weight','Monitor level/source/EQ, shared solo dim/mono/mute, talkback and oscillator source parameters'],
     unmapped:['CMB duplicate peak parameters until live schema disambiguation','Mute-group membership (no assignment path verified)','Recorder transport and file/library/show operations','Network/audio setup, firmware, custom controls and hardware diagnostics','Monitor limiter switch, delay in milliseconds and unsupported solo preferences','Per-talkback destination levels and separate A/B level (WING has shared talk level)','Oscillator target convenience list (requires explicit source routing)','CH/AUX processed outputs directly (use USER SIGNAL first)','Arbitrary icon names; source digital trim; output tap without USER SIGNAL'],
     constraints:['A descriptor is a candidate, not permission: resolve it on the current firmware before reads/writes.','Do not send capture() wholesale; diff only loaded writable parameters changed by the user.','Model changes invalidate processor definitions and queued parameter gestures.','Read-only effective names/colours are never writable.','Never replay the demo snapshot when connecting or reconnecting.']};
-  const API={capture,apply,descriptors,processorSpec,stripPath,sourcePath,sendPath,sendBasePath,readPaths,coverage,COLORS};
+  const API={capture,apply,applyMany,descriptors,processorSpec,stripPath,sourcePath,sendPath,sendBasePath,readPaths,coverage,COLORS};
   if(typeof module!=='undefined'&&module.exports)module.exports=API;else root.SculptWingMap=API;
 })(typeof window!=='undefined'?window:globalThis);

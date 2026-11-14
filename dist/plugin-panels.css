@@ -1,0 +1,222 @@
+/* Native WING surfaces. Graphs use the available pixels; controls keep their
+   own readable size and share exactly one parameter binding. */
+.fx-processor-toolbar { flex-wrap:wrap; gap:7px; }
+.fx-processor-toolbar > .fx-model-select { flex:1 1 160px; min-width:120px; width:auto; }
+.fx-processor-toolbar > .fx-tools { display:flex; flex:0 1 auto; gap:3px; margin:0 0 0 auto; padding:0; align-items:center; }
+.fx-processor-toolbar .fx-tools button { min-height:28px; height:28px; padding:0 8px; border-color:#3b3b43; background:#202127; color:#c4c5cd; font-size:10px; white-space:nowrap; }
+.fx-processor-toolbar .fx-tools button:hover:not(:disabled) { border-color:#8c626d; color:#fff0ed; background:#35282e; }
+.fx-processor-toolbar .fx-tools .fx-tap { margin:0 0 0 3px; min-width:46px; color:#f2abb0; }
+.fx-processor-toolbar .fx-tools button:disabled { opacity:.35; cursor:default; }
+.fx-processor [hidden] { display:none!important; }
+.fx-plot-band { display:none; }
+.fx-control-unknown .fx-knob-pointer { visibility:hidden; }
+.fx-control-unknown .fx-knob::before { opacity:.15; }
+.fx-control-unknown .fx-control-limits { visibility:hidden; }
+.fx-eq-display[data-known=false] :is(.fx-plot-fill,.fx-plot-line,.fx-plot-band,.fx-eq-point),
+.fx-awaiting :is(.fx-wing-dynamics-line,.fx-wing-threshold,.fx-wing-chart-value),
+.fx-wing-chart[data-known=false] :is(.fx-wing-dynamics-line,.fx-wing-threshold,.fx-wing-chart-value) { visibility:hidden; }
+
+.fx-wing-editor {
+  --fx-accent:#e8bf72;
+  --fx-face:#1a1e24;
+  --fx-inset:#101419;
+  --fx-line:#39424b;
+  --fx-text:#e8edf0;
+  --fx-muted:#9ca8b4;
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  min-width:0;
+  color:var(--fx-text);
+  container-type:inline-size;
+}
+.fx-wing-editor[data-model=GATE],.fx-wing-editor[data-model=DUCK] { --fx-accent:#eaa486; }
+.fx-wing-editor > .fx-processor-toolbar { flex:none; min-height:32px; margin:0; gap:7px; }
+.fx-processor-family { flex:none; padding:4px 7px; border:1px solid #6c414b; border-radius:4px; color:#efa9ae; background:#34232b; font-size:9px; font-weight:800; letter-spacing:1.2px; }
+.fx-wing-editor .fx-model-select { min-height:32px; height:32px; padding:3px 8px; border-color:#3b414b; border-radius:5px; background:#1c2027; font-size:12px; font-weight:600; color:#e6e8ec; }
+.fx-wing-editor .fx-power { min-height:29px; height:29px; min-width:56px; padding:0 9px; border:1px solid #4a4550; border-radius:4px; background:#24232a; color:#9d9aa5; font-size:10px; letter-spacing:.5px; }
+.fx-wing-editor .fx-power.active { border-color:#668574; background:#25382f; color:#b6dfc3; box-shadow:none; }
+.fx-wing-editor .fx-connection-status { display:flex; flex:none; align-items:center; gap:5px; min-width:0; max-width:165px; margin:0; padding:0; border:0; background:none; color:#a7a4ad; font-size:9px; }
+.fx-wing-editor .fx-connection-status span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fx-wing-editor .fx-connection-status i { width:4px; height:4px; flex:none; border-radius:50%; background:#92816c; }
+.fx-wing-editor .fx-connection-status.ready i { background:#9bccad; }
+.fx-wing-editor .fx-connection-status.readonly i { background:#a5a8b1; }
+.fx-wing-editor > .fx-face { flex:1 1 auto; min-width:0; min-height:0; margin:0; padding:10px; border:1px solid #3b414c; border-radius:8px; background:#1b2027; box-shadow:0 2px 5px #0003; }
+.fx-wing-editor > .fx-face > :is(.fx-screw,.fx-face-heading,.fx-panel-subtitle) { display:none; }
+.fx-wing-editor.fx-bypassed > .fx-face { opacity:1; }
+.fx-wing-editor.fx-bypassed .fx-plot-line { stroke:#a4a8b1; stroke-dasharray:5 4; }
+.fx-wing-editor .fx-control { min-width:0; }
+.fx-wing-editor .fx-control-label { min-height:14px; height:auto; margin:0; color:#bec8d0; font-size:10px; line-height:1.3; font-weight:500; letter-spacing:0; text-align:center; }
+.fx-wing-editor .fx-control-limits,.fx-wing-editor .fx-enum-values { display:none; }
+.fx-wing-editor .fx-knob { width:42px; height:42px; margin:8px auto; border:1px solid #0c1014; background:linear-gradient(140deg,#626c78,#333d48 52%,#202932); box-shadow:inset 0 0 0 3px #0003,inset 0 1px 0 #b5c0c54d,0 2px 3px #0006; }
+.fx-wing-editor .fx-knob::before { inset:-5px; border:0; background:conic-gradient(from 225deg,var(--band-color,var(--fx-accent)) 0 calc(var(--turn,0deg) + 135deg),#384450 calc(var(--turn,0deg) + 135deg) 270deg,transparent 270deg); -webkit-mask:radial-gradient(circle,transparent 0 64%,#000 66% 72%,transparent 74%); mask:radial-gradient(circle,transparent 0 64%,#000 66% 72%,transparent 74%); opacity:1; }
+.fx-wing-editor .fx-knob-pointer { inset:0; }
+.fx-wing-editor .fx-knob-pointer::after { top:5px; left:calc(50% - 1px); width:2px; height:11px; border-radius:1px; background:#e7edf0; box-shadow:none; }
+.fx-wing-editor .fx-knob.dragging { border-color:#a3a5ad; box-shadow:inset 0 0 0 3px #0003,0 0 0 3px #e8bf7212; }
+.fx-wing-editor .fx-number { width:62px; max-width:100%; height:27px; margin:0; padding:2px 4px; border:1px solid #35414b; border-radius:4px; background:#11171d; color:#edf3f6; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; font-weight:500; font-variant-numeric:tabular-nums; text-align:center; box-shadow:none; }
+.fx-wing-editor .fx-number:focus { outline:1px solid var(--fx-accent); outline-offset:1px; border-color:var(--fx-accent); }
+.fx-wing-editor .fx-control > .fx-select { width:100%; min-width:0; height:27px; margin:0; padding:2px 5px; border:1px solid #35414b; border-radius:4px; background:#11171d; color:#e3eaf0; font-size:11px; text-align:center; }
+.fx-wing-editor .fx-value-row { display:flex; justify-content:center; align-items:center; gap:3px; margin:0; }
+.fx-wing-editor .fx-unit { min-width:0; color:#8e9aa8; font-size:9px; }
+.fx-wing-editor .fx-control-readonly .fx-knob { opacity:.55; cursor:default; }
+.fx-wing-editor .fx-control-unknown .fx-number { color:#7e8a98; }
+.fx-wing-editor .fx-toggle { min-width:54px; min-height:27px; height:27px; margin:0 auto; padding:0 7px; border-color:#3e4651; background:#202831; color:#b8c4ce; font-size:10px; box-shadow:none; }
+.fx-wing-editor .fx-toggle.on { background:#433b29; border-color:#8d7952; color:#f0d7a7; }
+.fx-wing-editor .fx-knob:focus-visible,.fx-wing-editor button:focus-visible,.fx-wing-editor select:focus-visible { outline:2px solid var(--fx-accent); outline-offset:3px; }
+.fx-wing-editor > .fx-demo-caption { flex:none; margin:0; color:#838e9a; font-size:9px; line-height:1.4; }
+.fx-wing-control-heading { margin:0 0 8px; color:#9caab8; font-size:9px; line-height:1.2; font-weight:700; letter-spacing:1px; text-transform:uppercase; }
+.fx-wing-knob-row { display:flex; align-items:start; gap:10px; min-width:0; }
+.fx-wing-knob-row > .fx-control { flex:1 1 0; }
+.fx-wing-control-group { min-width:0; padding:10px; border:1px solid #36414b; border-radius:6px; background:#232b34; }
+.fx-wing-display,.fx-wing-chart { min-width:0; border:1px solid #34404b; border-radius:6px; background:#0e141a; overflow:hidden; }
+.fx-wing-display-heading { display:flex; align-items:center; justify-content:space-between; gap:9px; min-height:27px; padding:5px 9px; border-bottom:1px solid #27313c; color:#96a5b4; font-size:9px; line-height:1.3; }
+.fx-wing-display-heading strong { color:#bbc7d2; font-size:9px; font-weight:700; letter-spacing:.9px; white-space:nowrap; }
+.fx-wing-display-heading output { color:#e0c28a; font:10px ui-monospace,SFMono-Regular,Menlo,monospace; font-variant-numeric:tabular-nums; }
+.fx-wing-analysis-status { color:#8c9cab; }
+.fx-wing-editor .fx-plot-grid { stroke:#28333d; stroke-width:1; }
+.fx-wing-editor .fx-plot-zero { stroke:#52606a; stroke-width:1; }
+.fx-wing-editor .fx-axis-label { fill:#8f9cab; font:10px ui-monospace,SFMono-Regular,Menlo,monospace; }
+
+/* EQ/RTA owns the width and all remaining height. The selected band's controls
+   form one short row; selecting another band never replaces a control node. */
+.fx-wing-eq-layout { display:flex; flex-direction:column; gap:9px; height:100%; min-height:320px; }
+.fx-wing-eq-layout > .fx-wing-display { display:flex; flex-direction:column; flex:1 1 0; min-height:190px; }
+.fx-wing-display .fx-eq-display { position:relative; display:flex; flex-direction:column; flex:1 1 0; min-height:0; margin:0; padding:0; }
+.fx-wing-display .fx-eq-display svg { flex:1 1 0; display:block; width:100%; height:100%; min-height:150px; max-height:none; border:0; border-radius:0; background:#0e141a; }
+.fx-wing-display .fx-plot-line { stroke:#f1ce86; stroke-width:2; }
+.fx-wing-display .fx-plot-fill { fill:#f1ce86; opacity:.045; }
+.fx-wing-display .fx-plot-band-selected { display:block; stroke:var(--active-band-color,#a8bfdd); stroke-width:1.4; stroke-dasharray:4 3; opacity:.65; }
+.fx-wing-display .fx-plot-caption { flex:none; margin:0; padding:0 8px 4px; color:#778593; font:8px/1.3 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; letter-spacing:0; word-spacing:0; white-space:normal; }
+.fx-wing-display .fx-eq-point circle { fill:#121b23; stroke-width:1.6; }
+.fx-wing-display .fx-eq-point text { fill:var(--band-color); font:8px ui-monospace,SFMono-Regular,Menlo,monospace; pointer-events:none; }
+.fx-wing-display .fx-eq-point-selected circle { stroke-width:2.5; fill:color-mix(in srgb,var(--band-color) 18%,#101820); }
+.fx-wing-display .fx-eq-point[aria-disabled=true] { cursor:default; }
+.fx-wing-band-editor { display:flex; flex:none; align-items:stretch; gap:9px; min-width:0; }
+.fx-wing-band-tabs { display:flex; flex:1 0 210px; gap:3px; align-items:stretch; min-width:0; }
+.fx-wing-band-tab { display:flex; flex:1 1 0; flex-direction:column; align-items:center; justify-content:center; gap:3px; min-width:29px; min-height:48px; padding:5px 3px; border:1px solid #3a4550; border-top:2px solid var(--band-color); border-radius:4px; background:#212a33; color:#b4bfcb; font-size:9px; }
+.fx-wing-band-tab[aria-selected=true] { border-color:var(--band-color); background:color-mix(in srgb,var(--band-color) 13%,#1c2630); box-shadow:inset 0 -2px var(--band-color); }
+.fx-wing-band-name { color:var(--band-color); font-size:9px; font-weight:750; line-height:1.1; }
+.fx-wing-band-gain { color:#dce5ec; font:12px ui-monospace,SFMono-Regular,Menlo,monospace; font-variant-numeric:tabular-nums; line-height:1.3; }
+.fx-wing-band-panes { flex:1.7 0 380px; min-width:0; }
+.fx-wing-band-pane { display:flex; align-items:center; height:100%; min-height:58px; padding:7px 9px; border:1px solid #3c4b56; border-left:3px solid var(--band-color); border-radius:5px; background:#242e38; }
+.fx-wing-band-pane > .fx-wing-control-heading { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+.fx-wing-band-pane > .fx-wing-knob-row { flex:1; gap:10px; }
+.fx-wing-eq .fx-control-number { display:grid; grid-template-columns:30px minmax(56px,1fr); grid-template-rows:12px 30px; gap:4px 6px; align-items:center; }
+.fx-wing-eq .fx-control-number .fx-control-label { grid-column:1 / -1; min-height:0; height:12px; font-size:9px; line-height:12px; text-align:left; white-space:nowrap; }
+.fx-wing-eq .fx-control-number .fx-knob { grid-column:1; grid-row:2; width:28px; height:28px; margin:0 0 0 1px; }
+.fx-wing-eq .fx-control-number .fx-knob::before { inset:-4px; }
+.fx-wing-eq .fx-control-number .fx-knob-pointer::after { top:4px; height:7px; }
+.fx-wing-eq .fx-control-number .fx-value-row { grid-column:2; grid-row:2; justify-content:flex-start; }
+.fx-wing-eq .fx-number { height:26px; width:55px; padding:2px 3px; font-size:11px; }
+.fx-wing-band-shape { flex:0 0 65px; margin:0 0 0 11px; padding:0 0 0 9px; border-left:1px solid #48515b; }
+.fx-wing-band-shape .fx-control-label { margin:0 0 4px; font-size:9px; text-align:left; }
+.fx-wing-band-shape .fx-select { height:26px!important; width:58px!important; padding:1px 3px!important; font-size:10px!important; }
+.fx-wing-eq .fx-wing-tilt { flex:0 0 111px; align-self:stretch; grid-template-columns:28px minmax(54px,1fr); grid-template-rows:12px 30px; padding:7px 8px; border:1px solid #3a4651; border-radius:5px; background:#222c35; }
+.fx-wing-eq .fx-wing-tilt .fx-value-row { justify-content:center; }
+.fx-wing-eq .fx-wing-tilt .fx-number { width:48px; }
+
+/* A full-size transfer or timing graph, alongside the same detector, time and
+   output controls. Graph tabs are presentation only. */
+.fx-wing-dynamics-layout { display:grid; grid-template-columns:minmax(240px,.9fr) minmax(390px,1.35fr); gap:10px; min-height:0; height:100%; align-items:stretch; }
+.fx-wing-dynamics-graphs { display:flex; flex-direction:column; gap:6px; min-width:0; min-height:0; }
+.fx-wing-graph-tabs { display:flex; align-items:center; gap:2px; padding:2px; border:1px solid #394650; border-radius:5px; background:#151d25; }
+.fx-wing-graph-tab { flex:1; min-height:25px; border:0; border-radius:3px; padding:3px 10px; background:none; color:#9eacba; font-size:10px; font-weight:600; }
+.fx-wing-graph-tab[aria-selected=true] { background:#35404b; color:#f0dfbc; box-shadow:inset 0 0 0 1px #61707b; }
+.fx-wing-dynamics-graphs .fx-wing-chart { display:flex; flex-direction:column; flex:1 1 0; min-height:160px; }
+.fx-wing-chart svg { display:block; flex:1 1 0; width:100%; min-height:130px; height:100%; max-height:none; stroke:none; }
+.fx-wing-dynamics-line { fill:none; stroke:var(--fx-accent); stroke-width:2.2; stroke-linecap:round; stroke-linejoin:round; }
+.fx-wing-threshold { stroke:#a28d64; stroke-width:1; stroke-dasharray:4 4; }
+.fx-wing-unity { stroke:#506574; stroke-width:1; stroke-dasharray:3 5; }
+.fx-wing-reference-note { flex:none; margin:0; color:#7f8e9e; font-size:8px; line-height:1.3; text-align:center; }
+.fx-wing-dynamics-controls { display:grid; grid-template-columns:minmax(0,1.15fr) minmax(0,1fr); grid-auto-rows:auto; gap:8px; align-content:start; min-width:0; }
+.fx-wing-dynamics-controls .fx-wing-knob-row { justify-content:space-around; gap:9px; }
+.fx-wing-dynamics-controls .fx-wing-control-group { padding:8px 9px; }
+.fx-wing-dynamics-controls .fx-control > .fx-select { max-width:90px; display:block; margin:0 auto; }
+.fx-wing-dynamics-controls .fx-control-label { font-size:10px; }
+.fx-wing-group-options .fx-wing-knob-row { flex-wrap:wrap; gap:9px; }
+.fx-wing-group-options .fx-control { flex:1 1 65px; }
+.fx-wing-group-options .fx-control-label { margin-bottom:5px; text-align:left; }
+.fx-wing-group-options .fx-control-boolean { display:flex; flex:1 1 100%; align-items:center; justify-content:space-between; gap:8px; }
+.fx-wing-group-options .fx-control-boolean .fx-control-label { margin:0; }
+.fx-wing-group-options .fx-toggle { margin:0; min-width:65px; }
+.fx-wing-dynamics[data-model=GATE] .fx-wing-dynamics-controls,.fx-wing-dynamics[data-model=DUCK] .fx-wing-dynamics-controls { grid-template-columns:1fr; }
+
+.fx-wing-filter-layout { display:grid; grid-template-columns:minmax(150px,1fr) minmax(130px,.7fr); gap:12px; align-items:stretch; }
+.fx-wing-filter-overview { min-width:0; padding:10px 12px; border:1px solid #35444f; border-radius:5px; background:#101820; }
+.fx-wing-filter-kicker { display:block; margin-bottom:5px; color:#8fa9bb; font-size:8px; font-weight:700; letter-spacing:1.1px; }
+.fx-wing-filter-name { margin:0; color:#dce6ec; font-size:18px; line-height:1.2; font-weight:650; }
+.fx-wing-filter-description { margin:5px 0 10px; color:#9aabb8; font-size:10px; line-height:1.45; }
+.fx-wing-filter-overview svg { display:block; width:100%; height:105px; }
+.fx-wing-filter-marker line { stroke:#e1b973; stroke-width:1.5; }
+.fx-wing-filter-marker circle { stroke:#eccb8c; stroke-width:2; fill:#253749; }
+.fx-wing-filter-frequency { fill:#ebcc94; font:11px ui-monospace,SFMono-Regular,Menlo,monospace; }
+.fx-wing-filter-note { display:block; color:#788c9c; font-size:8px; line-height:1.4; }
+.fx-wing-filter-values { display:flex; gap:22px; padding:6px 0 13px; }
+.fx-wing-filter-values span { display:block; color:#9daeba; font-size:9px; margin-bottom:4px; }
+.fx-wing-filter-values output { color:#e9c27e; font:23px ui-monospace,SFMono-Regular,Menlo,monospace; font-variant-numeric:tabular-nums; }
+.fx-wing-filter-layout > .fx-wing-control-group { align-self:stretch; display:flex; flex-direction:column; justify-content:center; }
+.fx-wing-filter-layout .fx-wing-control-heading { margin-bottom:12px; }
+
+/* Compact device cards use the same controls, with a short list of principal
+   parameters. The expanded surface owns the complete parameter list. */
+.fx-principal { display:flex; flex-direction:column; gap:7px; min-width:0; padding:0; }
+.fx-principal-controls { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px 9px; padding:8px 3px; min-width:0; }
+.fx-principal .fx-control { min-width:0; }
+.fx-principal .fx-control-label { min-height:14px; color:#bcc6cd; font-size:10px; line-height:1.3; text-align:center; }
+.fx-principal .fx-knob { width:37px; height:37px; margin:8px auto; }
+.fx-principal .fx-number { width:59px; height:26px; font-size:11px; }
+.fx-principal .fx-control-limits,.fx-principal .fx-enum-values { display:none; }
+.fx-principal .fx-unit { font-size:9px; }
+.fx-principal .fx-control > .fx-select { width:100%; max-width:100%; min-width:0; height:27px; margin:6px 0; font-size:10px; }
+.fx-principal .fx-value-row { gap:3px; justify-content:center; }
+.fx-principal .fx-toggle { min-height:30px; margin:8px auto; font-size:10px; }
+.fx-principal-note,.fx-principal-empty { margin:0; color:#899aa7; font-size:10px; line-height:1.4; }
+.fx-principal-empty { grid-column:1 / -1; padding:18px 3px; }
+
+@media(min-width:900px) {
+  .editor-docked .fx-wing-editor { height:100%; min-height:0; gap:5px; }
+  .editor-docked .fx-wing-editor > .fx-face { padding:7px; overflow:auto; scrollbar-width:thin; scrollbar-color:#526270 #172029; }
+  .editor-docked .fx-wing-editor > .fx-demo-caption { display:none; }
+  .editor-docked .fx-wing-eq-layout { min-height:178px; gap:6px; }
+  .editor-docked .fx-wing-eq-layout > .fx-wing-display { min-height:110px; }
+  .editor-docked .fx-wing-display .fx-eq-display svg { min-height:90px; }
+  .editor-docked .fx-wing-display .fx-plot-caption { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+  .editor-docked .fx-wing-display-heading { min-height:23px; padding:3px 8px; }
+  .editor-docked .fx-wing-dynamics-layout { min-height:212px; }
+  .editor-docked .fx-wing-dynamics .fx-knob { width:32px; height:32px; margin:6px auto; }
+  .editor-docked .fx-wing-dynamics .fx-knob-pointer::after { top:4px; height:8px; }
+  .editor-docked .fx-wing-dynamics .fx-number { width:55px; height:24px; font-size:11px; }
+  .editor-docked .fx-wing-dynamics-controls .fx-control > .fx-select { height:24px; font-size:10px; }
+  .editor-docked .fx-wing-dynamics-controls .fx-control-label { font-size:9px; }
+  .editor-docked .fx-wing-dynamics-controls .fx-wing-control-group { padding:7px 8px; }
+  .editor-docked .fx-wing-dynamics-controls .fx-wing-control-heading { margin-bottom:5px; font-size:8px; }
+}
+@container(max-width:790px) {
+  .fx-wing-band-editor { flex-wrap:wrap; }
+  .fx-wing-band-tabs { flex-basis:100%; min-height:38px; }
+  .fx-wing-band-tab { flex-direction:row; gap:6px; min-height:35px; }
+  .fx-wing-band-panes { flex-basis:calc(100% - 125px); }
+  .fx-wing-eq-layout { min-height:300px; }
+  .fx-wing-dynamics-layout { grid-template-columns:minmax(210px,.85fr) minmax(280px,1.1fr); }
+  .fx-wing-dynamics-controls { grid-template-columns:1fr; }
+  .fx-wing-group-options .fx-control-boolean { flex:1 1 60px; }
+}
+@container(max-width:540px) {
+  .fx-processor-family { display:none; }
+  .fx-wing-band-panes { flex-basis:100%; }
+  .fx-wing-band-pane { flex-wrap:wrap; gap:9px; }
+  .fx-wing-band-pane > .fx-wing-knob-row { min-width:280px; }
+  .fx-wing-band-shape { margin-left:0; padding:0; border:0; }
+  .fx-wing-eq .fx-wing-tilt { flex-basis:115px; }
+  .fx-wing-dynamics-layout { grid-template-columns:1fr; }
+  .fx-wing-dynamics-graphs .fx-wing-chart { min-height:200px; }
+  .fx-wing-dynamics-controls { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .fx-wing-filter-layout { grid-template-columns:1fr; }
+}
+@container(max-width:350px) {
+  .fx-wing-band-pane > .fx-wing-knob-row { min-width:0; gap:7px; }
+  .fx-wing-eq .fx-control-number { grid-template-columns:1fr; grid-template-rows:14px 30px 26px; justify-items:center; }
+  .fx-wing-eq .fx-control-number .fx-value-row { grid-column:1; grid-row:3; }
+  .fx-wing-eq .fx-control-number .fx-control-label { font-size:8px; text-align:center; }
+  .fx-wing-dynamics-controls { grid-template-columns:1fr; }
+}
