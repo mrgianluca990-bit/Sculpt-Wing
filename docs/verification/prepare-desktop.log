@@ -1,0 +1,6 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> sculpt-wing-desktop@0.6.7 prepare:app
+> node scripts/prepare.mjs
+
+Sculpt Wing: interfaccia e icona desktop preparate.

@@ -9,7 +9,7 @@
   const toast=message=>{const now=Date.now();if(message===lastToastMessage&&now-lastToast<1800)return;lastToast=now;lastToastMessage=message;U.toast(message);};
   const session=new window.SculptLiveSession.Session({driver:native?.driver||noDriver,map:MapAPI,
     getState:()=>C.getState(),mutate:(fn,type)=>C.transact(fn,type),onUpdate:kind=>update(kind),onError:toast});
-  const listeners=new Set();let updating=false;
+  const listeners=new Set();let updating=false,lastDisplayState='',lastSessionToken=session.epoch;
   const statusLabels={demo:'DEMO',disconnected:'WING · scollegata',connecting:'Connessione…',syncing:'Lettura banco…',live:'WING LIVE',suspended:'WING · in pausa',error:'WING · errore'};
   const liveButton=U.button('',()=>U.open('connection'),'live-link');liveButton.id='wing-connection';
   liveButton.setAttribute('aria-label','Connessione WING');liveButton.append(U.el('i','live-link-dot'),U.el('span','live-link-text','WING'));
@@ -22,7 +22,9 @@
       liveButton.querySelector('span').textContent=s.mode==='live'?(s.pending?`WING · ${s.pending}`:'WING'):s.mode==='syncing'?`${s.syncDone}/${s.syncTotal}`:'WING';
       document.querySelectorAll('.desk-badge:not(.fx-family-badge)').forEach(b=>{if(b.closest('.desk-profile')||b.parentElement?.classList.contains('desk-page-header'))b.textContent=statusLabels[s.mode];});
       const corner=document.querySelector('.demo-corner');if(corner)corner.textContent=s.mode==='demo'?'DEMO · METER SIMULATI':s.mode==='live'?(s.writable?'WING LIVE · CONTROLLO':'WING LIVE · LETTURA'):statusLabels[s.mode].toUpperCase();
-      if(!updating){updating=true;try{C.refresh?.();}finally{updating=false;}}
+      if(lastSessionToken!==session.epoch){lastSessionToken=session.epoch;C.clearHistory?.();}
+      const displayState=s.mode+':'+s.writable;
+      if(!updating&&displayState!==lastDisplayState){lastDisplayState=displayState;updating=true;try{C.refresh?.();}finally{updating=false;}}
       for(const listener of listeners)listener(s);
       window.dispatchEvent(new CustomEvent('sculpt-live-state',{detail:s}));
     }
@@ -66,9 +68,9 @@
   }
   function allowMacro(macro){
     if(!session.active())return true;
-    const local=new Set(['menu','editor','sof','layer','wait']);
+    const local=new Set(['menu','editor','sof','layer','wait','osc']);
     if(macro.actions?.every(action=>local.has(action.type)))return true;
-    const supported=new Set(['menu','editor','sof','layer','processorParam','wingParameter','fader','mute','solo','send','dca','muteGroup','talkback','monitorDim','sourceAlt','fxBypass','oscillator','wait']);
+    const supported=new Set(['menu','editor','sof','layer','processorParam','wingParameter','fader','mute','solo','send','dca','muteGroup','talkback','monitorDim','sourceAlt','fxBypass','oscillator','wait','osc']);
     if(typeof window.SculptLivePages?.transport==='function')supported.add('recorder');
     if(!session.connected()||!session.writable){toast('Collega la WING e attiva Controllo prima di eseguire una macro.');return false;}
     if(macro.actions?.some(action=>!supported.has(action.type))){toast('Questa macro contiene azioni locali non disponibili sul banco. Per le scene usa Show Control WING.');return false;}return true;

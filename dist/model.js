@@ -10,7 +10,7 @@
   const busLevels=[-5,-7,-6,-4,-8,-9,-10,-10,-90,-90,-90,-90,-12,-14,-16,-16];
   const colors={CH:'#ef7277',AUX:'#d7a25d',BUS:'#ef414b',MTX:'#b28ac8',MAIN:'#e4c780'};
   const list=state=>[...state.outputs,...state.inputs];
-  const find=(state,id)=>list(state).find(strip=>strip.id===id);
+  const find=(state,id)=>state.outputs.find(strip=>strip.id===id)||state.inputs.find(strip=>strip.id===id);
   const defaultName=strip=>`${strip.kind} ${strip.number}`;
   function makeStrip(kind,n,name,level,color){
     const frequencies=(kind==='CH'||kind==='AUX')?[60,180,600,1800,6000,12000]:[40,100,250,630,1600,4000,8000,14000];

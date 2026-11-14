@@ -36,18 +36,21 @@
   function open(id,args){if(id==='mixer'){close();return;}if(!pages.has(id)){C.toast('Sezione non disponibile');return;}window.SculptEditor?.close();if(!workspace.open)previousFocus=document.activeElement;current=id;currentArgs=args;render();window.SculptLive?.pageOpened?.(id,args);if(!workspace.open)workspace.showModal();}
   function close(){if(workspace.open)workspace.close();}
   let menu=null;
-  const icons={connection:'◉',wing:'W',mixer:'▥','channel-list':'PDF',io:'↔',fx:'FX',groups:'DCA',monitor:'◉',meters:'▰',scenes:'▤',recorder:'●',setup:'⚙',layers:'▥',macros:'M',about:'i'};
+  const icons={connection:'◉',wing:'W',mixer:'▥','channel-list':'PDF',io:'↔',fx:'FX',groups:'DCA',monitor:'◉',meters:'▰',scenes:'▤',recorder:'●',setup:'⚙',layers:'▥',macros:'M',osc:'OSC',about:'i'};
   function showMenu(){
     if(menu?.dialog.open)return;
     const live=window.SculptLive?.isLive(),state=live?window.SculptLive.snapshot():null,info=state?.info;const pane=el('div','desk-menu-content'),profile=el('div','desk-profile');profile.append(el('span','desk-badge',live?'WING':'DEMO OFFLINE'),el('strong','',live?(info?.name||'WING non collegata'):D.get().setup.name),el('small','',live?(info?`${info.model} · ${info.firmware}`:'Apri Connessione WING'):`${D.get().setup.model} · ${D.get().setup.firmware}`));pane.append(profile);
     const nav=el('div','desk-menu-grid');
-    const ordered=['mixer','channel-list','connection','wing','io','fx','groups','monitor','meters','scenes','recorder','setup','layers','macros','about'];
+    const ordered=['mixer','channel-list','connection','wing','io','fx','groups','monitor','meters','scenes','recorder','setup','layers','macros','osc','about'];
     for(const id of ordered){const p=id==='mixer'?{title:'Mixer',subtitle:'76 strip · SOF'}:id==='channel-list'?{title:'Importa channel list',subtitle:'PDF · canali e monitor'}:pages.get(id);if(!p)continue;const liveHint=live?({recorder:'WING-LIVE e USB',scenes:'Show Control del banco',setup:'Parametri del banco',meters:'Meter stereo WING'}[id]):null;const b=button('',()=>{menu.close();if(id==='channel-list'){window.SculptChannelList?.open();return;}open(id);},'desk-menu-tile'),mark=el('span','desk-menu-icon',icons[id]||'›'),name=el('strong','',p.title),hint=el('small','',liveHint||p.menuHint||p.subtitle||'');b.append(mark,name,hint);nav.append(b);}
-    pane.append(nav);menu=modal('Banco',pane);
+    const actions=el('div','desk-toolbar'),undo=button('↶ Annulla · ⌘Z',()=>{menu.close();C.undo?.();}),redo=button('↷ Ripristina · ⇧⌘Z',()=>{menu.close();C.redo?.();});
+    const syncHistory=()=>{const status=C.historyState?.()||{};undo.disabled=!status.canUndo;redo.disabled=!status.canRedo;undo.title=status.undoLabel||'Nessuna operazione da annullare';redo.title=status.redoLabel||'Nessuna operazione da ripristinare';};
+    actions.append(undo,redo);pane.append(actions,nav);menu=modal('Banco',pane);syncHistory();
+    window.addEventListener('sculpt-history-state',syncHistory);menu.dialog.addEventListener('close',()=>window.removeEventListener('sculpt-history-state',syncHistory),{once:true});
   }
   window.SculptUI={register:(id,config)=>pages.set(id,config),listPages:()=>[...pages].map(([id,config])=>({id,title:config.title||id,subtitle:config.subtitle||config.menuHint||''})),open,close,refresh:render,el,button,card,grid,field,select,number,toggle,tabs,toast,download,modal,showMenu,current:()=>current};
   pages.set('about',{title:'Sculpt Wing',menuHint:'Guida · Offline',render(container){
-    const p=el('div','desk-about');p.append(el('img','desk-app-icon'));p.firstChild.src='./icon-red-180.png';p.firstChild.alt='Sculpt Wing';p.append(el('h2','','Il banco, a portata di mano.'),el('p','desk-note','Sculpt Wing · 0.6.6. Pannelli dei processori, mixer e routing. Nel browser i controlli restano in demo; nelle app per iPhone/iPad, Mac e Windows la connessione WING legge e modifica i parametri del banco.'),card('Prova il flusso',el('p','desk-note','Assegna una sorgente in I/O, apri una strip, scegli un processore, regola le mandate in SOF. Salva una scena e richiama la configurazione. Le macro possono combinare più azioni.')),button('Installa / Offline',()=>window.SculptOffline?.openHelp(),'desk-primary'),button('Esporta progetto completo',()=>download('Sculpt-Wing-progetto.json',JSON.stringify({format:'sculpt-control-project',version:1,snapshot:C.capture()},null,2))));container.append(p);
+    const p=el('div','desk-about');p.append(el('img','desk-app-icon'));p.firstChild.src='./icon-red-180.png';p.firstChild.alt='Sculpt Wing';p.append(el('h2','','Il banco, a portata di mano.'),el('p','desk-note','Sculpt Wing · 0.6.7. Pannelli dei processori, mixer e routing. Nel browser i controlli restano in demo; nelle app per iPhone/iPad, Mac e Windows la connessione WING legge e modifica i parametri del banco.'),card('Prova il flusso',el('p','desk-note','Assegna una sorgente in I/O, apri una strip, scegli un processore, regola le mandate in SOF. Salva una scena e richiama la configurazione. Le macro possono combinare più azioni.')),button('Installa / Offline',()=>window.SculptOffline?.openHelp(),'desk-primary'),button('Esporta progetto completo',()=>download('Sculpt-Wing-progetto.json',JSON.stringify({format:'sculpt-control-project',version:1,snapshot:C.capture()},null,2))));container.append(p);
   }});
   document.getElementById('menu-button')?.addEventListener('click',showMenu);
   const rail=document.getElementById('macro-buttons');
@@ -69,5 +72,16 @@
     rail.scrollLeft=position;
   }
   D.subscribe(updateMacros);updateMacros();
+  const textEditing=target=>target?.isContentEditable||!!target?.closest?.('textarea,[contenteditable="true"],input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]):not([type="color"])');
+  document.addEventListener('keydown',event=>{
+    if(event.defaultPrevented||event.altKey||!(event.metaKey||event.ctrlKey)||String(event.key).toLowerCase()!=='z'||textEditing(event.target))return;
+    event.preventDefault();event.stopPropagation();if(event.shiftKey)C.redo?.();else C.undo?.();
+  });
+  window.SculptDesktop?.addListener?.('history',direction=>{
+    if(!['undo','redo'].includes(direction))return;
+    if(textEditing(document.activeElement))window.SculptDesktop.textHistory?.(direction).catch(()=>{});
+    else C[direction]?.();
+  }).catch?.(()=>{});
+  C.subscribe(event=>{if(['undo','redo'].includes(event.type)&&current){const scroll=body.scrollTop;render();body.scrollTop=scroll;}});
   document.addEventListener('keydown',e=>{if(e.target.closest('input,textarea,select,[contenteditable]'))return;if(e.key==='Escape'&&document.querySelectorAll('dialog[open]').length===0)C.setSof(null);});
 })();

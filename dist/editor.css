@@ -189,3 +189,60 @@
   .editor-docked .fx-editor-knobs .fx-supplemental-control .fx-number { height: 24px; width: 58px; font-size: 11px; }
   .editor-docked .fx-editor-knobs .fx-supplemental-control > .fx-select { height: 24px; min-height: 24px; width: 70px; margin: 0 auto; padding: 2px 3px; font-size: 10px; }
 }
+
+/* Compact send strips: the level is a fader plus a typed value, without a
+   duplicate rotary. The pan and other independent values keep their knobs. */
+.editor-send-list { grid-auto-columns:116px; }
+.editor-send-row { padding:8px; }
+.editor-send-row .editor-parameter-vertical { --send-fader-travel:144px; margin:7px 0; }
+.editor-send-row .editor-parameter-vertical .editor-parameter-heading { display:none; }
+.editor-send-row .editor-parameter-vertical .editor-parameter-controls { display:flex; flex-direction:column; gap:6px; }
+.editor-send-row .editor-parameter-vertical .editor-fader-rail { width:100%; }
+.editor-send-row .editor-parameter-vertical .editor-number { width:76px; height:27px; text-align:center; }
+.editor-send-row .editor-fader-scale span { left:0; width:24px; font-size:7px; }
+.editor-send-row .editor-fader-scale span::after { left:29px; width:5px; }
+.editor-send-row .editor-fader-cap { width:30px; height:20px; }
+@media(min-width:900px) {
+  .editor-docked .editor-send-list { grid-auto-columns:108px; }
+  .editor-docked .editor-send-row { padding:7px; }
+  .editor-docked .editor-send-row .editor-parameter-vertical { --send-fader-travel:clamp(88px,calc(50dvh - 305px),128px); }
+  .editor-docked #editor-panel-dynamics { grid-template-columns:minmax(650px,1fr) 220px; }
+  .editor-docked .fx-wing-editor { display:flex; flex-direction:column; height:100%; min-height:0; gap:5px; }
+  .editor-docked .fx-wing-editor > .fx-processor-toolbar { flex:none; margin:0; }
+  .editor-docked .fx-wing-editor > .fx-face { flex:1; min-height:175px; padding:8px; overflow:auto; scrollbar-width:thin; }
+  .editor-docked .fx-wing-editor > .fx-tools { flex:none; margin:0; padding:0; }
+  .editor-docked .fx-wing-editor > .fx-demo-caption { flex:none; margin:0; }
+  .editor-docked .fx-wing-editor > .fx-connection-status { flex:none; margin:0; padding:5px 8px; font-size:10px; }
+  .editor-docked .fx-wing-eq-layout { height:100%; align-items:stretch; }
+  .editor-docked .fx-wing-display { display:flex; flex-direction:column; }
+  .editor-docked .fx-wing-display .fx-eq-display { display:flex; flex-direction:column; flex:1; min-height:0; }
+  .editor-docked .fx-wing-display .fx-eq-display svg { flex:1; min-height:125px; max-height:none; height:100%; }
+  .editor-docked .fx-wing-dynamics .fx-knob { width:38px; height:38px; margin:7px auto; }
+  .editor-docked .fx-wing-dynamics .fx-number { width:54px; height:24px; font-size:11px; }
+  .editor-docked .fx-wing-dynamics .fx-control-label { font-size:9px; }
+  .editor-docked .fx-wing-dynamics .fx-control > .fx-select { height:24px; font-size:10px; }
+}
+
+/* A shallow dock has room for one row of dynamics controls. Keep the time
+   controls alongside threshold and output; narrower docks scroll sideways. */
+@media(min-width:900px) {
+  .editor-docked .fx-wing-dynamics > .fx-face { overflow:auto; scroll-padding-inline:8px; scrollbar-color:#8b6f7b #17151b; }
+  .editor-docked .fx-wing-dynamics > .fx-face::-webkit-scrollbar { width:9px; height:9px; }
+  .editor-docked .fx-wing-dynamics > .fx-face::-webkit-scrollbar-track { background:#17151b; }
+  .editor-docked .fx-wing-dynamics > .fx-face::-webkit-scrollbar-thumb { background:#8b6f7b; border:2px solid #17151b; border-radius:5px; }
+  .editor-docked .fx-wing-dynamics-layout { grid-template-columns:280px max-content; min-width:max-content; height:100%; min-height:140px; align-items:stretch; }
+  .editor-docked .fx-wing-dynamics-graphs { display:grid; grid-template-columns:1fr 1fr; grid-template-rows:minmax(0,1fr) auto; gap:6px; min-height:0; }
+  .editor-docked .fx-wing-dynamics-graphs .fx-wing-chart { display:flex; flex-direction:column; min-height:0; }
+  .editor-docked .fx-wing-dynamics-graphs .fx-wing-display-heading { flex:none; flex-direction:column; align-items:flex-start; gap:2px; padding:4px 6px; }
+  .editor-docked .fx-wing-dynamics-graphs .fx-wing-chart svg { flex:1; height:0; min-height:0; max-height:none; }
+  .editor-docked .fx-wing-reference-note { grid-column:1 / -1; font-size:8px; }
+  .editor-docked .fx-wing-dynamics-controls { grid-template-columns:none; grid-auto-flow:column; grid-auto-columns:max-content; align-content:start; }
+  .editor-docked .fx-wing-dynamics-controls > .fx-wing-control-group { padding:7px 6px; }
+  .editor-docked .fx-wing-dynamics-controls .fx-wing-knob-row { gap:6px; }
+  .editor-docked .fx-wing-dynamics-controls .fx-wing-knob-row > .fx-control { flex:0 0 64px; min-width:64px; }
+  .editor-docked .fx-wing-dynamics-controls .fx-wing-group-timing { grid-column:2; grid-row:1; }
+  .editor-docked .fx-wing-dynamics-controls .fx-wing-group-output { grid-column:3; grid-row:1; }
+  .editor-docked .fx-wing-dynamics-controls .fx-wing-group-options { grid-column:4; grid-row:1; width:170px; }
+  .editor-docked .fx-wing-group-options .fx-wing-knob-row > .fx-control { flex:1 1 70px; min-width:70px; }
+  .editor-docked .fx-wing-group-options .fx-wing-knob-row > .fx-control-boolean { flex-basis:100%; }
+}

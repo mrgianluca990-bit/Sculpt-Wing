@@ -131,15 +131,17 @@
   }
 
   function parameter({ caption, get, set, min, max, step = 1, unit = '', log = false, compact = false, vertical = false, format, disabled }) {
-    const wrap = el('div', `editor-parameter editor-parameter-rotary${compact ? ' editor-parameter-compact' : ''}${vertical ? ' editor-parameter-vertical' : ''}`);
+    const wrap = el('div', `editor-parameter${vertical ? ' editor-parameter-vertical' : ' editor-parameter-rotary'}${compact ? ' editor-parameter-compact' : ''}`);
     const heading = el('div', 'editor-parameter-heading'), display = el('output', 'editor-parameter-value');
     const displayValue = value => format ? format(value) : `${dec(value, step < 1 ? (step < .1 ? 2 : 1) : 0)}${unit ? ` ${unit}` : ''}`;
     heading.append(el('span', 'editor-parameter-label', caption), display);
     const row = el('div', 'editor-parameter-controls');
-    const knob = el('div', 'editor-knob'); knob.tabIndex = 0;
-    knob.setAttribute('role', 'slider'); knob.setAttribute('aria-label', `${caption} — manopola`);
-    knob.setAttribute('aria-valuemin', String(min)); knob.setAttribute('aria-valuemax', String(max));
-    knob.append(el('i', 'editor-knob-pointer'));
+    const knob = vertical ? null : el('div', 'editor-knob');
+    if (knob) {
+      knob.tabIndex = 0; knob.setAttribute('role', 'slider'); knob.setAttribute('aria-label', `${caption} — manopola`);
+      knob.setAttribute('aria-valuemin', String(min)); knob.setAttribute('aria-valuemax', String(max));
+      knob.append(el('i', 'editor-knob-pointer'));
+    }
     const input = el('input', 'editor-number');
     input.type = 'number'; input.min = String(min); input.max = String(max); input.step = String(step);
     input.inputMode = step < 1 ? 'decimal' : 'numeric'; input.setAttribute('aria-label', `${caption}${unit ? ` in ${unit}` : ''}`);
@@ -157,11 +159,13 @@
     const update = () => {
       const value = Number(get()); if (!Number.isFinite(value)) return;
       const position = toPosition(value), enabled = writable();
+      if (knob) {
       knob.style.setProperty('--editor-turn', `${-135 + position * 270}deg`);
       knob.style.setProperty('--editor-sweep', `${position * 270}deg`);
       knob.setAttribute('aria-valuenow', String(value)); knob.setAttribute('aria-valuetext', displayValue(value));
       knob.setAttribute('aria-disabled', String(!enabled)); knob.tabIndex = enabled ? 0 : -1;
       knob.title = `${caption}: ${displayValue(value)} · trascina su/giù, Maiusc per la regolazione fine`;
+      }
       if (slider) {
         slider.value = String(log ? position * 1000 : value); slider.disabled = !enabled;
         slider.style.setProperty('--editor-fill', `${position * 100}%`); slider.setAttribute('aria-valuetext', displayValue(value));
@@ -179,9 +183,12 @@
       if (!rotaryDrag) return;
       const pointer = rotaryDrag.pointer; rotaryDrag = null; knob.classList.remove('dragging');
       if (knob.hasPointerCapture?.(pointer)) knob.releasePointerCapture(pointer);
+      C().endGesture?.();
     };
+    if (knob) {
     knob.addEventListener('pointerdown', event => {
       if (rotaryDrag || !writable() || event.button !== 0) return;
+      C().beginGesture?.(caption);
       rotaryDrag = { pointer: event.pointerId, y: event.clientY, position: toPosition(Number(get())) };
       knob.focus({ preventScroll: true }); knob.setPointerCapture?.(event.pointerId); knob.classList.add('dragging'); event.preventDefault();
     });
@@ -204,15 +211,18 @@
       else return;
       event.preventDefault(); commitValue(value);
     });
-    if (caption === 'Fader' || vertical) knob.addEventListener('dblclick', () => commitValue(0));
+    if (caption === 'Fader') knob.addEventListener('dblclick', () => commitValue(0));
+    }
     const commit = () => {
       if (input.value.trim() && Number.isFinite(input.valueAsNumber)) commitValue(input.valueAsNumber);
       input.value = String(get()); update();
     };
     input.addEventListener('change', commit); input.addEventListener('blur', commit);
     input.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); commit(); input.blur(); } });
-    window.addEventListener('blur', finishRotary);
-    cleanups.push(() => { finishRotary(); window.removeEventListener?.('blur', finishRotary); });
+    if (knob) {
+      window.addEventListener('blur', finishRotary);
+      cleanups.push(() => { finishRotary(); window.removeEventListener?.('blur', finishRotary); });
+    }
     if (vertical) {
       const rail = el('div', 'editor-fader-rail'), scale = el('div', 'editor-fader-scale'), cap = el('span', 'editor-fader-cap');
       scale.setAttribute('aria-hidden', 'true'); cap.setAttribute('aria-hidden', 'true');
@@ -224,9 +234,11 @@
         if (!drag) return;
         const pointer = drag.pointer; drag = null; cap.classList.remove('dragging');
         if (cap.hasPointerCapture?.(pointer)) cap.releasePointerCapture(pointer);
+        C().endGesture?.();
       };
       cap.addEventListener('pointerdown', event => {
         if (drag || !writable() || event.button !== 0) return;
+        C().beginGesture?.(caption);
         drag = { pointer: event.pointerId, startY: event.clientY, startValue: Number(slider.value), travel: Math.max(1, rail.getBoundingClientRect().height - (cap.getBoundingClientRect().height || 22)) };
         slider.focus({ preventScroll: true }); cap.setPointerCapture(event.pointerId); cap.classList.add('dragging'); event.preventDefault();
       });
@@ -246,7 +258,7 @@
         tick.style.top = `${(max - value) / (max - min) * 100}%`;
         if (value === 0) tick.className = 'editor-fader-unity'; scale.append(tick);
       }
-      rail.append(scale, slider, cap); row.append(rail, knob, input);
+      rail.append(scale, slider, cap); row.append(rail, input);
     } else row.append(knob, input);
     wrap.append(heading, row); bind(update); return wrap;
   }

@@ -17,16 +17,18 @@ function liveFixture(f,load=async()=>{}){
   f.w.SculptLive={isLive:()=>true,isConnected:()=>status.mode==='live',isWritable:()=>status.writable,hasValue:p=>values.has(p),metadata:p=>metadata.get(p),hasStripValue:()=>true,canPersist:()=>false,applying:()=>false,reviewMutation:()=>{status.reviews++;return status.mode==='live'&&status.writable;},loadScope:scope=>{assert.equal(scope,'groups');status.loads++;return load();}};
   return {values,metadata,status,read(p,value,meta={}){values.set(p,value);if(meta)metadata.set(p,{path:p,readOnly:false,...meta});else metadata.delete(p);f.w.SculptWingMap.apply(f.C.getState(),p,value);},mode(mode){status.mode=mode;f.w.dispatchEvent(new f.w.CustomEvent('sculpt-live-state',{detail:{mode}}));}};
 }
-test('DCA access swaps only the top bank and keeps all sixteen masters tied to shared groups',t=>{
+test('DCA masters share the upper bank with outputs and retain the existing shared group controls',t=>{
   const f=fixture(t),button=f.w.document.getElementById('dca-bank-button'),normal=f.w.document.getElementById('outputs-bank');
   const events=[];f.w.addEventListener('sculpt-dca-bank',event=>events.push(event.detail.open));
-  button.click();assert.equal(f.bank.isOpen(),true);assert.equal(normal.hidden,true);assert.equal(f.w.document.querySelectorAll('.dca-strip').length,16);
-  assert.equal(f.w.document.getElementById('inputs-bank').hidden,false);assert.equal(f.w.document.getElementById('output-title').textContent,'DCA');
+  assert.equal(normal.querySelectorAll('.dca-strip').length,16);assert.equal(normal.querySelectorAll('.strip').length,44);
+  assert.deepEqual([...normal.querySelectorAll('.strip')].slice(-16).map(node=>node.dataset.id),Array.from({length:16},(_,i)=>'dca-'+(i+1)));
+  button.click();assert.equal(f.bank.isOpen(),true);assert.equal(normal.hidden,false);assert.equal(f.w.document.querySelectorAll('.dca-strip').length,16);
+  assert.equal(f.w.document.getElementById('inputs-bank').hidden,false);assert.equal(f.w.document.getElementById('output-title').textContent,'USCITE');assert.equal(f.w.document.querySelector('.outputs .row-count').textContent,'44');
   const original=f.C.getStrip('ch-7').level;f.key(f.dca(2).querySelector('.fader'),'ArrowDown');assert.equal(f.D.get().dca[1].level,-.5);assert.equal(f.C.getStrip('ch-7').level,original);assert.equal(f.D.effective('ch-7').level,original-.5);
   f.dca(2).querySelector('.mute-button').click();assert.equal(f.D.effective('ch-7').muted,true);assert.equal(f.C.getStrip('ch-7').mute,false);
   f.double(f.dca(2).querySelector('.fader-cap'));assert.equal(f.D.get().dca[1].level,0);
   f.w.document.querySelector('.bank-button[data-row="outputs"][data-index="16"]').click();assert.equal(f.bank.isOpen(),false);assert.equal(normal.hidden,false);assert.equal(f.w.document.getElementById('output-title').textContent,'USCITE');
-  f.bank.hide();assert.deepEqual(events,[true,false],'pin rails receive only actual DCA bank transitions');
+  f.bank.hide();assert.deepEqual(events,[true,false],'the shortcut tracks navigation without replacing the row');
 });
 test('DCA members and names edit existing group state and survive project restoration',t=>{
   const f=fixture(t);f.bank.open();f.dca(4).querySelector('.strip-label').click();
@@ -35,10 +37,24 @@ test('DCA members and names edit existing group state and survive project restor
   assert.equal(f.dca(4).querySelector('.strip-name').textContent,'Arch');assert.equal(f.dca(4).querySelector('.dca-members-button').textContent,'1 membri');
   const saved=f.C.capture();f.D.change(d=>{d.dca[3].name='Changed';d.dca[3].members=[];});f.C.restore(saved);assert.equal(f.dca(4).querySelector('.strip-name').textContent,'Arch');assert.equal(f.dca(4).querySelector('.dca-members-button').textContent,'1 membri');
 });
-test('Custom Layer exits the DCA bank and preserves its two-row layout',t=>{
+test('unchanged DCA refreshes do not rewrite strip DOM while values and permissions still repaint',t=>{
+  const f=fixture(t),observed=f.dca(1),observer=new f.w.MutationObserver(()=>{});observer.observe(observed,{attributes:true,childList:true,characterData:true,subtree:true});
+  f.bank.refresh();f.bank.refresh();assert.equal(observer.takeRecords().length,0);
+  f.D.change(d=>d.dca[0].level=-4,'dca');assert(observer.takeRecords().length>0);assert.equal(observed.querySelector('.level-readout span').textContent,'−4.0');
+  f.bank.refresh();assert.equal(observer.takeRecords().length,0);
+  const l=liveFixture(f);l.read('/dca/1/fdr',-4);l.read('/dca/1/name','Band');l.read('/dca/1/mute',false);l.read('/dca/1/$solo',false);f.bank.refresh();observer.takeRecords();
+  l.status.writable=false;f.bank.refresh();assert(observer.takeRecords().length>0);assert.equal(observed.querySelector('.fader').getAttribute('aria-disabled'),'true');
+  f.bank.refresh();assert.equal(observer.takeRecords().length,0);observer.disconnect();
+});
+test('Custom Layer controls DCA visibility while preserving its two-row layout',t=>{
   const f=fixture(t);f.bank.open();f.C.showLayer({top:['ch-3'],bottom:['bus-1']},'Two rows');
-  assert.equal(f.bank.isOpen(),false);assert.equal(f.w.document.getElementById('dca-bank').hidden,true);assert.equal(f.w.document.querySelector('.outputs .bank-navigation').hidden,true);
+  assert.equal(f.bank.isOpen(),false);assert.equal(f.dca(1).hidden,true);assert.equal(f.w.document.querySelector('.outputs .bank-navigation').hidden,true);
   assert.equal(f.strip('ch-3').parentElement.id,'outputs-bank');assert.equal(f.strip('bus-1').parentElement.id,'inputs-bank');
+  f.C.showLayer({top:['dca-2','ch-3'],bottom:['bus-1','dca-4']},'DCA above');
+  assert.deepEqual([...f.w.document.querySelectorAll('#outputs-bank>.strip:not([hidden])')].map(n=>n.dataset.id),['dca-2','ch-3','dca-4']);
+  assert.deepEqual([...f.w.document.querySelectorAll('#inputs-bank>.strip:not([hidden])')].map(n=>n.dataset.id),['bus-1']);
+  assert.equal(f.dca(1).hidden,true);assert.equal(f.dca(2).hidden,false);assert.equal(f.dca(4).hidden,false);
+  f.bank.open();assert.equal(f.C.getLayerRows(),null);assert.equal(f.w.document.querySelectorAll('#outputs-bank>.strip:not([hidden])').length,44);
 });
 test('DCA live hydration and guarded controls never display unreceived demo values as live',async t=>{
   const f=fixture(t),values=new Map();let writable=false,loads=0;

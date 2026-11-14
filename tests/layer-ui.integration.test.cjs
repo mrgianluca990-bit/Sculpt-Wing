@@ -2,7 +2,7 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 const {JSDOM}=require('jsdom');
 const base=path.join(__dirname,'../dist'),storageKey='sculpt-wing-layers-v1';
-function fixture(preferences,withEditor=false){
+function fixture(preferences,withEditor=false,withDca=false){
   const dom=new JSDOM(fs.readFileSync(path.join(base,'index.html'),'utf8'),{url:'https://sculpt.test',runScripts:'outside-only'}),w=dom.window,observers=[];
   w.matchMedia=()=>({matches:false,addEventListener(){},removeEventListener(){}});w.ResizeObserver=class{observe(){}disconnect(){}};
   w.IntersectionObserver=class{constructor(callback,options){this.callback=callback;this.root=options.root;this.targets=new Set();observers.push(this);}observe(node){this.targets.add(node);}disconnect(){this.targets.clear();}};
@@ -12,12 +12,28 @@ function fixture(preferences,withEditor=false){
   w.HTMLDialogElement.prototype.showModal=function(){openedDialogs.push({node:this,modal:true});this.open=true;};w.HTMLDialogElement.prototype.show=function(){openedDialogs.push({node:this,modal:false});this.open=true;};w.HTMLDialogElement.prototype.close=function(){this.open=false;this.dispatchEvent(new w.Event('close'));};
   if(preferences)w.localStorage.setItem(storageKey,JSON.stringify(preferences));
   for(const file of ['plugin-data.js','model.js','app.js','desk.js','shell.js','systems.js'])vm.runInContext(fs.readFileSync(path.join(base,file),'utf8'),dom.getInternalVMContext(),{filename:file});
+  if(withDca)vm.runInContext(fs.readFileSync(path.join(base,'dca-bank.js'),'utf8'),dom.getInternalVMContext(),{filename:'dca-bank.js'});
   if(withEditor)vm.runInContext(fs.readFileSync(path.join(base,'editor.js'),'utf8'),dom.getInternalVMContext(),{filename:'editor.js'});
   return {dom,w,C:w.SculptController,D:w.SculptDesk,observers,openedDialogs};
 }
 const plain=value=>JSON.parse(JSON.stringify(value));
 const visible=(w,row)=>[...w.document.querySelectorAll(`#${row}-bank>.strip:not([hidden])`)].map(n=>n.dataset.id);
 const button=(scope,label)=>[...scope.querySelectorAll('button')].find(b=>b.textContent===label);
+
+test('DCA custom rows restore before the DCA module loads and the editor offers DCA only above',t=>{
+  const preferences={version:1,layers:[{id:'band',name:'Band',rows:{top:['dca-2','bus-1','ch-2'],bottom:['dca-4','ch-1','dca-2','dca-17']}}],activeLayer:'band'};
+  const {dom,w,D}=fixture(preferences,false,true);t.after(()=>dom.window.close());
+  assert.deepEqual(plain(D.get().layers[0].rows),{top:['dca-2','bus-1','ch-2','dca-4'],bottom:['ch-1']});
+  assert.deepEqual(visible(w,'outputs'),['dca-2','bus-1','ch-2','dca-4']);assert.deepEqual(visible(w,'inputs'),['ch-1']);
+  w.SculptUI.open('layers');const page=w.document.getElementById('desk-page-body');assert.match(page.textContent,/DCA 02/);button(page,'Modifica le due righe').click();
+  let editor=w.document.querySelector('.sys-layer-editor'),dcaSlot=editor.querySelector('[data-strip-id="dca-2"]');
+  assert.equal(button(dcaSlot,'↓ Riga 2').disabled,true);button(dcaSlot,'→').click();assert.deepEqual(plain(D.get().layers[0].rows.top),['bus-1','dca-2','ch-2','dca-4']);
+  editor=w.document.querySelector('.sys-layer-editor');button(editor.querySelector('[data-layer-row="top"]'),'Aggiungi canali').click();
+  let membership=w.document.querySelector('.sys-membership'),checks=[...membership.querySelectorAll('input[type=checkbox]')],dca9=checks.find(input=>input.getAttribute('aria-label').startsWith('Assegna DCA 09'));
+  assert(dca9);dca9.click();assert(D.get().layers[0].rows.top.includes('dca-9'));membership.closest('dialog').close();
+  editor=w.document.querySelector('.sys-layer-editor');button(editor.querySelector('[data-layer-row="bottom"]'),'Aggiungi canali').click();
+  membership=w.document.querySelector('.sys-membership');assert.equal([...membership.querySelectorAll('input')].some(input=>input.getAttribute('aria-label')?.startsWith('Assegna DCA')),false);
+});
 
 test('custom layer renders two independent ordered banks using existing faders and restores the normal mixer',t=>{
   const {dom,w,C,D,observers}=fixture();t.after(()=>dom.window.close());

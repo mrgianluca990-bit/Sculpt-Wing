@@ -1,7 +1,7 @@
 {
   "name": "sculpt-wing-desktop",
   "productName": "Sculpt Wing",
-  "version": "0.6.6",
+  "version": "0.6.7",
   "description": "Sculpt Wing — controller WING per macOS e Windows",
   "private": true,
   "license": "UNLICENSED",
@@ -52,7 +52,7 @@
         }
       ],
       "extendInfo": {
-        "NSLocalNetworkUsageDescription": "Sculpt Wing si collega direttamente alla tua WING sulla rete locale per leggere i meter e controllare canali, mandate, processori e routing.",
+        "NSLocalNetworkUsageDescription": "Sculpt Wing usa la rete locale per controllare la WING e inviare comandi OSC a Sculpt Show o altri dispositivi.",
         "LSMultipleInstancesProhibited": true
       }
     },

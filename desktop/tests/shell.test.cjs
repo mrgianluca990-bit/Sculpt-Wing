@@ -46,7 +46,7 @@ test('preload exposes fixed calls and strips privileged event argument', async (
 });
 
 function loadMain({ singleInstance = true } = {}) {
-  const windows = [], sockets = [], ipc = new Map(), protocolHandlers = new Map(), fetches = [];
+  const windows = [], sockets = [], oscSenders = [], ipc = new Map(), protocolHandlers = new Map(), fetches = [];let menuTemplate;
   const app = Object.assign(new EventEmitter(), {
     setName(value) { this.name = value; }, setAppUserModelId(value) { this.id = value; },
     requestSingleInstanceLock: () => singleInstance,
@@ -60,6 +60,8 @@ function loadMain({ singleInstance = true } = {}) {
         isDestroyed: () => this.destroyed,
         getURL: () => this.url || policy.APP_URL,
         send: (...args) => { this.lastSend = args; },
+        undo: () => { this.textUndo=(this.textUndo||0)+1; },
+        redo: () => { this.textRedo=(this.textRedo||0)+1; },
         setWindowOpenHandler: fn => { this.openHandler = fn; }
       });
     }
@@ -76,12 +78,17 @@ function loadMain({ singleInstance = true } = {}) {
     sendUDP(options) { this.udp = options; return Promise.resolve(); }
     suspend() { this.suspended++; } close() { this.closed++; }
   }
+  class OSC {
+    constructor({ protocol }) { this.protocol = protocol; this.suspended = 0; this.closed = 0; oscSenders.push(this); }
+    send(options) { this.last = this.protocol.normalizeRequest(options); return Promise.resolve({ sent: true, confirmed: false }); }
+    suspend() { this.suspended++; } close() { this.closed++; }
+  }
   const permissions = {}, monitor = new EventEmitter(), protocol = {
     registerSchemesAsPrivileged(value) { this.schemes = value; },
     handle: (name, fn) => protocolHandlers.set(name, fn)
   };
   const electron = {
-    app, BrowserWindow: FakeWindow, Menu: { buildFromTemplate: value => value, setApplicationMenu() {} },
+    app, BrowserWindow: FakeWindow, Menu: { buildFromTemplate: value => value, setApplicationMenu(value) { menuTemplate=value; } },
     ipcMain: { handle: (name, fn) => ipc.set(name, fn) }, protocol, powerMonitor: monitor,
     net: { fetch: async url => { fetches.push(url); return new Response('local asset', { headers: { 'Content-Type': 'text/javascript' } }); } },
     session: { defaultSession: {
@@ -90,11 +97,20 @@ function loadMain({ singleInstance = true } = {}) {
     } }
   };
   vm.runInNewContext(readFileSync(path.join(__dirname, '../src/main.cjs'), 'utf8'), {
-    require: name => name === 'electron' ? electron : name === './wing-socket.cjs' ? { WingSocket: Socket } : name === './bridge-policy.cjs' ? policy : require(name),
+    require: name => name === 'electron' ? electron : name === './wing-socket.cjs' ? { WingSocket: Socket } : name === './osc-sender.cjs' ? { OSCSender: OSC } : name === '../app/osc.js' ? require('../../dist/osc.js') : name === './bridge-policy.cjs' ? policy : require(name),
     __dirname: path.resolve(__dirname, '../src'), process: { platform: 'darwin' }, Promise, URL, Response, Headers, console
   });
-  return { app, windows, sockets, ipc, monitor, protocol, protocolHandlers, permissions, fetches };
+  return { app, windows, sockets, oscSenders, ipc, monitor, protocol, protocolHandlers, permissions, fetches,menu:()=>menuTemplate };
 }
+
+test('Mac Undo and Redo use the application history and text fallback remains restricted to its main frame',async()=>{
+  const env=loadMain();await Promise.resolve();const win=env.windows[0],edit=env.menu().find(item=>item.label==='Modifica').submenu;
+  assert.equal(edit[0].accelerator,'CmdOrCtrl+Z');assert.equal(edit[1].accelerator,'CmdOrCtrl+Shift+Z');assert.equal(edit[0].role,undefined);
+  edit[0].click();assert.deepEqual(win.lastSend,['sculpt-wing:event:history','undo']);edit[1].click();assert.deepEqual(win.lastSend,['sculpt-wing:event:history','redo']);
+  const event={sender:win.webContents,senderFrame:win.webContents.mainFrame},handler=env.ipc.get('sculpt-wing:textHistory');
+  handler(event,{direction:'undo'});handler(event,{direction:'redo'});assert.equal(win.textUndo,1);assert.equal(win.textRedo,1);
+  assert.throws(()=>handler({...event,senderFrame:{url:policy.APP_URL}},{direction:'undo'}));assert.throws(()=>handler(event,{direction:'executeJavaScript'}));
+});
 
 test('desktop shell isolates renderer, checks sender, closes stale sessions and blocks navigation', async () => {
   const env = loadMain(); await Promise.resolve();
@@ -132,4 +148,14 @@ test('desktop shell isolates renderer, checks sender, closes stale sessions and 
 test('second app instance exits before opening a window', async () => {
   const env = loadMain({ singleInstance: false }); await Promise.resolve();
   assert.equal(env.app.quitCalls, 1); assert.equal(env.windows.length, 0); assert.equal(env.ipc.size, 0);
+});
+
+test('OSC IPC uses its own bounded transport and the same trusted main-frame checks', async () => {
+  const env=loadMain();await Promise.resolve();const win=env.windows[0],sender=env.oscSenders[0],event={sender:win.webContents,senderFrame:win.webContents.mainFrame};
+  const message={host:'127.0.0.1',port:53000,address:'/sculpt/go',args:[],arbitrary:'discarded'};
+  const result=await env.ipc.get('sculpt-wing:sendOSC')(event,message);assert.equal(result.sent,true);assert.equal(result.confirmed,false);assert.equal(sender.last.address,'/sculpt/go');assert.equal(sender.last.arbitrary,undefined);assert.equal(env.sockets[0].connection,undefined);
+  await assert.rejects(env.ipc.get('sculpt-wing:sendOSC')({...event,sender:{}},message));
+  await assert.rejects(env.ipc.get('sculpt-wing:sendOSC')({...event,senderFrame:{url:policy.APP_URL}},message));
+  await assert.rejects(env.ipc.get('sculpt-wing:sendOSC')(event,{...message,host:'224.0.0.1'}));
+  env.monitor.emit('suspend');assert.equal(sender.suspended,1);win.destroy();assert.equal(sender.closed,1);
 });

@@ -109,12 +109,13 @@
   }
   function layerRows(layer){
     const rows={top:[],bottom:[]},seen=new Set();
-    const append=(row,id)=>{if(typeof id==='string'&&knownId(id)&&!seen.has(id)){seen.add(id);rows[row].push(id);}};
+    const isDca=id=>typeof id==='string'&&/^dca-(?:[1-9]|1[0-6])$/.test(id);
+    const append=(row,id)=>{if(typeof id==='string'&&(knownId(id)||isDca(id))&&!seen.has(id)){seen.add(id);rows[isDca(id)?'top':row].push(id);}};
     if(plain(layer?.rows)){
       for(const row of ['top','bottom'])for(const id of Array.isArray(layer.rows[row])?layer.rows[row]:[])append(row,id);
     }else{
       // Old layers selected members only. Retain their original row and order.
-      for(const id of Array.isArray(layer?.members)?layer.members:[]){const strip=C.getStrip(id);if(strip)append(['CH','AUX'].includes(strip.kind)?'bottom':'top',id);}
+      for(const id of Array.isArray(layer?.members)?layer.members:[]){const strip=C.getStrip(id);if(strip||isDca(id))append(strip&&['CH','AUX'].includes(strip.kind)?'bottom':'top',id);}
     }
     return rows;
   }
@@ -172,9 +173,10 @@
     if(macroProfile){s.desk.macros=normalizeMacros(macroProfile.macros);s.desk.macrosSeeded=macroProfile.macrosSeeded!==false;}
   },'init');
   const get=()=>C.getState().desk;
-  const change=(fn,type='console')=>C.transact(s=>{fn(s.desk);},type);
+  const change=(fn,type='console',options={})=>C.transact(s=>{fn(s.desk);},type,options);
   let macroProfileSignature='',macroStorageWarning=false;
-  function persistMacroProfile(){
+  function persistMacroProfile(event){
+    if(event&&['strip','send','parameter','processing','channel','source','routing','dca','live-values','selection','sof','layer','desk-ready'].includes(event.type))return;
     const current=get(),value=JSON.stringify({version:1,macrosSeeded:current.macrosSeeded===true,macros:normalizeMacros(current.macros)});
     if(value===macroProfileSignature)return;
     try{const storage=root.localStorage;if(!storage)return;storage.setItem(MACRO_PROFILE_KEY,value);macroProfileSignature=value;macroStorageWarning=false;}
@@ -189,7 +191,7 @@
     change(d=>{const p=ctx.type==='fx'?d.fx[ctx.slot-1]:d.processing[ctx.id][ctx.block];p.model=id;p.params=K.defaults(ctx,id)||{};p.enabled=true;p.mix=100;},'processing');
     if(ctx.type==='fx'&&id==='NONE')assignFx(ctx.slot,null,'pre');return true;
   }
-  function setParam(ctx,key,value){const item=processor(ctx),def=item&&K.get(ctx,item.model),catalogParam=def?.parameters?.find(v=>v.key===key);if(!catalogParam)return false;const liveParam=root.SculptLive?.isLive()?root.SculptLive.parameterDefinition(ctx,key):null;if(root.SculptLive?.isLive()&&(!liveParam||liveParam.readOnly))return false;const p={...catalogParam,...(liveParam||{})};const next=valueFor(p,value);return change(()=>{item.params[key]=next;},'parameter')!==false;}
+  function setParam(ctx,key,value){const item=processor(ctx),def=item&&K.get(ctx,item.model),catalogParam=def?.parameters?.find(v=>v.key===key);if(!catalogParam)return false;const liveParam=root.SculptLive?.isLive()?root.SculptLive.parameterDefinition(ctx,key):null;if(root.SculptLive?.isLive()&&(!liveParam||liveParam.readOnly))return false;const p={...catalogParam,...(liveParam||{})};const next=valueFor(p,value);if(Object.is(item.params[key],next))return true;const path=ctx.type==='fx'?['desk','fx',Number(ctx.slot)-1]:['desk','processing',ctx.id,ctx.block];return change(()=>{item.params[key]=next;},'parameter',{id:ctx.id,paths:[path]})!==false;}
   function assignFx(slot,id,position='pre'){
     slot=Number(slot);const fx=get().fx[slot-1];if(!fx||id&&!knownId(id))return false;
     position=position==='post'?'post':'pre';if(id&&C.getStrip(id).kind==='AUX'&&position==='post')return false;
@@ -214,7 +216,7 @@
       else ch[key]=clean(value);
     }
     if('source'in patch||'altSource'in patch||'useAlt'in patch){const src=d.sources[ch.useAlt?ch.altSource:ch.source];if(src)ch.mode=src.mode;}
-  },'channel');return true;}
+  },'channel',{id,paths:[['desk','channels',id]]});return true;}
   function patchSource(id,patch){const s=get().sources[id];if(!s||id==='OFF')return false;change(d=>{
     for(const [k,v]of Object.entries(patch)){
       if(k==='gain'&&s.preamp)s.gain=Math.round(clamp(v,s.gainMin,s.gainMax)/s.gainStep)*s.gainStep;
@@ -224,7 +226,7 @@
       else if(k==='mode'&&['M','ST','M/S'].includes(v)){s.mode=v;for(const ch of Object.values(d.channels))if((ch.useAlt?ch.altSource:ch.source)===id)ch.mode=v;}
       else if(['name','color','remote','icon','tags'].includes(k))s[k]=String(v).slice(0,k==='name'?16:80);
     }
-  },'source');return true;}
+  },'source',{paths:[['desk','sources',id],...('mode'in patch?[['desk','channels']]:[])]});return true;}
   function capacity(group,out=false){
     const s=get().setup,model=String(s.model).toUpperCase(),full=['WING','FULL','FULLSIZE','FULL-SIZE'].includes(model);
     if(group==='LCL')return out?8:full?8:24;

@@ -1,0 +1,41 @@
+{
+  "version": "0.6.7",
+  "base_commit": "465b4f01f86f0a758c970d45780a3982db972213",
+  "target": "macOS arm64",
+  "versions": {
+    "native": "0.6.7",
+    "desktop": "0.6.7"
+  },
+  "cache": "sculpt-control-v23",
+  "html_assets": 43,
+  "cache_assets": 45,
+  "identical_source_assets": {
+    "native/dist": 55,
+    "desktop/app": 55
+  },
+  "tests": {
+    "native": 100,
+    "web": 322,
+    "desktop": 28,
+    "total": 450,
+    "editor_renders": 456
+  },
+  "frontend_build": "passed",
+  "desktop_prepare": "passed",
+  "benchmark_source_hashes": "match final JavaScript",
+  "browser_qa": [
+    "DCA upper row and left pin persists across BUS navigation and reload",
+    "DCA Cmd+Z, Shift+Cmd+Z and double-click 0 dB",
+    "EQ band selection, gain control and Undo",
+    "Compressor and Gate horizontal dock at 1363x936 and 45/55 split",
+    "16 vertical send faders, 128 px height, no duplicate level knob",
+    "Show GO assigned to M10 and persisted after reload",
+    "OSC defaults 127.0.0.1:53000; browser UDP disabled"
+  ],
+  "not_performed": [
+    "macOS ARM64 build",
+    "launch on physical Mac M1",
+    "physical WING integration",
+    "real Sculpt Show application integration"
+  ]
+}

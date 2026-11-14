@@ -1,6 +1,6 @@
 # Sculpt Wing — obiettivo e contratto di sviluppo
 
-Aggiornato il 13 novembre 2026 a seguito della richiesta dell’utente di prevedere tutte le funzioni della WING, tutti i plugin con i rispettivi editor e il menu I/O.
+Aggiornato il 14 novembre 2026. Le richieste successive sono raccolte nelle sezioni di versione; l’obiettivo resta il controllo delle funzioni WING, dei processori e del menu I/O, con le priorità e i limiti di consegna esplicitati sotto.
 
 ## Specifica di riferimento
 
@@ -112,3 +112,43 @@ L’utente richiede altri **otto pulsanti macro vuoti**, per un totale di **16**
 Le azioni di navigazione dell’interfaccia non richiedono l’abilitazione delle scritture audio. Le macro che contengono comandi al mixer devono conservare la validazione preventiva dell’intera sequenza, i controlli della sessione, l’abilitazione di Controllo, lo schema dei parametri e il riscontro delle scritture. Una macro con un comando non disponibile non deve eseguire la prima parte della sequenza prima di rilevare il problema. Le definizioni delle macro sono configurazione locale e possono essere modificate e conservate durante una sessione live senza salvare dati audio del banco come progetto demo.
 
 Conservare creazione e modifica di sequenze, scelta del nome, riordino e rimozione delle azioni. Prevedere un’azione esplicita per svuotare una macro senza eliminarne il pulsante. Mantenere il mixer a due righe, il divisore regolabile e la raggiungibilità di tutti i16 pulsanti. Questa richiesta supera il rinvio delle macro indicato nelle versioni precedenti.
+
+## Aggiornamento 0.6.7 — DCA, editor, annullamento, prestazioni e OSC
+
+La priorità rimane **Mac M1 / Apple Silicon ARM64**. Questa richiesta riguarda il completamento dell’app Sculpt Wing esistente. L’invio OSC deve essere integrato nel suo trasporto nativo e non autorizza la creazione di un’altra app Mac che faccia da ponte.
+
+### DCA e organizzazione dei controlli
+
+I 16 DCA devono appartenere alla **riga superiore**, insieme a BUS, matrici e master, ed essere ancorabili a sinistra o a destra con gli stessi comandi delle altre strip. Il richiamo DCA serve a raggiungerli tramite lo scorrimento; non deve sostituire gli altri canali della riga. I DCA restano nella riga superiore anche nei Custom Layer. Ancoraggi e ordine locale non modificano i membri del gruppo, i parametri audio o il routing. Non introdurre meter audio fittizi sui DCA.
+
+Riorganizzare i pannelli nativi **WING EQ e WING Dynamics** per la vista orizzontale, con una gerarchia leggibile fra grafici, bande, gruppi di parametri e controlli. Mantenere i modelli, i limiti dichiarati dal banco e le superfici degli altri processori. Evitare controlli duplicati per lo stesso parametro.
+
+Le mandate nell’editor restano verticali, con dimensioni compatte. Il loro livello usa **fader e campo numerico**, senza una seconda manopola che muova lo stesso fader: questa richiesta specifica supera la precedente regola generale della manopola per ogni valore. Pan e gli altri parametri indipendenti conservano i rispettivi controlli. Preservare trascinamento dalla sola testa e doppio clic a 0 dB.
+
+### Cronologia delle modifiche
+
+Rendere disponibili **Cmd+Z** e **Maiusc+Cmd+Z**, oltre ai comandi nel menu Banco. Un trascinamento continuo di fader, manopola o punto EQ deve costituire una sola operazione, compresi i parametri cambiati insieme. Registrare i campi effettivamente modificati; non ripristinare un intero progetto per annullare una singola regolazione. Conservare i valori estranei all’operazione, incluso il routing. Nei campi di testo mantenere il comportamento nativo di annullamento della digitazione.
+
+Prima di applicare annullamento o ripristino, verificare sessione, valori correnti e compatibilità del modello. Non sovrascrivere un conflitto già rilevato con una modifica successiva. Le scritture live devono passare dai controlli esistenti e attendere il riscontro del banco; il cambio di sessione o il mancato riscontro impediscono di dichiarare l’operazione confermata. Durante un annullamento in attesa non accettare nuove modifiche utente prive di registrazione. Gli aggiornamenti ricevuti dal banco non devono diventare nuove azioni utente nella cronologia.
+
+Il **cambio di algoritmo live non è annullabile** tramite questa cronologia: il solo ripristino del modello non ricostruisce tutti i suoi parametri precedenti. Il ripristino completo richiede un preset. Non promettere l’annullamento di comandi esterni già eseguiti, compresi i messaggi OSC.
+
+### Prestazioni e dati reali
+
+Ridurre il lavoro ripetuto durante i gesti: limitare le acquisizioni della cronologia all’ambito modificato, raggruppare i salvataggi locali e aggiornare pannelli, curve e controlli quando i rispettivi dati cambiano. I meter devono considerare visibilità e ancoraggi, e sospendere il lavoro quando la pagina è nascosta o un workspace copre il mixer. Le ottimizzazioni non autorizzano a saltare controlli della sessione, validazioni o riscontri delle scritture.
+
+Distinguere esplicitamente la **curva EQ calcolata** dall’analizzatore audio. Nella 0.6.7 non è disponibile uno streaming RTA reale: i grafici dei parametri EQ/Dynamics non devono essere presentati come misure del segnale. I meter live e la GR possono usare soltanto i dati ricevuti dal mixer; i valori dimostrativi devono restare riconoscibili e separati dal live.
+
+Documentare le misure dell’ambiente di sviluppo in `docs/verification/benchmark-ui-results.json`, mantenendole distinte dalla prestazione sul Mac M1 e dal collaudo con il banco fisico. Non dichiarare un miglioramento quantitativo senza una misura confrontabile.
+
+### OSC e Sculpt Show
+
+Integrare invio OSC UDP, configurazione della destinazione e assegnazione alle macro. Il collegamento OSC è indipendente da WING: le azioni OSC e di navigazione possono essere utilizzate con il mixer scollegato o in sola lettura. Le macro miste mantengono la validazione preventiva dell’intera sequenza e i controlli live delle azioni WING. Fissare le destinazioni durante la preparazione della sequenza per evitare cambi a metà esecuzione.
+
+Predisporre il profilo **Sculpt Show**, destinazione iniziale **127.0.0.1:53000**, secondo il ricevitore **1.0.0 RC3, build 3** verificato nei sorgenti indicati in [docs/OSC_SCULPT_SHOW.md](docs/OSC_SCULPT_SHOW.md). Supportare i comandi documentati, gli UUID per cue e liste, gli alias e un profilo OSC personalizzato con argomenti tipizzati. Una verifica di collegamento a Show deve usare `/sculpt/status`, senza eseguire GO, stop o selezioni di cue.
+
+Un invio UDP riuscito conferma l’accettazione del datagramma da parte del sistema, non l’esecuzione del comando nel destinatario. La verifica di stato richiede una risposta valida dal peer configurato. Messaggi già inviati e azioni esterne non possono essere ritirati con Cmd+Z; Interrompi ferma soltanto le azioni ancora da eseguire. Nel browser si possono preparare le assegnazioni, mentre l’invio UDP usa il trasporto dell’app Mac.
+
+### Stato delle verifiche
+
+Le note della consegna sono in [docs/RELEASE_0.6.7_MAC_M1.md](docs/RELEASE_0.6.7_MAC_M1.md). Distinguere test automatici, frontend nel browser, UDP in loopback, compilazione GitHub ARM64, avvio sul Mac e prova con WING/Show reali. Alla preparazione di questa consegna, la build macOS su GitHub resta da eseguire e non è stato collaudato un banco WING fisico. Usare [docs/COLLAUDO_WING_SHOW_0.6.7.md](docs/COLLAUDO_WING_SHOW_0.6.7.md) per registrare il successivo collaudo pratico.

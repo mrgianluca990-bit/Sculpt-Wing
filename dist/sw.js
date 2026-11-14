@@ -1,5 +1,5 @@
 /* Bump this version whenever the app shell or its assets change. */
-const CACHE_NAME = 'sculpt-control-v22';
+const CACHE_NAME = 'sculpt-control-v23';
 const CACHE_PREFIX = 'sculpt-control-';
 const LEGACY_CACHES = new Set(['sculpt-control-v1', 'sculpt-control-v2', 'sculpt-control-v3', 'sculpt-control-v4']);
 const BASE_URL = new URL('./', self.location.href);
@@ -9,6 +9,7 @@ const ASSETS = [
   ['styles.css', 'css'],
   ['plugin-data.js', 'js'],
   ['model.js', 'js'],
+  ['history.js', 'js'],
   ['app.js', 'js'],
   ['dca-bank.js', 'js'],
   ['row-layout.js', 'js'],
@@ -44,6 +45,8 @@ const ASSETS = [
   ['editor.js', 'js'],
   ['editor.css', 'css'],
   ['io.js', 'js'],
+  ['osc.js', 'js'],
+  ['osc.css', 'css'],
   ['systems.js', 'js'],
   ['systems.css', 'css'],
   ['offline.js', 'js'],

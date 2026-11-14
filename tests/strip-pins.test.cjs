@@ -26,7 +26,7 @@ test('multiple pins use fixed side rails and the same strips without changing au
   assert.equal(f.P.pin('ch-1','left'),true);f.P.pin('ch-2','left');f.P.pin('aux-1','right');f.P.pin('bus-1','left');f.P.pin('mtx-1','right');f.P.pin('main-1','right');
   assert.deepEqual(f.ids('inputs','left'),['ch-1','ch-2']);assert.deepEqual(f.ids('inputs','right'),['aux-1']);assert.deepEqual(f.ids('outputs','left'),['bus-1']);assert.deepEqual(f.ids('outputs','right'),['mtx-1','main-1']);
   assert.equal(f.rail('inputs','left').closest('#inputs-scroll'),null,'fixed rails are siblings outside the center scrolling viewport');assert.equal(f.rail('inputs','left').parentElement,f.w.document.getElementById('inputs-scroll').parentElement);
-  assert.equal(f.w.document.querySelectorAll('.strip[data-id]').length,76);for(const [id,node]of nodes)assert.equal(f.strip(id),node);assert.equal(f.strip('ch-1').querySelector('.fader'),fader);
+  assert.equal(f.w.document.querySelectorAll('.strip[data-id]').length,92);for(const [id,node]of nodes)assert.equal(f.strip(id),node);assert.equal(f.strip('ch-1').querySelector('.fader'),fader);
   assert.deepEqual(plain(f.C.capture()),before,'pinning never enters the audio model or rewrites routing');assert.equal(f.P.isPinnedVisible('ch-1'),true);
   fader.dispatchEvent(new f.w.KeyboardEvent('keydown',{key:'ArrowUp',bubbles:true,cancelable:true}));assert.equal(f.C.getStrip('ch-1').level,before.values['ch-1'].level+.5,'the original fader listener still controls the same strip');
   f.P.pin('ch-1',null);assert.equal(f.strip('ch-1').parentElement.id,'inputs-bank');assert.equal(f.strip('ch-1').querySelector('.fader'),fader);assert.equal(f.P.isPinnedVisible('ch-1'),false);
@@ -39,7 +39,7 @@ test('pin side and explicit order persist independently of live mixer persistenc
   const saved=JSON.parse(f.w.localStorage.getItem(KEY));assert.deepEqual(saved,{version:1,left:['ch-1','ch-2'],right:['bus-3']});assert.deepEqual(plain(f.C.capture()),before);
   const restored=fixture(t,{saved});assert.deepEqual(restored.ids('inputs','left'),['ch-1','ch-2']);assert.deepEqual(restored.ids('outputs','right'),['bus-3']);
   restored.P.pin('ch-1','right');assert.deepEqual(restored.ids('inputs','left'),['ch-2']);assert.deepEqual(restored.ids('inputs','right'),['ch-1']);assert.equal(restored.w.document.querySelectorAll('.strip[data-id="ch-1"]').length,1);
-  const invalid=fixture(t,{saved:{version:1,left:['ch-1','ch-1','not-a-channel',null],right:['ch-1','bus-2']}});assert.deepEqual(plain(invalid.P.preferences()),{version:1,left:['ch-1'],right:['bus-2']});assert.equal(invalid.P.pin('dca-1','left'),false);
+  const invalid=fixture(t,{saved:{version:1,left:['ch-1','ch-1','not-a-channel',null],right:['ch-1','bus-2']}});assert.deepEqual(plain(invalid.P.preferences()),{version:1,left:['ch-1'],right:['bus-2']});assert.equal(invalid.P.pin('dca-17','left'),false);
 });
 
 test('pins follow actual Custom Layer rows, disappear when excluded and restore in their standard rows',t=>{
@@ -60,11 +60,31 @@ test('per-strip pin menu is separate from the editor label and supports sides, o
   f.button('Ancora a sinistra').click();assert.deepEqual(f.ids('inputs','left'),['ch-3']);pin.click();f.button('Libera il canale').click();assert.equal(f.P.sideOf('ch-3'),null);assert.equal(pin.getAttribute('aria-pressed'),'false');assert.equal(strip.parentElement.id,'inputs-bank');
 });
 
-test('DCA mode hides only upper fixed rails and restores them when leaving the DCA bank',t=>{
-  const f=fixture(t);f.P.pin('bus-1','left');f.P.pin('ch-1','right');f.w.SculptDcaBank.open();
-  assert.equal(f.rail('outputs','left').hidden,true);assert.equal(f.rail('inputs','right').hidden,false);assert.equal(f.P.isPinnedVisible('bus-1'),false);assert.equal(f.P.isPinnedVisible('ch-1'),true);
-  assert.equal(f.w.document.getElementById('dca-bank').closest('.strip-pin-body'),f.rail('outputs','left').parentElement);assert.equal(f.w.document.querySelectorAll('.dca-strip .strip-pin-button').length,0);
-  f.w.SculptDcaBank.hide();assert.equal(f.rail('outputs','left').hidden,false);assert.equal(f.P.isPinnedVisible('bus-1'),true);assert.deepEqual(f.ids('outputs','left'),['bus-1']);
+test('DCA and regular outputs pin together, retain live controls, and keep their chosen side after relaunch',t=>{
+  const f=fixture(t),before=plain(f.C.capture()),dca=f.strip('dca-2'),fader=dca.querySelector('.fader');
+  f.P.pin('bus-1','left');f.P.pin('dca-2','left');f.P.pin('dca-16','right');f.P.pin('ch-1','right');
+  assert.deepEqual(f.ids('outputs','left'),['bus-1','dca-2']);assert.deepEqual(f.ids('outputs','right'),['dca-16']);
+  assert.equal(f.rail('outputs','left').hidden,false);assert.equal(f.P.isPinnedVisible('dca-2'),true);assert.equal(f.w.document.querySelectorAll('.dca-strip .strip-pin-button').length,16);
+  assert.deepEqual(plain(f.C.capture()),before,'pinning DCA must not alter its members, levels, mute or routing');
+  f.w.SculptDcaBank.open();assert.equal(f.rail('outputs','left').hidden,false);assert.equal(f.rail('inputs','right').hidden,false);assert.equal(f.w.document.getElementById('outputs-bank').hidden,false);
+  assert.equal(f.strip('dca-2'),dca);assert.equal(f.strip('dca-2').querySelector('.fader'),fader);
+  fader.dispatchEvent(new f.w.KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true,cancelable:true}));
+  assert.equal(f.D.get().dca[1].level,-.5);assert.equal(f.C.getStrip('ch-7').level,before.values['ch-7'].level);
+  const saved=JSON.parse(f.w.localStorage.getItem(KEY)),restored=fixture(t,{saved});
+  assert.deepEqual(restored.ids('outputs','left'),['bus-1','dca-2']);assert.deepEqual(restored.ids('outputs','right'),['dca-16']);
+  restored.P.pin('dca-2',null);const center=[...restored.w.document.querySelectorAll('#outputs-bank>.strip:not([hidden])')].map(n=>n.dataset.id);
+  assert(center.indexOf('dca-2')>center.indexOf('main-4'));assert.equal(center[center.indexOf('dca-2')-1],'dca-1');assert.equal(center[center.indexOf('dca-2')+1],'dca-3');
+  assert.equal(restored.w.document.querySelectorAll('.strip[data-id="dca-2"]').length,1);
+});
+
+test('DCA pins stay in the upper custom row, follow inclusion and restore without duplicates',t=>{
+  const f=fixture(t),dca=f.strip('dca-3');f.P.pin('dca-3','right');
+  f.C.showLayer({top:['ch-2','dca-3','bus-4'],bottom:['ch-1','dca-8']},'Band');
+  assert.deepEqual(f.ids('outputs','right'),['dca-3']);assert.equal(f.P.isPinnedVisible('dca-3'),true);assert.equal(dca.closest('.mixer-row').classList.contains('outputs'),true);
+  assert.deepEqual([...f.w.document.querySelectorAll('#outputs-bank>.strip:not([hidden])')].map(n=>n.dataset.id),['ch-2','bus-4','dca-8']);
+  f.C.showLayer({top:['main-1'],bottom:['ch-1']},'Other');assert.equal(f.P.isPinnedVisible('dca-3'),false);assert.equal(f.P.sideOf('dca-3'),'right');
+  f.C.showLayer(null);assert.equal(f.strip('dca-3'),dca);assert.equal(f.P.isPinnedVisible('dca-3'),true);assert.deepEqual(f.ids('outputs','right'),['dca-3']);
+  assert.equal(f.w.document.querySelectorAll('.strip[data-id]').length,92);
 });
 
 test('fixed rails pan independently without editing a channel and preserve cap-only fader gestures',t=>{
@@ -80,5 +100,5 @@ test('bank navigation finds the first unpinned channel in its range and handles 
   const f=fixture(t),center=f.w.document.getElementById('inputs-scroll');f.P.pin('ch-1','left');f.P.pin('ch-2','left');Object.defineProperty(f.strip('ch-3'),'offsetLeft',{value:245,configurable:true});
   f.w.document.querySelector('.bank-button[data-row="inputs"][data-index="0"]').click();assert.equal(center.scrollLeft,242);
   for(let n=3;n<=8;n++)f.P.pin('ch-'+n,'left');center.scrollLeft=180;assert.equal(f.P.navigate('inputs',0),true);assert.equal(center.scrollLeft,180,'a range already present in a rail does not jump the center to an unrelated strip');
-  assert.equal(f.P.pin('ch-1','middle'),false);assert.equal(f.w.document.querySelectorAll('.strip[data-id]').length,76);
+  assert.equal(f.P.pin('ch-1','middle'),false);assert.equal(f.w.document.querySelectorAll('.strip[data-id]').length,92);
 });

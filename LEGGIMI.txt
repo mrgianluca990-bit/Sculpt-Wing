@@ -1,14 +1,45 @@
-SCULPT WING 0.6.6 — GRUPPI, NOMI MON/IEM E 16 MACRO · MAC M1
+SCULPT WING 0.6.7 — DCA, EDITOR, UNDO E OSC SHOW · MAC M1
 
 Questo ZIP contiene i file modificati per aggiornare il repository esistente
 mrgianluca990-bit/Sculpt-Wing. Conserva gli altri file già presenti.
 Dopo il caricamento, GitHub Actions prepara Sculpt Wing.app per Mac M1 /
 Apple Silicon arm64. Questa consegna è un aggiornamento dei sorgenti:
-il nuovo binario 0.6.6 deve essere compilato dal workflow del repository.
-La base verificata è la versione 0.6.4 già caricata su main, commit
-d376463b87ba9389f39f33aa1600e23656e21a6b.
-Il pacchetto include anche tutte le modifiche della 0.6.5: puoi caricare
-soltanto questo aggiornamento, sia sulla 0.6.4 sia sulla 0.6.5.
+il nuovo binario 0.6.7 deve essere compilato dal workflow del repository.
+La base verificata è la versione 0.6.6 già caricata su main, commit
+465b4f01f86f0a758c970d45780a3982db972213.
+Questo aggiornamento contiene i file cambiati rispetto alla 0.6.6.
+Sovrascrivi i file corrispondenti e conserva gli altri file del repository.
+
+NOVITÀ 0.6.7
+- I 16 DCA fanno parte della riga superiore con BUS, MTX e MAIN.
+  Il pulsante DCA scorre fino ai gruppi; puoi ancorarli a sinistra o destra
+  e tenerli visibili mentre scorri le altre uscite. I Custom Layer mantengono
+  i DCA nella riga superiore.
+- WING EQ: grafico più leggibile, selezione delle bande e tre manopole
+  per la banda scelta. WING Dynamics: curve e controlli raggruppati.
+  Le curve rappresentano i parametri: non è ancora disponibile un vero RTA
+  audio della WING. La demo lo dichiara anche nella pagina Meter / RTA.
+- Mandate verticali più compatte; rimane il fader con campo numerico.
+  È stata rimossa la manopola che duplicava il livello. Pan e dettagli
+  indipendenti rimangono disponibili.
+- Cmd+Z annulla; Maiusc+Cmd+Z ripristina. Ogni trascinamento conta come
+  una sola operazione. Nei campi di testo resta l'annullamento del testo.
+  In live sono richiesti Controllo, dati aggiornati e conferma del banco;
+  una modifica remota successiva impedisce di sovrascrivere il valore.
+  Per ripristinare un cambio di algoritmo live usa un preset.
+- Ridotti i salvataggi durante i gesti, i ridisegni delle strip non coinvolte
+  e il lavoro dei meter quando la schermata non è visibile.
+- OSC / Sculpt Show: invio UDP direttamente dall'app Mac. Il profilo Show
+  è pronto su 127.0.0.1:53000, modificabile. Sono predisposti GO, Stop All,
+  pausa, ripresa, fade, navigazione, cue/liste per UUID e trigger per alias.
+  Ogni comando si può aggiungere alle macro; puoi anche costruire messaggi
+  OSC personalizzati. Verifica Sculpt Show chiede soltanto lo stato.
+  In Show RC3 abilita OSC Control e applica le impostazioni. L'invio di un
+  pacchetto non certifica l'esecuzione della cue. OSC non si annulla con
+  Cmd+Z. Il browser prepara le assegnazioni, l'app Mac invia UDP.
+
+Guide: docs/OSC_SCULPT_SHOW.md e docs/COLLAUDO_WING_SHOW_0.6.7.md.
+Risultati e limiti delle prove: docs/RELEASE_0.6.7_MAC_M1.md.
 
 GRUPPI DEGLI STRUMENTI E NOMI MONITOR
 Apri la nuova scheda STRUMENTI nell’anteprima del PDF, oppure premi
@@ -47,15 +78,15 @@ Guida: docs/MACROS.md.
 
 NOVITÀ DEL MIXER GIÀ INCLUSE
 - DCA: premi DCA in alto a destra nella riga superiore del mixer.
-  Si apre il banco dei 16 DCA. Premi il nome o il pulsante dei membri per
+  La riga scorre fino ai 16 DCA. Premi il nome o il pulsante dei membri per
   rinominare il gruppo e assegnare i canali. Fader, MUTE e SOLO lavorano
   sugli stessi gruppi già disponibili in Menu del banco -> DCA / Mute Groups.
-  Premi nuovamente DCA per tornare alla vista delle uscite.
+  Premi BUS, MTX o MAIN per scorrere alle altre uscite; gli ancorati restano.
 - Editor: i valori numerici modificabili hanno una manopola e un campo
   per digitare il valore. Trascina la manopola su/giù; Maiusc durante il
   trascinamento permette una regolazione fine. La disposizione usa moduli
   affiancati lungo la riga, con scorrimento locale per gli altri controlli.
-  Le mandate conservano i fader verticali e hanno anche la manopola.
+  Il livello delle mandate usa soltanto il fader verticale e il campo numerico.
 - Fader: il trascinamento parte soltanto dalla testa. Un doppio clic sul
   fader lo porta a 0 dB. In SOF il comando porta a 0 dB la mandata mostrata;
   il livello principale del canale resta quello impostato. Vale anche per
@@ -183,7 +214,7 @@ Applicazione e annullamento sono bloccati durante una sessione live.
 Questa consegna non attesta un collaudo sul mixer fisico.
 
 CARICAMENTO SU GITHUB E APP MAC
-1. Estrai Sculpt-Wing-0.6.6-Aggiornamento-Mac-M1.zip sul Mac.
+1. Estrai Sculpt-Wing-0.6.7-Aggiornamento-Mac-M1.zip sul Mac.
 2. Apri https://github.com/mrgianluca990-bit/Sculpt-Wing, ramo main,
    quindi Add file -> Upload files.
 3. Carica i file estratti mantenendo i loro percorsi: dist, native, desktop,
@@ -196,13 +227,13 @@ CARICAMENTO SU GITHUB E APP MAC
 5. Premi Commit changes su main. In Actions attendi il verde di
    Build Sculpt Wing - Mac M1.
 6. Scarica l’artifact Sculpt-Wing-Mac-M1 e apri lo ZIP contenuto:
-   Sculpt-Wing-0.6.6-mac-arm64.zip. Dentro trovi Sculpt Wing.app.
+   Sculpt-Wing-0.6.7-mac-arm64.zip. Dentro trovi Sculpt Wing.app.
 7. Chiudi la vecchia app e sostituiscila con la nuova in Applicazioni.
 
 Restano fader dalla sola testa, scorrimento con trascinamento, Custom Layer
 a due righe e i pannelli dei processori già completati.
 
 DETTAGLI E VERIFICHE
-Vedi docs/CHANNEL_LIST_IMPORT.md e docs/RELEASE_0.6.6_MAC_M1.md.
+Vedi docs/CHANNEL_LIST_IMPORT.md e docs/RELEASE_0.6.7_MAC_M1.md.
 I risultati della preparazione non sostituiscono la nuova compilazione
-macOS né un test di avvio dell’app 0.6.6 sul Mac M1.
+macOS né un test di avvio dell’app 0.6.7 sul Mac M1.

@@ -1,74 +1,66 @@
-# Sculpt Wing per macOS e Windows · 0.6
+# Sculpt Wing per Mac M1 · 0.6.7
 
-Questa versione usa la stessa interfaccia di Sculpt Wing per iPhone/iPad, in una finestra desktop, con collegamento TCP/UDP diretto alla WING. Durante l’uso servono il computer, il mixer e la stessa rete locale; non serve un server sul computer o una connessione Internet.
+L’app desktop usa la stessa interfaccia del progetto web e comunica direttamente con la WING tramite TCP/UDP. Include anche un trasporto OSC per Sculpt Show o altri destinatari. Le due connessioni sono indipendenti; non serve un’app ponte.
 
-## Pacchetti generati da GitHub
+## Pacchetto generato da GitHub
 
-Il workflow **Build Sculpt Wing**, incluso in `.github/workflows/build-desktop.yml` alla radice del repository, prepara:
+Il workflow **Build Sculpt Wing - Mac M1**, in `.github/workflows/build-desktop.yml`, compila il solo target **Apple Silicon ARM64**. L’artifact **Sculpt-Wing-Mac-M1** contiene `Sculpt-Wing-0.6.7-mac-arm64.zip`, con **Sculpt Wing.app**. Estrai l’app e spostala in Applicazioni dopo aver chiuso la versione precedente. L’app incorpora il runtime: non richiede Node.js sul computer dell’utente.
 
-- **Mac Apple Silicon:** `Sculpt-Wing-0.6.0-mac-arm64.zip`.
-- **Mac Intel:** `Sculpt-Wing-0.6.0-mac-x64.zip`.
-- **Windows x64:** installer `Sculpt-Wing-0.6.0-win-x64.exe`.
+Il workflow esegue prima i test nell’ambiente Linux e poi quelli del trasporto sul runner Mac; compila esplicitamente ARM64, verifica l’architettura dell’eseguibile e la firma ad hoc. Non applica Developer ID o notarizzazione e non pubblica automaticamente una Release. La nuova compilazione macOS deve essere eseguita dopo il caricamento dei sorgenti: questa consegna non contiene un binario Mac già collaudato.
 
-Su Mac estrai `Sculpt Wing.app` e spostala in Applicazioni. Su Windows avvia l’installer. I pacchetti incorporano il runtime e non richiedono Node.js. Per il caricamento dei sorgenti e l’avvio della compilazione vedi [CARICA_SU_GITHUB.md](../CARICA_SU_GITHUB.md).
+Per il caricamento seguire [CARICA_SU_GITHUB.md](../CARICA_SU_GITHUB.md).
 
-I pacchetti Mac dichiarano **macOS 13.0 o successivo** come versione minima.
+## Collegare la WING
 
-Il workflow genera l’installer NSIS sul runner Windows. I pacchetti Mac hanno firma locale ad-hoc, con verifica del bundle, e non hanno Developer ID o notarizzazione; Windows non applica una firma Authenticode. Il primo esito reale di compilazione sarà disponibile dopo l’esecuzione del workflow nel repository.
+1. Apri **WING / Connessione** e inserisci l’IPv4 locale del mixer.
+2. Collega il banco e attendi la lettura di identità, parametri e meter. La sessione parte in sola lettura.
+3. Attiva **Controllo** per modificare i valori.
 
-## Uso
+Il controllo WING usa la porta 2222 TCP/UDP e una porta UDP locale assegnata dal sistema per i meter. Se macOS richiede il permesso per la rete locale, concedilo all’app. Dopo sospensione, chiusura o ricaricamento della finestra la sessione termina: ricollega il banco per rileggere lo stato. La demo non viene inviata automaticamente alla WING.
 
-1. Apri **Sculpt Wing**.
-2. Apri **WING / Connessione** e inserisci l’IPv4 locale del mixer.
-3. Collega la WING: l’app legge identità, parametri e meter. Il collegamento parte in sola lettura.
-4. Attiva **Controllo** per abilitare le modifiche.
+## OSC e Sculpt Show
 
-Il controllo della WING usa la porta 2222 TCP/UDP e una porta UDP locale assegnata dal sistema per i meter. Se macOS o Windows richiedono il permesso, consenti a Sculpt Wing di usare la rete locale/privata. Dopo sospensione del computer, blocco schermo, chiusura o ricaricamento della finestra, la sessione termina: ricollega il banco per rileggere il suo stato.
+Apri **OSC / Sculpt Show** dal menu del banco. Il profilo Show propone `127.0.0.1:53000` per le app aperte sullo stesso Mac. Abilita OSC Control in Show RC3, applica le impostazioni e usa **Verifica Sculpt Show**: richiede soltanto lo stato, senza avviare cue.
 
-La demo rimane utilizzabile senza mixer. Le modifiche della demo non vengono inviate automaticamente quando ci si collega alla WING.
+GO, Stop All, pausa, ripresa, fade e navigazione sono già predisposti. Si possono aggiungere alle macro anche comandi per cue/liste specifiche e messaggi OSC personalizzati. L’invio UDP non richiede Controllo WING. Un invio riuscito certifica l’accettazione del datagramma, non l’esecuzione del comando nel destinatario; la verifica di stato attende invece una risposta valida.
 
-## Generare le app dal progetto
+La pagina browser permette di preparare le assegnazioni, ma per inviare UDP serve l’app desktop. I messaggi OSC già inviati non vengono annullati con Cmd+Z. Contratto, versione Show e istruzioni: [OSC_SCULPT_SHOW.md](../docs/OSC_SCULPT_SHOW.md).
 
-I comandi seguenti servono a chi prepara i pacchetti; l’utente di un’app già compilata non deve installare Node.
+## Annulla e ripristina
 
-Prerequisiti: Node.js 22 aggiornato (almeno 22.12.0), npm, download delle dipendenze. Usare macOS per la build Mac e Windows per quella Windows. Dalla radice, preparare prima il driver con `npm ci --prefix native` e `npm run build --prefix native`.
+**Cmd+Z** e **Maiusc+Cmd+Z** richiamano la cronologia dell’app dal menu macOS e dalla tastiera. Un trascinamento crea una sola operazione. Nei campi di testo resta l’annullamento nativo della digitazione.
 
-Dalla cartella `desktop`:
+In live, Undo/Redo passa dalle verifiche di stato e dal riscontro delle scritture WING. Un valore modificato esternamente o una sessione cambiata impediscono il ripristino obsoleto. Il cambio di algoritmo live richiede un preset; i trigger esterni, come OSC e registrazione, non vengono invertiti.
 
-```sh
-npm ci
-npm test
-npm run dist:mac
-```
+## Compilare dal progetto
 
-oppure, su Windows:
+Questi comandi servono a chi prepara l’app. Usare Node 22 aggiornato e un ambiente macOS per generare il pacchetto Mac. Dalla radice del repository:
 
 ```sh
-npm ci
-npm test
-npm run dist:win
+npm ci --prefix native
+npm run build --prefix native
+npm run test:all --prefix native
+npm ci --prefix desktop
+npm test --prefix desktop
+npm run dist:mac --prefix desktop
 ```
 
-- `dist:mac`: DMG e ZIP per Apple Silicon (`arm64`) e Intel (`x64`).
-- `dist:win`: installer NSIS e ZIP per Windows `x64`.
-- `npm start`: avvia l’app dall’albero di sviluppo.
-- `npm run pack`: prepara la cartella applicazione senza installer sul sistema corrente.
+- `dist:mac`: ZIP ARM64, con le stesse opzioni di firma locale del workflow.
+- `prepare:app`: copia l’interfaccia e prepara l’icona.
+- `start`: prepara e apre l’app di sviluppo.
+- `pack`: prepara una cartella applicazione senza installer sul sistema corrente.
 
-Gli output sono in `desktop/release/`. I pacchetti incorporano `dist/` dalla radice del progetto; non caricano il sito pubblicato. Se vengono modificati i file TypeScript del driver in `native/src`, eseguire prima `npm ci` e `npm run build` nella cartella `native` per rigenerare `dist/native-bridge.js`.
+Gli output sono in `desktop/release/`. L’app incorpora `dist/` dalla radice e non carica il sito pubblicato. Dopo modifiche al driver in `native/src`, eseguire di nuovo la build nativa prima della preparazione desktop. La configurazione Windows precedente resta nel progetto, ma non viene compilata dal workflow corrente.
 
-## Firma e verifica
+## Struttura e prove
 
-La configurazione comprende entrambi i sistemi, ma non contiene certificati, password o credenziali di firma. Electron-builder utilizza le credenziali di firma disponibili nell’ambiente di build. La firma e notarizzazione macOS richiedono un ambiente Mac; la distribuzione Windows firmata richiede un certificato appropriato. Un pacchetto non firmato non equivale a un installer già approvato dai controlli di macOS o Windows.
+- `src/main.cjs`: finestra, menu macOS, ciclo di vita e controlli IPC.
+- `src/preload.cjs`: API limitata per WING, OSC ed eventi, compresa la cronologia.
+- `src/wing-socket.cjs`: socket WING e isolamento delle sessioni.
+- `src/osc-sender.cjs`: codifica/invio OSC, risposta Show e chiusura dei socket.
+- `src/bridge-policy.cjs`: validazione delle richieste provenienti dall’interfaccia.
+- `scripts/prepare.mjs`: copia dell’interfaccia condivisa e preparazione dell’icona.
 
-Il codice della shell e del trasporto dispone di test automatici. Le prove reali su macOS, Windows e WING fisica restano distinte dai test di protocollo e di rete simulata. Verificare la combinazione computer/router/firmware prima dell’impiego durante uno spettacolo.
+L’interfaccia usa l’origine locale `sculpt://app` e conserva i dati sul computer. Node è disabilitato nel renderer; restano sandbox, isolamento del contesto, blocco delle navigazioni e controllo del mittente IPC.
 
-## Struttura
-
-- `src/main.cjs`: finestra, menu, ciclo di vita e confine IPC.
-- `src/preload.cjs`: quattro operazioni e due eventi esposti al renderer.
-- `src/wing-socket.cjs`: socket locali e isolamento delle sessioni.
-- `scripts/prepare.mjs`: copia dell’interfaccia condivisa e icona.
-
-L’interfaccia usa l’origine locale `sculpt://app` e conserva i dati sul computer. Node è disabilitato nel renderer; sandbox, isolamento del contesto, blocco navigazioni e controllo del mittente IPC sono attivi. Non vengono caricate pagine remote nella finestra dell’app.
-
-Riferimenti: [Electron Security](https://www.electronjs.org/docs/latest/tutorial/security/), [electron-builder v26](https://www.electron.build/v26/docs/features/multi-platform-build/).
+Le prove della consegna comprendono **28 test desktop**, inclusi UDP reali in loopback e Undo/Redo del menu Mac con shell simulata. Non è stato eseguito il binario 0.6.7 su un Mac fisico, né collegata una WING o l’app Show reale. Vedi [risultati completi](../docs/RELEASE_0.6.7_MAC_M1.md) e [collaudo WING/Show](../docs/COLLAUDO_WING_SHOW_0.6.7.md).

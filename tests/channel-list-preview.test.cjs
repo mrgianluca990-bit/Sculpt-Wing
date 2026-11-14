@@ -18,7 +18,7 @@ function fixture(t){
   return {w,dom,C,button,control,edit,importText,subscribers,setLive(value){live=value;for(const fn of subscribers)fn();}};
 }
 
-test('scene preview imports silence and all monitor sends only after Apply, then persists and undoes them',t=>{
+test('scene preview imports silence and all monitor sends only after Apply, then persists and undoes them',async t=>{
   const f=fixture(t),before=plain(f.C.capture());f.importText();
   assert.deepEqual(plain(f.C.capture()),before,'reading and preparing must leave every project field untouched');
   assert.equal(f.control('Mute riga 1').checked,true);assert.equal(f.control('Fader riga 1').value,'−∞');assert.equal(f.control('Mute riga 2').checked,true);
@@ -33,7 +33,12 @@ test('scene preview imports silence and all monitor sends only after Apply, then
   assert.equal(f.C.getSend('ch-2','bus-1').level,-8);assert.equal(f.C.getSend('ch-2','bus-1').pre,false);
   assert.equal(f.C.getSend('ch-2','bus-2').level,-5);assert.equal(f.C.getSend('ch-2','bus-2').mode,'PRE');
   assert.deepEqual(plain(f.C.capture().desk),before.desk,'all channel sources, inserts, output routing and preamps stay exact');
-  const persisted=JSON.parse(f.w.localStorage.getItem(f.w.SculptModel.KEY));assert.equal(persisted.values['ch-1'].mute,true);assert.equal(persisted.sends['ch-1>bus-2'].mode,'POST');
+  // Project persistence is coalesced to keep mixer gestures responsive. Wait for
+  // the real scheduled save, without forcing a flush or weakening its content checks.
+  const deadline=Date.now()+3000;let saved;
+  while(!(saved=f.w.localStorage.getItem(f.w.SculptModel.KEY))&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,20));
+  assert(saved,'the imported scene is automatically persisted');
+  const persisted=JSON.parse(saved);assert.equal(persisted.values['ch-1'].mute,true);assert.equal(persisted.sends['ch-1>bus-2'].mode,'POST');
   assert.equal(f.w.document.querySelector('.cl-modal'),null,'a successful application closes the preview');assert.equal(f.subscribers.size,0);assert.equal(f.w.SculptChannelPreview.canUndo(),true);
   f.importText();f.button('Applica scena').click();assert.equal(f.w.document.querySelector('.cl-modal'),null,'a no-op application closes too');
   f.w.SculptChannelPreview.open();assert.equal(f.button('Annulla importazione').disabled,false,'a no-op reapply retains undo after closing and reopening');

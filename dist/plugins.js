@@ -100,19 +100,85 @@
       if(model.id==='STD'){
         let drag=null;
         const change=event=>{const rect=svg.getBoundingClientRect(),x=(event.clientX-rect.left)/rect.width*640,y=(event.clientY-rect.top)/rect.height*190;setParam(ctx,b.f,20*1000**clamp((x-36)/584,0,1));setParam(ctx,b.g,(85-y)/3.5);update();};
-        group.addEventListener('pointerdown',event=>{if(!editable(ctx,b.g))return;drag=event.pointerId;group.setPointerCapture(event.pointerId);event.preventDefault();change(event);});
-        group.addEventListener('pointermove',event=>{if(drag===event.pointerId){event.preventDefault();change(event);}});for(const name of ['pointerup','pointercancel','lostpointercapture'])group.addEventListener(name,()=>drag=null);
+        group.addEventListener('pointerdown',event=>{if(!editable(ctx,b.g))return;ctrl()?.beginGesture?.(`EQ ${b.label}`);drag=event.pointerId;group.setPointerCapture(event.pointerId);event.preventDefault();change(event);});
+        group.addEventListener('pointermove',event=>{if(drag===event.pointerId){event.preventDefault();change(event);}});const end=()=>{if(drag===null)return;const pointer=drag;drag=null;if(group.hasPointerCapture?.(pointer))group.releasePointerCapture(pointer);ctrl()?.endGesture?.();};for(const name of ['pointerup','pointercancel','lostpointercapture'])group.addEventListener(name,end);bindings.cleanups?.push(end);
         group.addEventListener('keydown',event=>{const v=instance(ctx)?.params||{};if(['ArrowUp','ArrowDown'].includes(event.key)){event.preventDefault();setParam(ctx,b.g,Number(v[b.g.key]??b.g.default)+(event.key==='ArrowUp'?.1:-.1));}else if(['ArrowRight','ArrowLeft'].includes(event.key)){event.preventDefault();setParam(ctx,b.f,Number(v[b.f.key]??b.f.default)*(event.key==='ArrowRight'?1.03:1/1.03));}});
       }else{group.removeAttribute('tabindex');group.removeAttribute('role');}
       return group;
     });
-    function update(){const values=instance(ctx)?.params||{};let points;
+    const plotKeys=bands.flatMap(b=>[b.g.key,b.f?.key,b.q?.key,b.prefix&&b.prefix+'eq']).filter(Boolean);
+    let plotSignature='';
+    function update(){const values=instance(ctx)?.params||{},signature=plotKeys.map(key=>values[key]).join('|');if(signature===plotSignature)return;plotSignature=signature;let points;
       if(model.id==='STD'){const coeffs=bands.map(b=>biquad(b,values));points=Array.from({length:193},(_,i)=>{const f=20*1000**(i/192),g=coeffs.reduce((sum,coef)=>sum+response(coef,f),0);return [X(f),Y(g)];});}
       else points=bands.map(b=>[X(b.fixed),Y(Number(values[b.g.key]??b.g.default))]);
       const d=points.map(([x,y],i)=>`${i?'L':'M'}${x.toFixed(2)},${y.toFixed(2)}`).join(' ');line.setAttribute('d',d);fill.setAttribute('d',`${d} L620,${Y(0)} L36,${Y(0)} Z`);
       bands.forEach((b,i)=>{const f=b.fixed||Number(values[b.f.key]??b.f.default),g=Number(values[b.g.key]??b.g.default);markers[i].setAttribute('transform',`translate(${X(f)},${Y(g)})`);markers[i].setAttribute('aria-valuetext',`${Math.round(f)} Hz, ${g.toFixed(1)} dB`);});
     }
-    bindings.push(update);update();box.append(el('span','fx-plot-caption',model.id==='STD'?`TRASCINA I PUNTI · risposta di riferimento a 48 kHz${defs.tilt?' · tilt escluso dal grafico':''}`:'BANDE IMPOSTATE · nessun analizzatore audio'));return box;
+    bindings.push(update);update();box.append(el('span','fx-plot-caption',model.id==='STD'?`Curva EQ calcolata a 48 kHz · nessun analizzatore audio${defs.tilt?' · tilt escluso dal grafico':''}`:'BANDE IMPOSTATE · nessun analizzatore audio'));return box;
+  }
+
+  // The native WING processors use the available row directly. Each value has
+  // one control, instead of a shrunken faceplate plus a second bank of knobs.
+  function wingControl(model,ctx,key,bindings){
+    const p=model.parameters.find(parameter=>parameter.key===key);if(!p)return null;
+    const numericEnum=p.type==='enum'&&key==='ratio';
+    return parameterControl(model,ctx,p,bindings,false,numericEnum?{kind:'knob'}:p.type==='enum'?{kind:'digital'}:{});
+  }
+
+  function makeWingEq(model,ctx,bindings){
+    const layout=el('div','fx-wing-eq-layout'),display=el('section','fx-wing-display'),head=el('div','fx-wing-display-heading');
+    head.append(el('strong','','CURVA EQ'),el('span','fx-wing-analysis-status','RTA non disponibile'));display.append(head);
+    const plot=makePlot(model,ctx,bindings);display.append(plot);layout.append(display);
+    const editor=el('section','fx-wing-band-editor'),tabs=el('div','fx-wing-band-tabs'),panes=el('div','fx-wing-band-panes');
+    tabs.setAttribute('role','tablist');tabs.setAttribute('aria-label','Bande EQ');
+    const colors=['#e58664','#d1b159','#8ebc80','#62b5af','#6e9dce','#9b8bd0','#ba83ad','#cf7983'];
+    const bands=['l','1','2','3','4','5','6','h'].filter(id=>model.parameters.some(p=>p.key===id+'g')),entries=[];
+    const choose=id=>{
+      if(!bands.includes(id))return;
+      for(const entry of entries){const active=entry.id===id;entry.button.setAttribute('aria-selected',String(active));entry.button.tabIndex=active?0:-1;entry.pane.hidden=!active;}
+      for(const point of plot.querySelectorAll('.fx-eq-point')){const active=point.dataset.band.toLowerCase()===id;point.classList.toggle('fx-eq-point-selected',active);point.setAttribute('aria-current',String(active));}
+    };
+    bands.forEach((id,index)=>{
+      const name=id==='l'?'LOW':id==='h'?'HIGH':`B${id}`,pane=el('section','fx-wing-band-pane'),row=el('div','fx-wing-knob-row'),button=btn(name,()=>choose(id),'fx-wing-band-tab');
+      pane.setAttribute('role','tabpanel');pane.setAttribute('aria-label',`Banda ${name}`);pane.style.setProperty('--band-color',colors[index]);button.style.setProperty('--band-color',colors[index]);
+      button.setAttribute('role','tab');button.setAttribute('aria-label',`Banda ${name}`);
+      const title=el('h4','fx-wing-control-heading',id==='l'?'LOW · banda bassa':id==='h'?'HIGH · banda alta':`BANDA ${id}`);pane.append(title);
+      for(const key of [id+'f',id+'g',id+'q']){const control=wingControl(model,ctx,key,bindings);if(control)row.append(control);}
+      pane.append(row);const shape=wingControl(model,ctx,id+'eq',bindings);if(shape){shape.classList.add('fx-wing-band-shape');pane.append(shape);}panes.append(pane);tabs.append(button);entries.push({id,pane,button});
+      button.addEventListener('keydown',event=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;event.preventDefault();const next=event.key==='Home'?0:event.key==='End'?bands.length-1:(index+(event.key==='ArrowRight'?1:-1)+bands.length)%bands.length;choose(bands[next]);entries[next].button.focus();});
+    });
+    const selectPoint=event=>{const point=event.target.closest?.('.fx-eq-point');if(point)choose(point.dataset.band.toLowerCase());};
+    plot.addEventListener('pointerdown',selectPoint);plot.addEventListener('focusin',selectPoint);
+    editor.append(tabs,panes);const tilt=wingControl(model,ctx,'tilt',bindings);if(tilt){tilt.classList.add('fx-wing-tilt');editor.append(tilt);}layout.append(editor);choose(bands.includes('1')?'1':bands[0]);
+    return layout;
+  }
+
+  function makeWingDynamicsPlot(model,ctx,bindings,kind){
+    const box=el('section',`fx-wing-chart fx-wing-chart-${kind}`),envelope=kind==='envelope',title=el('div','fx-wing-display-heading');
+    title.append(el('strong','',envelope?'INVILUPPO':'CURVA IN / OUT'),el('span','',envelope?'A · H · R':'Soglia / rapporto'));box.append(title);
+    const svg=svgElement('svg',{viewBox:envelope?'0 0 400 140':'0 0 400 220',role:'img','aria-label':envelope?'Inviluppo impostato: attack, hold, release':'Curva statica di riferimento: soglia e rapporto'}),curve=svgElement('path',{class:'fx-wing-dynamics-line'});
+    const read=(key,fallback)=>{const p=model.parameters.find(parameter=>parameter.key===key);return p?rawValue(ctx,p):fallback;};
+    let signature='';
+    if(envelope){
+      for(const y of [24,72,120])svg.append(svgElement('line',{x1:16,y1:y,x2:384,y2:y,class:'fx-plot-grid'}));svg.append(curve);
+      bindings.push(()=>{const values=['att','hld','rel'].map(key=>Math.max(0,Number(read(key,0))||0)),next=values.join('|');if(next===signature)return;signature=next;const total=Math.max(1,values.reduce((a,b)=>a+b,0)),attack=16+values[0]/total*368,hold=attack+values[1]/total*368;curve.setAttribute('d',`M16,120 L${attack},24 L${hold},24 L384,120`);});
+    }else{
+      const min=-80,max=0,X=value=>35+(value-min)/(max-min)*340,Y=value=>190-(clamp(value,min,max)-min)/(max-min)*174;
+      for(let value=min;value<=max;value+=20){svg.append(svgElement('line',{x1:X(value),y1:16,x2:X(value),y2:190,class:'fx-plot-grid'}),svgElement('line',{x1:35,y1:Y(value),x2:375,y2:Y(value),class:'fx-plot-grid'}));const text=svgElement('text',{x:X(value),y:210,'text-anchor':'middle',class:'fx-axis-label'});text.textContent=value;svg.append(text);}
+      const threshold=svgElement('line',{y1:16,y2:190,class:'fx-wing-threshold'});svg.append(svgElement('line',{x1:35,y1:190,x2:375,y2:16,class:'fx-wing-unity'}),threshold,curve);
+      bindings.push(()=>{const t=Number(read('thr',-20)),rawRatio=String(read('ratio',2)),ratio=Math.max(1,parseFloat(rawRatio.split(':').at(-1))||1),range=Number(read('range',60)),gate=rawRatio.toLowerCase()==='gate',next=[t,rawRatio,range].join('|');if(next===signature)return;signature=next;
+        const path=Array.from({length:161},(_,i)=>{const x=min+i/160*(max-min);let y=x;if(model.id==='EXP'&&x<t)y=t+(x-t)*ratio;else if(model.id==='GATE'&&x<t)y=x-Math.min(range,gate?range:(t-x)*(ratio-1));else if(model.id==='DUCK'&&x>=t)y=x-range;else if(model.id==='COMP'&&x>t)y=t+(x-t)/ratio;return `${i?'L':'M'}${X(x).toFixed(2)},${Y(y).toFixed(2)}`;}).join(' ');curve.setAttribute('d',path);threshold.setAttribute('x1',X(t));threshold.setAttribute('x2',X(t));});
+    }
+    box.append(svg);box.title=envelope?'Inviluppo ricavato dai tempi impostati, non misurato sul segnale.':'Curva statica di riferimento: knee, makeup, inviluppo e audio non sono rappresentati.';return box;
+  }
+
+  function makeWingDynamics(model,ctx,bindings){
+    const layout=el('div','fx-wing-dynamics-layout'),graphs=el('div','fx-wing-dynamics-graphs'),controls=el('div','fx-wing-dynamics-controls');
+    graphs.append(makeWingDynamicsPlot(model,ctx,bindings,'transfer'),makeWingDynamicsPlot(model,ctx,bindings,'envelope'),el('p','fx-wing-reference-note','Curve dei parametri · nessuna misura audio'));
+    const used=new Set(),groups=[['Dinamica',['thr','ratio','knee','range','acc'],'detection'],['Uscita',['gain','mix'],'output'],['Tempi',['att','hld','rel'],'timing'],['Detector / Envelope',['det','env','auto'],'options']];
+    for(const [title,keys,group]of groups){const section=el('section',`fx-wing-control-group fx-wing-group-${group}`),row=el('div','fx-wing-knob-row');for(const key of keys){const control=wingControl(model,ctx,key,bindings);if(control){row.append(control);used.add(key);}}if(row.childElementCount){section.append(el('h4','fx-wing-control-heading',title),row);controls.append(section);}}
+    const remaining=model.parameters.filter(p=>!used.has(p.key));if(remaining.length){const section=el('section','fx-wing-control-group'),row=el('div','fx-wing-knob-row');for(const p of remaining)row.append(wingControl(model,ctx,p.key,bindings));section.append(el('h4','fx-wing-control-heading','Altri parametri'),row);controls.append(section);}
+    layout.append(graphs,controls);return layout;
   }
 
   function parameterControl(model,ctx,p,bindings,compact=false,presentation={}){
@@ -154,9 +220,9 @@
         const selectedIndex=()=>Math.max(0,p.options.findIndex(value=>String(value)===String(rawValue(ctx,p))));
         const choose=index=>setParam(ctx,p,p.options[clamp(Math.round(index),0,p.options.length-1)]);
         let gesture=null;
-        rotary.addEventListener('pointerdown',event=>{if(!gestureAllowed()||(event.pointerType==='mouse'&&event.button!==0))return;gesture={pointer:event.pointerId,y:event.clientY,index:selectedIndex()};rotary.setPointerCapture(event.pointerId);rotary.classList.add('dragging');event.preventDefault();});
+        rotary.addEventListener('pointerdown',event=>{if(!gestureAllowed()||(event.pointerType==='mouse'&&event.button!==0))return;ctrl()?.beginGesture?.(p.label);gesture={pointer:event.pointerId,y:event.clientY,index:selectedIndex()};rotary.setPointerCapture(event.pointerId);rotary.classList.add('dragging');event.preventDefault();});
         rotary.addEventListener('pointermove',event=>{if(!gesture||gesture.pointer!==event.pointerId)return;if(!gestureAllowed()){release(event);return;}choose(gesture.index+(gesture.y-event.clientY)/18*(event.shiftKey?.25:1));event.preventDefault();});
-        const release=event=>{if(gesture?.pointer!==event.pointerId)return;gesture=null;rotary.classList.remove('dragging');if(rotary.hasPointerCapture?.(event.pointerId))rotary.releasePointerCapture(event.pointerId);};for(const type of ['pointerup','pointercancel','lostpointercapture'])rotary.addEventListener(type,release);
+        const release=event=>{if(gesture?.pointer!==event.pointerId)return;gesture=null;rotary.classList.remove('dragging');if(rotary.hasPointerCapture?.(event.pointerId))rotary.releasePointerCapture(event.pointerId);ctrl()?.endGesture?.();};bindings.cleanups?.push(()=>{if(gesture)release({pointerId:gesture.pointer});});for(const type of ['pointerup','pointercancel','lostpointercapture'])rotary.addEventListener(type,release);
         rotary.addEventListener('keydown',event=>{const delta={ArrowUp:1,ArrowRight:1,ArrowDown:-1,ArrowLeft:-1}[event.key];if(delta!==undefined){event.preventDefault();choose(selectedIndex()+delta);}else if(event.key==='Home'||event.key==='End'){event.preventDefault();choose(event.key==='Home'?0:p.options.length-1);}});
         bindings.push(()=>{const index=selectedIndex(),writable=editable(ctx,p),pos=index/Math.max(1,p.options.length-1);rotary.style.setProperty('--turn',`${-135+(presentation.reverse?1-pos:pos)*270}deg`);rotary.setAttribute('aria-valuenow',String(index));rotary.setAttribute('aria-valuetext',p.optionLabels?.[index]||String(p.options[index]));rotary.title=`${p.label}: ${p.optionLabels?.[index]||String(p.options[index])}${p.unit?' '+p.unit:''}`;rotary.setAttribute('aria-disabled',String(!writable));rotary.tabIndex=writable?0:-1;});
       }else if((p.options.length<=6||presentation.kind==='buttons')&&!['value','digital','preset'].includes(presentation.kind)){
@@ -174,9 +240,9 @@
     const limits=el('div','fx-control-limits');limits.append(el('span','',pretty(p.min,p)),el('span','',pretty(p.max,p)));wrap.append(limits);
     const sync=()=>{const writable=editable(ctx,p);input.disabled=!writable;knob.setAttribute('aria-disabled',String(!writable));knob.tabIndex=writable?0:-1;const value=Number(rawValue(ctx,p)),pos=position(p,value);knob.style.setProperty('--turn',`${-135+(presentation.reverse?1-pos:pos)*270}deg`);knob.style.setProperty('--position',pos);knob.setAttribute('aria-valuenow',String(value));knob.setAttribute('aria-valuetext',`${pretty(value,p)} ${p.unit||''}`);knob.title=`${p.label}: ${pretty(value,p)} ${p.unit||''}`;if(document.activeElement!==input)input.value=String(Number(value.toFixed(3)));};
     let drag=null;
-    knob.addEventListener('pointerdown',event=>{if(!gestureAllowed())return;if(event.pointerType==='mouse'&&event.button!==0)return;if(compact&&event.target!==pointer&&!pointer.contains(event.target))return;const rect=knob.getBoundingClientRect(),capRect=pointer.getBoundingClientRect();drag={id:event.pointerId,y:event.clientY,x:event.clientX,pos:position(p,rawValue(ctx,p)),travel:compact?Math.max(20,horizontal?rect.width-capRect.width-10:rect.height-capRect.height-10):130};knob.setPointerCapture(event.pointerId);knob.classList.add('dragging');event.preventDefault();});
+    knob.addEventListener('pointerdown',event=>{if(!gestureAllowed())return;if(event.pointerType==='mouse'&&event.button!==0)return;if(compact&&event.target!==pointer&&!pointer.contains(event.target))return;const rect=knob.getBoundingClientRect(),capRect=pointer.getBoundingClientRect();ctrl()?.beginGesture?.(p.label);drag={id:event.pointerId,y:event.clientY,x:event.clientX,pos:position(p,rawValue(ctx,p)),travel:compact?Math.max(20,horizontal?rect.width-capRect.width-10:rect.height-capRect.height-10):130};knob.setPointerCapture(event.pointerId);knob.classList.add('dragging');event.preventDefault();});
     knob.addEventListener('pointermove',event=>{if(!drag||drag.id!==event.pointerId)return;if(!gestureAllowed()){end(event);return;}const sensitivity=event.shiftKey?.2:1,delta=horizontal?event.clientX-drag.x:drag.y-event.clientY;setParam(ctx,p,atPosition(p,drag.pos+delta/drag.travel*sensitivity));sync();event.preventDefault();});
-    const end=event=>{if(drag?.id!==event.pointerId)return;drag=null;knob.classList.remove('dragging');if(knob.hasPointerCapture?.(event.pointerId))knob.releasePointerCapture(event.pointerId);};knob.addEventListener('pointerup',end);knob.addEventListener('pointercancel',end);knob.addEventListener('lostpointercapture',end);
+    const end=event=>{if(drag?.id!==event.pointerId)return;drag=null;knob.classList.remove('dragging');if(knob.hasPointerCapture?.(event.pointerId))knob.releasePointerCapture(event.pointerId);ctrl()?.endGesture?.();};bindings.cleanups?.push(()=>{if(drag)end({pointerId:drag.id});});knob.addEventListener('pointerup',end);knob.addEventListener('pointercancel',end);knob.addEventListener('lostpointercapture',end);
     if(!compact)knob.addEventListener('dblclick',()=>{setParam(ctx,p,p.default);sync();});
     knob.addEventListener('keydown',event=>{
       if(!editable(ctx,p))return;const current=Number(rawValue(ctx,p));let next;
@@ -324,7 +390,8 @@
   }
 
   function renderProcessor(container,context,options={}){
-    const ctx={...context};let alive=true,bindings=[],surfaceCleanups=[],modelId=null,activeGroup='Tutti',building=false,hydrating=false,hydratedModel=null,liveMode=live(),stateSignature='';
+    const ctx={...context};let alive=true,bindings=[],surfaceCleanups=[],modelId=null,activeGroup='Tutti',building=false,hydrating=false,hydratedModel=null,liveMode=live(),stateSignature='',processorSignature='';
+    const presentationState=()=>JSON.stringify([liveState(ctx),live()?window.SculptLive?.isConnected?.():null,live()?window.SculptLive?.isWritable?.():null,live()?window.SculptLive?.sessionToken?.():null]);
     function hydrate(){
       if(!alive||!live()||hydrating||!window.SculptLive?.ensureProcessor||window.SculptLive.isConnected&& !window.SculptLive.isConnected())return;
       const current=instance(ctx)?.model;if(hydratedModel===current&&liveState(ctx).ready)return;
@@ -334,19 +401,21 @@
     const synchronize=()=>{
       if(!alive||building)return;
       const proc=instance(ctx);if(!proc)return;
-      const nextSignature=JSON.stringify(liveState(ctx));
+      const nextSignature=presentationState();
       if(proc.model!==modelId||liveMode!==live()||nextSignature!==stateSignature){activeGroup='Tutti';build();hydrate();return;}
+      const nextProcessorSignature=JSON.stringify(proc);if(nextProcessorSignature===processorSignature)return;processorSignature=nextProcessorSignature;
       for(const update of bindings)update();
     };
     function build(){
-      building=true;for(const dispose of surfaceCleanups)dispose();surfaceCleanups=[];bindings=[];container.replaceChildren();
+      building=true;for(const dispose of surfaceCleanups)dispose();surfaceCleanups=[];bindings=[];bindings.cleanups=surfaceCleanups;container.replaceChildren();
       const proc=instance(ctx),available=Cat.list(ctx);
       if(!proc||!available.length){container.append(el('p','desk-note','Questo blocco non è presente su questa famiglia di canali.'));building=false;return;}
       modelId=proc.model;let model=Cat.get(ctx,modelId);
       if(!model){if(live()){container.append(el('p','desk-note',`Modello ${modelId}: il banco espone questo processore, ma non è presente nel catalogo grafico locale. Usa l’esploratore dei parametri WING.`));building=false;return;}model=available[0];desk().setModel(ctx,model.id);modelId=model.id;}
       const panel=Panels?.forModel(model)||{face:model.layout,sections:[...new Set(model.parameters.map(p=>p.group||'Controls'))].map(title=>({title,keys:model.parameters.filter(p=>(p.group||'Controls')===title).map(p=>p.key)})),heroes:[],subtitle:model.name};
-      stateSignature=JSON.stringify(liveState(ctx));liveMode=live();
-      const wrapper=el('div',`fx-processor fx-theme-${model.theme} fx-layout-${model.layout} fx-panel-${panel.face}`);wrapper.dataset.model=model.id;wrapper.dataset.context=keyFor(ctx);container.append(wrapper);
+      stateSignature=presentationState();liveMode=live();processorSignature=JSON.stringify(proc);
+      const wingEditor=options.rotaryBank&&((model.id==='STD'&&model.layout==='eq')||(model.category==='gate_dynamics'&&['GATE','DUCK','COMP','EXP'].includes(model.id)));
+      const wrapper=el('div',`fx-processor fx-theme-${model.theme} fx-layout-${model.layout} fx-panel-${panel.face}`);wrapper.dataset.model=model.id;wrapper.dataset.context=keyFor(ctx);if(wingEditor)wrapper.classList.add('fx-wing-editor',model.id==='STD'?'fx-wing-eq':'fx-wing-dynamics');container.append(wrapper);
       const toolbar=el('div','fx-processor-toolbar');
       const select=el('select','fx-model-select');select.setAttribute('aria-label',`Modello ${ctx.type==='fx'?'FX '+ctx.slot:ctx.block}`);
       let category='';let group;
@@ -369,7 +438,9 @@
         const empty=el('div','fx-empty-slot');empty.append(el('span','','+'),el('h4','','Slot disponibile'),el('p','','Scegli un processore dal selettore qui sopra.'));face.append(empty);
       }else{
         const reference=referenceFor(model);let used=new Set(),sectionParent=face;
-        if(reference){
+        if(wingEditor){
+          face.append(model.id==='STD'?makeWingEq(model,ctx,bindings):makeWingDynamics(model,ctx,bindings));used=new Set(model.parameters.map(p=>p.key));
+        }else if(reference){
           wrapper.classList.add('fx-original-enabled');const original=makeReferenceSurface(model,ctx,reference,bindings,surfaceCleanups,options.rotaryBank?{minScale:.35,fitWithin:container.closest?.('.editor-panel')}:{ });face.append(original.element);used=original.used;
           if(model.parameters.some(p=>!used.has(p.key))){const extras=el('details','fx-original-extras');extras.append(el('summary','','Altri controlli del processore'));face.append(extras);sectionParent=extras;if(model.id==='VSS3'){bindings.push(()=>{extras.open=!!Number(instance(ctx)?.params?.view);});}}
         }else{const plot=makePlot(model,ctx,bindings);if(plot)face.append(plot);}
@@ -392,7 +463,7 @@
         }
       }
       wrapper.append(face);
-      if(options.rotaryBank){
+      if(options.rotaryBank&&!wingEditor){
         // Keep the original face intact. Values represented by displays or
         // original GEQ faders gain a linked rotary in this compact control bank.
         const existing=new Map([...face.querySelectorAll('[data-parameter]')].map(node=>[node.dataset.parameter,node]));

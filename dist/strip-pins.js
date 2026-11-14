@@ -4,9 +4,9 @@
   const C=window.SculptController,U=window.SculptUI;
   if(!C||!U)return;
   const KEY='sculpt-wing-strip-pins-v1',SIDES=['left','right'],ROWS=['outputs','inputs'];
-  const strips=new Map(C.listStrips().map(strip=>[strip.id,document.querySelector(`.strip[data-id="${strip.id}"]`)]));
+  const strips=new Map([...document.querySelectorAll('.mixer-row .strip[data-id]')].map(node=>[node.dataset.id,node]));
   const rows=new Map(),buttons=new Map();let menu=null,storageWarning=false;
-  const label=id=>{const strip=C.getStrip(id);return strip?`${strip.kind} ${String(strip.number).padStart(2,'0')} · ${strip.name}`:id;};
+  const label=id=>{const strip=C.getStrip(id);if(strip)return `${strip.kind} ${String(strip.number).padStart(2,'0')} · ${strip.name}`;const dca=window.SculptDesk?.get().dca.find(g=>`dca-${g.id}`===id);return dca?`DCA ${String(dca.id).padStart(2,'0')} · ${dca.name}`:id;};
   function readPreferences(){
     let saved;try{saved=JSON.parse(localStorage.getItem(KEY)||'null');}catch{}
     const prefs={version:1,left:[],right:[]},seen=new Set();
@@ -24,28 +24,24 @@
     try{localStorage.setItem(KEY,JSON.stringify(preferences));storageWarning=false;}
     catch{if(!storageWarning){storageWarning=true;U.toast('Ancoraggio impostato per questa sessione. La memoria locale non è disponibile.');}}
   }
-  function updateButtons(){
+  function updateButtons(ids){
     for(const [id,button]of buttons){
+      if(ids&&!ids.has(id))continue;
       const side=sideOf(id),text=side==='left'?'Ancorato a sinistra':side==='right'?'Ancorato a destra':'Ancora il canale';
-      button.setAttribute('aria-label',`${text} · ${label(id)}`);button.setAttribute('aria-pressed',String(!!side));button.title=`${text} · scegli sinistra, destra o libera`;
+      const caption=`${text} · ${label(id)}`;
+      if(button.getAttribute('aria-label')!==caption)button.setAttribute('aria-label',caption);
+      if(button.dataset.side===(side||''))continue;
+      button.setAttribute('aria-pressed',String(!!side));button.title=`${text} · scegli sinistra, destra o libera`;
       button.dataset.side=side||'';button.classList.toggle('is-pinned',!!side);strips.get(id).classList.toggle('strip-pinned',!!side);
     }
   }
-  function updateBankButtons(row){
-    const view=rows.get(row);if(!view||view.section.classList.contains('layer-active')||row==='outputs'&&window.SculptDcaBank?.isOpen())return;
-    if(!SIDES.some(side=>pinnedIn(row,side).length))return;
-    const visible=[...view.bank.querySelectorAll('.strip:not([hidden])')];if(!visible.length)return;
-    const left=view.scroller.scrollLeft,first=visible.find(node=>node.offsetLeft+node.getBoundingClientRect().width*.6>left)||visible.at(-1);
-    const index=C.getState()[row].findIndex(strip=>strip.id===first.dataset.id),activeIndex=Math.floor(Math.max(0,index)/8)*8;
-    view.section.querySelectorAll('.bank-button').forEach(button=>{const active=Number(button.dataset.index)===activeIndex;button.classList.toggle('active',active);button.setAttribute('aria-pressed',String(active));});
-  }
   function updateRails(){
     for(const [row,view]of rows){
-      const counts=SIDES.map(side=>pinnedIn(row,side).length),dca=row==='outputs'&&window.SculptDcaBank?.isOpen();
-      SIDES.forEach((side,index)=>{view[side].hidden=dca||counts[index]===0;view[side].style.setProperty('--pin-count',String(counts[index]));});
-      view.body.classList.toggle('has-pins',!dca&&counts.some(Boolean));view.body.classList.toggle('has-pins-both',!dca&&counts.every(Boolean));
-      view.empty.hidden=dca||counts.every(count=>!count)||[...view.bank.querySelectorAll('.strip')].some(node=>!node.hidden);
-      view.scroller.dispatchEvent(new Event('scroll'));updateBankButtons(row);
+      const counts=SIDES.map(side=>pinnedIn(row,side).length);
+      SIDES.forEach((side,index)=>{view[side].hidden=counts[index]===0;view[side].style.setProperty('--pin-count',String(counts[index]));});
+      view.body.classList.toggle('has-pins',counts.some(Boolean));view.body.classList.toggle('has-pins-both',counts.every(Boolean));
+      view.empty.hidden=counts.every(count=>!count)||[...view.bank.querySelectorAll('.strip')].some(node=>!node.hidden);
+      view.scroller.dispatchEvent(new Event('scroll'));
     }
   }
   function captureOrder(){
@@ -66,7 +62,7 @@
     if(sideOf(id)===side)return true;
     for(const edge of SIDES)preferences[edge]=preferences[edge].filter(value=>value!==id);
     if(side)preferences[side].push(id);
-    save();refresh();return true;
+    save();refresh();window.dispatchEvent(new CustomEvent('sculpt-strip-pins',{detail:{id,side}}));return true;
   }
   function move(id,direction){
     const side=sideOf(id),row=rowOf(id);if(!side||!row||![-1,1].includes(direction))return false;
@@ -105,7 +101,8 @@
       C.bindStripPan?.(rail);rail.addEventListener('keydown',event=>{if(event.target!==rail||!['ArrowLeft','ArrowRight'].includes(event.key))return;rail.scrollBy({left:(event.key==='ArrowRight'?1:-1)*rail.clientWidth*.75,behavior:behavior()});event.preventDefault();});
     }
     body.append(view.left,scroller,view.right);view.empty=U.el('div','strip-pin-center-empty','Canali ancorati ai lati');view.empty.hidden=true;bank.append(view.empty);rows.set(row,view);
-    scroller.addEventListener('scroll',()=>updateBankButtons(row),{passive:true});new ResizeObserver(()=>updateBankButtons(row)).observe(scroller);
+    // The shared bank navigation reads the current center nodes, including DCA.
+    // It already observes scrolling and resizing; no second geometry pass here.
   }
   const icon='<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M6 2h8M7 2v5l-3 4v2h12v-2l-3-4V2M10 13v5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   for(const [id,node]of strips){
@@ -113,7 +110,6 @@
   }
   captureOrder();
   window.SculptStripPins=Object.freeze({pin,move,openMenu,navigate,refresh,sideOf,preferences:()=>({version:1,left:[...preferences.left],right:[...preferences.right]}),isPinnedVisible:id=>{const node=strips.get(id);return !!sideOf(id)&&!!node?.closest('.strip-pin-rail')&&!node.closest('[hidden]');}});
-  C.subscribe(event=>{if(event.type==='layer'){captureOrder();refresh();}else if(['restore','reset'].includes(event.type))refresh();else updateButtons();});
-  window.addEventListener('sculpt-dca-bank',updateRails);
+  C.subscribe(event=>{if(event.type==='layer'){captureOrder();refresh();}else if(['restore','reset'].includes(event.type))refresh();else if(!['selection','send','sof','parameter','processing','macros'].includes(event.type))updateButtons(event.id?new Set([event.id]):null);});
   refresh();
 })();

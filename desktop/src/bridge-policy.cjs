@@ -3,7 +3,7 @@
 const path = require('node:path');
 const APP_URL = 'sculpt://app/index.html';
 const CSP = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; worker-src 'self'; base-uri 'none'; form-action 'none'";
-const METHODS = Object.freeze(['connect', 'disconnect', 'sendTCP', 'sendUDP']);
+const METHODS = Object.freeze(['connect', 'disconnect', 'sendTCP', 'sendUDP', 'sendOSC']);
 const EVENTS = Object.freeze(['packet', 'linkState']);
 
 function isAppURL(value) {
@@ -31,6 +31,12 @@ function assetPath(value, appRoot) {
 function validateArguments(method, value) {
   if (!METHODS.includes(method) || !value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Richiesta desktop non valida.');
   const identifier = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value);
+  if (method === 'sendOSC') {
+    if (typeof value.host !== 'string' || value.host.length > 32 || typeof value.address !== 'string' || value.address.length > 256 ||
+      !Array.isArray(value.args) || value.args.length > 32) throw new Error('Richiesta OSC desktop non valida.');
+    // The sender validates the full OSC schema again before creating a socket.
+    return { host: value.host, port: value.port, address: value.address, args: value.args.map(arg => ({ type: arg?.type, value: arg?.value })), expectReply: value.expectReply };
+  }
   if (method === 'connect') {
     if (typeof value.host !== 'string' || !/^\d{1,3}(\.\d{1,3}){3}$/.test(value.host) || !identifier(value.requestId)) throw new Error('Indirizzo WING o richiesta non validi.');
     return { host: value.host, requestId: value.requestId };

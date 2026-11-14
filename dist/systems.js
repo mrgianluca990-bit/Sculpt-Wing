@@ -22,8 +22,9 @@
     return JSON.parse(JSON.stringify(value),(key,v)=>['__proto__','prototype','constructor'].includes(key)?undefined:v);
   }
   const UI_ACTIONS=new Set(['menu','editor','sof','layer']);
-  const isLocalAction=action=>UI_ACTIONS.has(action?.type)||action?.type==='wait';
-  const MENU_PAGES=[['bank-menu','Menu del banco'],['mixer','Mixer'],['channel-list','Importa channel list PDF'],['connection','Connessione WING'],['wing','Parametri WING'],['io','I/O e routing'],['fx','Rack FX'],['fx-editor','Editor di un plugin FX'],['dca-bank','Banco DCA'],['groups','DCA / Mute Groups'],['monitor','Monitor / Talkback'],['meters','Meter / RTA'],['scenes','Scene / Library'],['recorder','Recorder / Player'],['setup','Setup'],['layers','Custom Layer'],['macros','Macro Sculpt'],['about','Informazioni']];
+  // OSC is an external command; it does not require a WING control session.
+  const isLocalAction=action=>UI_ACTIONS.has(action?.type)||action?.type==='wait'||action?.type==='osc';
+  const MENU_PAGES=[['bank-menu','Menu del banco'],['mixer','Mixer'],['channel-list','Importa channel list PDF'],['connection','Connessione WING'],['wing','Parametri WING'],['io','I/O e routing'],['fx','Rack FX'],['fx-editor','Editor di un plugin FX'],['dca-bank','Banco DCA'],['groups','DCA / Mute Groups'],['monitor','Monitor / Talkback'],['meters','Meter / RTA'],['scenes','Scene / Library'],['recorder','Recorder / Player'],['setup','Setup'],['layers','Custom Layer'],['macros','Macro Sculpt'],['osc','OSC / Sculpt Show'],['about','Informazioni']];
   const MENU_SECTIONS={io:[['inputs','Ingressi'],['sources','Sorgenti'],['outputs','Uscite'],['user','USER'],['devices','Dispositivi']],groups:[['dca','DCA'],['mute','Mute Groups'],['auto','Automix']],monitor:[['a','Monitor A'],['b','Monitor B'],['solo','Solo'],['talk','Talkback']],meters:[['levels','Meter'],['rta','RTA'],['osc','Oscillatori']],scenes:[['show','Show / scene'],['snippets','Snippet'],['presets','Preset canale'],['project','Progetto']],recorder:[['sdA','SD A'],['sdB','SD B'],['usb','USB REC'],['player','Player']],setup:[['audio','Audio / clock'],['hardware','Hardware'],['network','Rete'],['midi','MIDI / GPIO'],['controls','Custom Controls'],['layers','Layer'],['about','Sistema']]};
   const EDITOR_TABS=[['channel','Canale'],['processing','Processo'],['eq','EQ'],['dynamics','Dinamica'],['sends','Mandate'],['groups','Gruppi']];
   const validWingPath=path=>typeof path==='string'&&path.length<=256&&/^\/(?:[A-Za-z0-9_$-]+\/)*[A-Za-z0-9_$-]+$/.test(path)&&path.split('/').length<=17;
@@ -116,7 +117,7 @@
   }
   async function prepareActions(actions,env){
     if(!Array.isArray(actions)||actions.length>32)throw new Error('La macro può contenere al massimo 32 azioni.');
-    const supported=new Set([...UI_ACTIONS,'fader','mute','solo','send','dca','muteGroup','talkback','monitorDim','sourceAlt','fxBypass','oscillator','scene','recorder','wait','processorParam','wingParameter']);
+    const supported=new Set([...UI_ACTIONS,'fader','mute','solo','send','dca','muteGroup','talkback','monitorDim','sourceAlt','fxBypass','oscillator','scene','recorder','wait','processorParam','wingParameter','osc']);
     for(const action of actions){if(!action||!supported.has(action.type))throw new Error('Tipo di azione non riconosciuto.');validateLocalAction(action,env);validateKnownAction(action,env);}
     const live=env.live,writing=actions.some(action=>!isLocalAction(action));env.preparedActions=new Map();
     if(live?.isLive?.()&&writing){env.macroSessionToken=live.sessionToken?.();assertMacroSession(env);}
@@ -124,6 +125,10 @@
     const load=async(scope,args)=>{const key=scope+JSON.stringify(args||{});if(done.has(key))return;await live.loadScope(scope,args);done.add(key);assertMacroSession(env);};
     for(const action of actions){
       if(env.cancelled?.())throw new Error('Macro interrotta');
+      if(action.type==='osc'){
+        const osc=env.osc||root.SculptOSC;if(!osc?.prepare||!osc?.sendPrepared)throw new Error('Invio OSC non disponibile.');
+        env.preparedActions.set(action,{oscRequest:osc.prepare(action)});continue;
+      }
       if(isLocalAction(action))continue;
       if(action.type==='processorParam'){
         if(live?.isLive?.()){await live.ensureProcessor(action.context);assertMacroSession(env);}
@@ -171,6 +176,10 @@
       while(fraction<1){check();fraction=Math.min(1,((env.now||Date.now)()-started)/duration);set(Math.round((from+(to-from)*fraction)*10)/10);if(fraction<1)await(env.sleep||((ms)=>new Promise(resolve=>setTimeout(resolve,ms))))(40);}
     };
     switch(action.type){
+      case 'osc':{
+        const osc=env.osc||root.SculptOSC;if(!osc?.prepare||!osc?.sendPrepared)throw new Error('Invio OSC non disponibile.');
+        const request=env.preparedActions?.get(action)?.oscRequest||osc.prepare(action);await osc.sendPrepared(request);check();break;
+      }
       case 'menu':{
         const ui=env.ui||root.SculptUI;if(!ui)throw new Error('Interfaccia non disponibile.');
         if(action.target==='bank-menu'){ui.close?.();ui.showMenu();}
@@ -338,16 +347,16 @@
     const paint=()=>{
       const layer=D().get().layers.find(item=>item.id===id);content.replaceChildren();if(!layer)return;
       const rows=D().layerRows(layer);
-      content.append(note('Scegli i canali e il loro ordine in ciascuna riga. Puoi mettere ingressi, bus, matrici e master in entrambe le righe.'));
+      content.append(note('Scegli i canali e il loro ordine in ciascuna riga. Ingressi, bus, matrici e master possono stare in entrambe le righe; i DCA restano nella riga superiore.'));
       const apply=next=>{D().setLayerRows(id,next);paint();onChange();};
       for(const [key,title,other]of [['top','Riga 1 · superiore','bottom'],['bottom','Riga 2 · inferiore','top']]){
         const bank=h('section','sys-layer-row'),heading=h('div','sys-layer-row-heading');bank.dataset.layerRow=key;
-        const add=btn('Aggiungi canali',()=>openMembership(title,rows[key],members=>{const current=D().layerRows(D().get().layers.find(item=>item.id===id));current[key]=members;current[other]=current[other].filter(stripId=>!members.includes(stripId));apply(current);}),'sys-small');
+        const add=btn('Aggiungi canali',()=>openMembership(title,rows[key],members=>{const current=D().layerRows(D().get().layers.find(item=>item.id===id));current[key]=members;current[other]=current[other].filter(stripId=>!members.includes(stripId));apply(current);},key==='top'?[...strips(),...D().get().dca.map(g=>layerStrip('dca-'+g.id))]:strips()),'sys-small');
         add.setAttribute('aria-label','Assegna canali alla '+title.toLowerCase());
         heading.append(h('h3','',title),h('span','sys-badge',rows[key].length+' strip'),add);bank.append(heading);
         const list=h('ol','sys-layer-slots');list.setAttribute('aria-label',title+' — ordine da sinistra a destra');
         for(const [index,stripId]of rows[key].entries()){
-          const strip=C().getStrip(stripId),slot=h('li','sys-layer-slot'),caption=h('strong','',label(strip));slot.style.setProperty('--layer-color',strip.color);slot.dataset.stripId=stripId;
+          const strip=layerStrip(stripId),slot=h('li','sys-layer-slot'),caption=h('strong','',label(strip));slot.style.setProperty('--layer-color',strip.color);slot.dataset.stripId=stripId;
           slot.append(h('span','sys-layer-position',String(index+1).padStart(2,'0')),caption);
           const controls=h('div','sys-layer-slot-actions');
           const reorder=(direction)=>{const current=D().layerRows(D().get().layers.find(item=>item.id===id));moveItem(current[key],index,direction);apply(current);};
@@ -356,6 +365,7 @@
           left.setAttribute('aria-label','Sposta '+label(strip)+' a sinistra');right.setAttribute('aria-label','Sposta '+label(strip)+' a destra');
           const transfer=btn(key==='top'?'↓ Riga 2':'↑ Riga 1',()=>{const current=D().layerRows(D().get().layers.find(item=>item.id===id));current[key]=current[key].filter(value=>value!==stripId);current[other].push(stripId);apply(current);},'sys-small');
           transfer.setAttribute('aria-label','Sposta '+label(strip)+' nella riga '+(key==='top'?'2':'1'));
+          if(strip.kind==='DCA'){transfer.disabled=true;transfer.title='I DCA rimangono nella riga superiore';}
           const remove=btn('×',()=>{const current=D().layerRows(D().get().layers.find(item=>item.id===id));current[key]=current[key].filter(value=>value!==stripId);apply(current);},'sys-small');remove.setAttribute('aria-label','Rimuovi '+label(strip)+' dal layer');
           controls.append(left,right,transfer,remove);slot.append(controls);list.append(slot);
         }
@@ -364,6 +374,11 @@
       }
     };
     paint();return U().modal('Custom Layer · due righe',content);
+  }
+  function layerStrip(id){
+    const strip=C().getStrip(id);if(strip)return strip;
+    const group=D().get().dca.find(g=>'dca-'+g.id===id);
+    return group?{id,kind:'DCA',number:group.id,name:group.name,color:'#c78cd9'}:null;
   }
   function renderLayers(container){
     const paint=()=>{
@@ -374,7 +389,7 @@
         const rows=D().layerRows(layer),preview=h('div','sys-layer-preview');
         for(const [key,title]of [['top','Riga 1 · superiore'],['bottom','Riga 2 · inferiore']]){
           const band=h('div','sys-layer-preview-row');band.dataset.layerRow=key;band.append(h('strong','',title));const names=h('div','sys-layer-preview-strips');
-          for(const stripId of rows[key]){const strip=C().getStrip(stripId),chip=h('span','',label(strip));chip.style.setProperty('--layer-color',strip.color);names.append(chip);}if(!rows[key].length)names.append(h('span','sys-layer-preview-empty','Vuota'));band.append(names);preview.append(band);
+          for(const stripId of rows[key]){const strip=layerStrip(stripId),chip=h('span','',label(strip));chip.style.setProperty('--layer-color',strip.color);names.append(chip);}if(!rows[key].length)names.append(h('span','sys-layer-preview-empty','Vuota'));band.append(names);preview.append(band);
         }
         const item=card(layer.name,textInput('Nome layer '+(index+1),layer.name,value=>{changed(x=>x.layers.find(v=>v.id===layer.id).name=value||'Layer '+(index+1));paint();}),preview);
         item.dataset.layerId=layer.id;
@@ -511,6 +526,7 @@
         const bank=grid();d.oscillators.forEach((osc,index)=>{const patch=(k,v)=>changed(s=>s.oscillators[index][k]=v);bank.append(card('OSCILLATORE '+(index+1),toggle('Oscillatore '+(index+1)+' attivo',osc.on,value=>patch('on',value)),select('Segnale OSC '+(index+1),osc.mode,[{value:'SINE',label:'Sine / sinusoidale'},{value:'PINK',label:'Rumore rosa'},{value:'WHITE',label:'Rumore bianco'}],value=>patch('mode',value)),range('Frequenza OSC '+(index+1),osc.frequency,20,20000,1,value=>patch('frequency',value),'Hz'),range('Livello OSC '+(index+1),osc.level,-90,0,.1,value=>patch('level',value),'dB'),btn('Destinazioni · '+osc.targets.length,()=>openMembership('Routing OSC '+(index+1),osc.targets,ids=>{patch('targets',ids);paint();},strips().filter(s=>['BUS','MAIN','MTX'].includes(s.kind))))));});container.append(note('Configurazione e routing degli oscillatori del banco simulato; la demo non genera audio.'),bank);
       }
       const tick=()=>{
+        if(document.visibilityState==='hidden'||disposed)return;
         const time=Date.now()/1000,s=D().get().meterSettings;
         if(lastPeakRevision!==s.peakRevision){peaks={};lastPeakRevision=s.peakRevision;}
         for(const meter of bars){let value,right;if(live()){
@@ -621,7 +637,68 @@
       timer=setInterval(()=>{const rec=D().get().recorder[id],position=transportPosition(rec);time.textContent=formatTime(position);state.textContent=rec.state.toUpperCase();state.dataset.state=rec.state;if(document.activeElement!==seek)seek.value=position;if(rec.state==='playing'&&!rec.loop&&position>=numeric(rec.duration,600)){if(rec.repeat){transport(id,'rewind');}else{transport(id,'stop');paint();}}},150);
     };paint();return stop;
   }
-  const ACTION_TYPES=[['menu','Apri menu / pagina'],['editor','Apri editor canale'],['sof','Vista Sends on Fader'],['layer','Richiama Custom Layer'],['fader','Fader'],['mute','Mute'],['solo','Solo'],['send','Mandata'],['dca','DCA'],['muteGroup','Mute group'],['processorParam','Parametro di un processore / FX'],['wingParameter','Qualsiasi parametro WING'],['scene','Scena'],['talkback','Talkback'],['monitorDim','Dim monitor'],['sourceAlt','Sorgente Main/Alt'],['fxBypass','Attiva FX'],['oscillator','Oscillatore'],['recorder','Recorder'],['wait','Attesa']];
+  function oscText(label,value,action,placeholder='',maxLength=256){
+    const wrapper=textInput(label,value,action,placeholder),input=wrapper.querySelector('input');input.maxLength=maxLength;input.addEventListener('input',()=>action(input.value));return wrapper;
+  }
+  function appendOSCFields(item,action,update,paint,suffix=''){
+    const osc=root.SculptOSC;if(!osc){item.append(note('Modulo OSC non disponibile in questa build.'));return;}
+    const current=copy(action),tag=suffix?' '+suffix:'',preview=h('code','sys-osc-preview');
+    const refresh=()=>{try{const message=current.profile==='show'?osc.showMessage(current.preset,current):{address:current.address,args:current.args||[]};preview.textContent=message.address+' '+(message.args.length?message.args.map(arg=>arg.type==='T'?'true':arg.type==='F'?'false':arg.type+': '+String(arg.value)).join(' · '):'· nessun argomento');}catch(error){preview.textContent=error.message;}};
+    const change=(key,value)=>{current[key]=value;update(key,value);refresh();};
+    item.append(select('Profilo OSC'+tag,current.profile||'show',[{value:'show',label:'Sculpt Show'},{value:'custom',label:'OSC personalizzato'}],value=>{change('profile',value);paint();}));
+    if(current.profile==='show'){
+      item.append(select('Comando Sculpt Show'+tag,current.preset||'go',osc.SHOW_PRESETS.map(preset=>({value:preset.id,label:preset.label})),value=>{change('preset',value);paint();}));
+      const preset=osc.SHOW_PRESETS.find(preset=>preset.id===current.preset);
+      if(preset?.kind==='cue')item.append(oscText('UUID cue Show'+tag,current.cueId||'',value=>change('cueId',value),'UUID della cue',36));
+      if(preset?.kind==='list')item.append(oscText('UUID lista Show'+tag,current.listId||'',value=>change('listId',value),'UUID della lista',36));
+      if(preset?.kind==='trigger')item.append(oscText('Alias cue Show'+tag,current.alias||'',value=>change('alias',value),'intro oppure /sculpt/trigger/intro',80));
+    }else{
+      item.append(oscText('Indirizzo OSC'+tag,current.address||'',value=>change('address',value),'/app/comando'));
+      const argumentsBox=h('div','sys-osc-arguments');
+      (current.args||[]).forEach((arg,index)=>{
+        const changeArg=(key,value)=>{const args=copy(current.args||[]);args[index][key]=value;change('args',args);};
+        const line=row(select('Tipo argomento OSC '+(index+1)+tag,arg.type,[{value:'i',label:'Intero (i)'},{value:'f',label:'Decimale (f)'},{value:'s',label:'Stringa (s)'},{value:'T',label:'Vero (T)'},{value:'F',label:'Falso (F)'}],value=>{const args=copy(current.args||[]);args[index]=value==='T'||value==='F'?{type:value}:{type:value,value:value==='s'?'':0};change('args',args);paint();}));
+        if(!['T','F'].includes(arg.type))line.append(oscText('Valore argomento OSC '+(index+1)+tag,arg.value??'',value=>changeArg('value',value),arg.type==='s'?'Testo':'Numero',arg.type==='s'?4096:32));
+        line.append(btn('Rimuovi argomento '+(index+1),()=>{const args=copy(current.args||[]);args.splice(index,1);change('args',args);paint();},'sys-small'));argumentsBox.append(line);
+      });
+      const add=btn('+ Argomento OSC',()=>{change('args',[...(current.args||[]),{type:'i',value:1}]);paint();},'sys-small');add.disabled=(current.args?.length||0)>=32;argumentsBox.append(add);item.append(argumentsBox);
+    }
+    item.append(select('Destinazione OSC'+tag,current.useGlobal===false?'override':'global',[{value:'global',label:'Destinazione della pagina OSC'},{value:'override',label:'Destinazione specifica per questa azione'}],value=>{change('useGlobal',value!=='override');paint();}));
+    if(current.useGlobal===false)item.append(row(oscText('IP OSC'+tag,current.host||'127.0.0.1',value=>change('host',value),'127.0.0.1',32),oscText('Porta OSC'+tag,current.port??53000,value=>change('port',value),'53000',5)));
+    else{const destination=osc.getConfig()[current.profile||'show'];item.append(note('Destinazione: '+destination.host+':'+destination.port),btn('Configura destinazioni OSC',()=>U().open('osc'),'sys-small'));}
+    refresh();item.append(preview);
+  }
+  function renderOSC(container){
+    const osc=root.SculptOSC;if(!osc){container.append(note('Modulo OSC non disponibile.'));return;}
+    let draft={profile:'show',preset:'go',useGlobal:true,host:'127.0.0.1',port:53000,address:'/sculpt/go',args:[],cueId:'',listId:'',alias:''},destinations=osc.getConfig(),status='',busy=false,disposed=false,selectedMacro=String(D().get().macros.find(m=>!m.actions?.length)?.id||1);
+    const paint=()=>{
+      if(disposed)return;container.replaceChildren();
+      const statusLine=h('p','sys-osc-status',status||'Nessun messaggio inviato.');statusLine.setAttribute('role','status');
+      const destinationCards=['show','custom'].map(profile=>{
+        const config=destinations[profile],save=()=>{try{osc.setDestination(profile,config);status='Destinazione salvata · '+config.host+':'+config.port;paint();}catch(error){statusLine.textContent=error.message;}};
+        return card(profile==='show'?'SCULPT SHOW':'OSC PERSONALIZZATO',row(oscText('IP destinazione '+profile,config.host,value=>config.host=value,'127.0.0.1',32),oscText('Porta destinazione '+profile,config.port,value=>config.port=value,'53000',5)),btn('Salva destinazione '+(profile==='show'?'Show':'OSC'),save,'sys-small'));
+      });
+      const form=card('MESSAGGIO OSC');appendOSCFields(form,draft,(key,value)=>draft[key]=value,paint);
+      const send=btn('Invia OSC',async()=>{
+        if(busy)return;busy=true;send.disabled=true;
+        try{if(draft.useGlobal!==false)osc.setDestination(draft.profile,destinations[draft.profile]);const result=await osc.send(draft);status='Inviato via UDP a '+result.host+':'+result.port+' · '+result.address+'. Esecuzione del destinatario non confermata.';}catch(error){status=error.message;}finally{busy=false;paint();}
+      },'desk-primary');send.disabled=busy||!osc.available();
+      const verify=btn('Verifica Sculpt Show',async()=>{
+        if(busy)return;busy=true;verify.disabled=true;
+        try{osc.setDestination('show',destinations.show);const result=await osc.queryShow(),s=result.status;status='Risposta Show ricevuta · '+(s.show||'Show senza nome')+' · '+s.activeCount+' cue attive · audio '+(s.audioReady?'pronto':'non pronto')+'. Cue: '+(s.selectedCue||'nessuna')+' · Lista: '+(s.selectedList||'nessuna');}catch(error){status=error.message;}finally{busy=false;paint();}
+      });verify.disabled=busy||!osc.available();
+      const macroChoice=select('Macro per il messaggio OSC',selectedMacro,D().get().macros.map(m=>({value:m.id,label:'M'+m.id+' · '+(m.name||'Vuota')})),value=>selectedMacro=value);
+      const assign=btn('Aggiungi alla macro',()=>{
+        const macro=D().get().macros.find(m=>String(m.id)===selectedMacro);if(!macro)return;if(macro.actions.length>=32){toast('La macro contiene già 32 azioni.');return;}
+        try{const destination=draft.useGlobal===false?draft:destinations[draft.profile],message=draft.profile==='show'?osc.showMessage(draft.preset,draft):{address:draft.address,args:draft.args};osc.normalizeRequest({...destination,...message});if(draft.useGlobal!==false)osc.setDestination(draft.profile,destination);}catch(error){statusLine.textContent=error.message;return;}
+        changed(state=>{const m=state.macros.find(m=>String(m.id)===selectedMacro);m.actions.push({...copy(draft),type:'osc',id:uid('action')});if(!m.name)m.name=draft.profile==='show'?'Show · '+(osc.SHOW_PRESETS.find(p=>p.id===draft.preset)?.label||'OSC'):'OSC';});U().open('macros',{id:macro.id});
+      });
+      form.append(row(send,verify),statusLine,card('ASSEGNA A UNA MACRO',macroChoice,assign));
+      container.append(note(osc.available()?'OSC viene inviato direttamente da Sculpt Wing sul Mac.':'Nel browser puoi preparare le assegnazioni; l’invio UDP è disponibile nell’app Mac.'),grid(...destinationCards),form,note('In Show RC3: File → Audio/MIDI/Video Setup → OSC Control → Enable OSC control → Apply. Sullo stesso Mac usa 127.0.0.1:53000; su un altro computer usa il suo IP e abilita Allow LAN controllers in Show.'),note('Verifica Sculpt Show richiede soltanto lo stato: non avvia cue. Gli invii OSC non si annullano con Cmd+Z. Per cue e liste, copia l’UUID mostrato nelle impostazioni OSC di Show; gli alias corrispondono ai trigger configurati in Show.'));
+    };
+    paint();return()=>{disposed=true;};
+  }
+  const ACTION_TYPES=[['menu','Apri menu / pagina'],['editor','Apri editor canale'],['sof','Vista Sends on Fader'],['layer','Richiama Custom Layer'],['fader','Fader'],['mute','Mute'],['solo','Solo'],['send','Mandata'],['dca','DCA'],['muteGroup','Mute group'],['processorParam','Parametro di un processore / FX'],['wingParameter','Qualsiasi parametro WING'],['scene','Scena'],['talkback','Talkback'],['monitorDim','Dim monitor'],['sourceAlt','Sorgente Main/Alt'],['fxBypass','Attiva FX'],['oscillator','Oscillatore'],['recorder','Recorder'],['osc','Invia OSC / Sculpt Show'],['wait','Attesa']];
   function firstProcessorAction(context={type:'strip',id:'ch-1',block:'eq'}){
     const processor=D().processor(context),parameter=root.SculptCatalog?.get(context,processor?.model)?.parameters?.find(item=>item.type!=='trigger'&&!item.readOnly);
     return {context,model:processor?.model||'',key:parameter?.key||'',value:parameter?processor.params?.[parameter.key]??parameter.default:0,mode:'set'};
@@ -631,6 +708,7 @@
     if(type==='editor')action.tab='channel';if(type==='menu'){action.tab='';action.slot=1;}
     if(type==='processorParam')Object.assign(action,firstProcessorAction());
     if(type==='wingParameter'){action.path='';action.parameterLabel='';}
+    if(type==='osc')Object.assign(action,{profile:'show',preset:'go',useGlobal:true,host:'127.0.0.1',port:53000,address:'/sculpt/go',args:[],cueId:'',listId:'',alias:''});
     return action;
   }
   function menuChoices(){
@@ -660,16 +738,17 @@
     if(live()&&(!L()?.allowMacro||!L().allowMacro(macro)))return {ok:false,error:'Macro WING non autorizzata dal controllo attivo.'};
     const writing=macro.actions.some(action=>!isLocalAction(action)),run={id:macro.id,cancelled:false};activeMacro=run;if(writing)macroUndo=live()?null:D().capture();root.dispatchEvent(new CustomEvent('sculpt-macro-status',{detail:{id:macro.id,running:true}}));
     try{
-      const actions=copy(macro.actions),env={controller:C(),desk:D(),catalog:root.SculptCatalog,ui:U(),editor:root.SculptEditor,dcaBank:root.SculptDcaBank,channelList:root.SculptChannelList,fx:root.SculptFX,cancelled:()=>run.cancelled,transport,live:L(),nativeTransport:root.SculptLivePages?.transport};
+      const actions=copy(macro.actions),env={controller:C(),desk:D(),catalog:root.SculptCatalog,ui:U(),editor:root.SculptEditor,dcaBank:root.SculptDcaBank,channelList:root.SculptChannelList,fx:root.SculptFX,osc:root.SculptOSC,cancelled:()=>run.cancelled,transport,live:L(),nativeTransport:root.SculptLivePages?.transport};
       await prepareActions(actions,env);const failureVersion=live()&&writing?L().snapshot().failureVersion:undefined;
+      if(writing){C().beginGesture?.('Macro '+(macro.name||macro.id));run.historyGesture=true;}
       for(const action of actions){
         if(run.cancelled)throw new Error('Macro interrotta');
         await executeAction(action,env);
       }
       if(live()&&writing){await L().settled();assertMacroSession(env);if(run.cancelled)throw new Error('Macro interrotta');if(L().snapshot().failureVersion!==failureVersion)throw new Error(L().snapshot().failure||'Comando non confermato dalla WING.');}
-      log('Macro: '+macro.name+' · '+macro.actions.length+' azioni');toast('Eseguita · '+macro.name);return {ok:true,count:macro.actions.length};
+      const hasOSC=actions.some(action=>action.type==='osc');log('Macro: '+macro.name+' · '+macro.actions.length+' azioni'+(hasOSC?' · OSC inviato senza conferma di esecuzione':''));toast((hasOSC?'Inviata · ':'Eseguita · ')+macro.name);return {ok:true,count:macro.actions.length};
     }catch(error){log('Macro '+macro.name+': '+error.message);toast(error.message);return {ok:false,error:error.message};}
-    finally{activeMacro=null;root.dispatchEvent(new CustomEvent('sculpt-macro-status',{detail:{id:macro.id,running:false}}));}
+    finally{if(run.historyGesture)C().endGesture?.();activeMacro=null;root.dispatchEvent(new CustomEvent('sculpt-macro-status',{detail:{id:macro.id,running:false}}));}
   }
   function stopMacros(){if(activeMacro){activeMacro.cancelled=true;toast('Interruzione macro richiesta');}}
   function renderMacros(container,args){
@@ -715,6 +794,8 @@
           item.append(note('Modello assegnato: '+(action.model||'—')+'. Cambiare modello richiede una nuova assegnazione.'));
           if(parameters.length){item.append(select('Parametro processore '+number,action.key,parameters.map(p=>({value:p.key,label:p.label||p.name||p.key})),value=>{const parameter=parameters.find(p=>p.key===value);change('key',value);change('model',processor.model);change('value',processor.params?.[value]??parameter.default);change('mode','set');paint();}),select('Operazione parametro '+number,action.mode,[{value:'set',label:'Imposta valore'},{value:'offset',label:'Variazione relativa'},{value:'toggle',label:'Alterna ON / OFF'}],value=>{change('mode',value);paint();}));if(action.mode!=='toggle')item.append(macroParameterValue('Valore parametro '+number,action,definition,value=>change('value',value)));}
           else item.append(note('Questo processore non espone parametri assegnabili nel modello attuale.'));
+        }else if(action.type==='osc'){
+          appendOSCFields(item,action,change,paint,String(number));
         }else if(action.type==='wingParameter'){
           const returnToMacro=()=>U().open('macros',{id:macro.id}),browse=btn('Scegli dal banco',()=>{
             if(!L()?.isConnected?.()){toast('Collega la WING per scegliere i parametri reali.');return;}
@@ -740,7 +821,7 @@
       let newType='';const choose=select(macro.actions.length?'Aggiungi un’altra azione':'Cosa vuoi assegnare?',newType,[{value:'',label:'Scegli un’azione…'},...ACTION_TYPES.map(([value,label])=>({value,label}))],value=>{newType=value;add.disabled=!value||macro.actions.length>=32;});
       const add=btn(macro.actions.length?'+ Aggiungi azione':'Assegna azione',()=>{if(!newType)return;if(macro.actions.length>=32){toast('Massimo 32 azioni per macro');return;}changed(state=>{const item=state.macros.find(m=>m.id===macro.id);item.actions.push(defaultAction(newType));if(!item.name)item.name=newType==='menu'?'Menu del banco':ACTION_TYPES.find(([type])=>type===newType)?.[1]||'Macro '+item.id;});paint();},'desk-primary');add.disabled=true;
       const assign=card(macro.actions.length?'AGGIUNGI ALLA SEQUENZA':'PULSANTE LIBERO',note(macro.actions.length?'Puoi combinare più comandi e aperture di menu in ordine.':'Scegli una funzione del mixer, un parametro oppure il menu da aprire.'),choose,add);
-      container.append(settings,list,assign,note('Le azioni vengono eseguite in ordine. I menu si aprono anche in sola lettura; i comandi audio live richiedono Controllo e riscontro dalla WING.'));
+      container.append(settings,list,assign,note('Le azioni vengono eseguite in ordine. I comandi WING richiedono Controllo; OSC usa la destinazione configurata anche senza WING. Un invio OSC non conferma l’esecuzione in Show e non si annulla con Cmd+Z.'));
 
     };paint();
   }
@@ -788,6 +869,7 @@
       ['recorder','Recorder / Player','WING-LIVE e USB · simulazione',renderRecorder],
       ['setup','Setup','Profilo hardware e configurazione',renderSetup],
       ['layers','Custom Layer','Due righe · ordine dei fader',renderLayers],
+      ['osc','OSC / Sculpt Show','Invio UDP diretto e comandi Show',renderOSC],
       ['macros','Macro Sculpt','Azioni e sequenze del banco',renderMacros]
     ];
     for(const [id,title,subtitle,render]of definitions)U().register(id,{title,subtitle,render(container,args){
@@ -804,8 +886,9 @@
       container.addEventListener('focusout',sync);
       return()=>{disposed=true;currentPage=null;cleanup?.();valuesOff?.();statusOff?.();container.removeEventListener('focusout',sync);};
     }});
-    D().subscribe(event=>{if(event.type==='restore'){ensureState();seedExamples();}if(['restore','reset','recall','console','layer-layout','layer','systems-init'].includes(event.type))syncLayer();});
+    D().subscribe(event=>{if(event.type==='restore'){ensureState();seedExamples();}if(['restore','reset','recall','console','layer-layout','layer','systems-init','undo','redo'].includes(event.type))syncLayer();});
     syncLayer();
+    C().clearHistory?.();
     root.SculptSystems={runMacro,stopMacros,transport,recallScene,formatTime,validateProject,executeAction,refresh:()=>U().refresh()};
     root.dispatchEvent(new CustomEvent('sculpt-systems-ready'));
   }

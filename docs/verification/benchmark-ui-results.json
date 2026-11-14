@@ -1,0 +1,519 @@
+{
+  "createdAt": "2026-11-14T00:26:56.692Z",
+  "environment": {
+    "node": "v24.22.1",
+    "platform": "linux",
+    "arch": "x64",
+    "kernel": "6.18.57",
+    "cpu": "AMD EPYC 9V74 80-Core Processor",
+    "cpuCount": 9,
+    "jsdom": "26.1.0"
+  },
+  "method": {
+    "operationsPerSample": 120,
+    "runsPerVersionAndScenario": 3,
+    "editor": "CH 1 / WING EQ STD open in both scenarios",
+    "scenarios": {
+      "eq_gain": "120 successive updates of one EQ gain, -6.0 through +5.9 dB",
+      "channel_fader": "120 updateStrip calls on CH 1, -30.0 through -18.1 dB"
+    },
+    "timed": "Synchronous command processing, history grouping where supported, DOM mutations and final persistence flush; module load, initial editor opening, warmup and mutation record classification excluded",
+    "storage": "All Storage.setItem calls during the measured gesture including the final flush; real JSDOM Storage, no no-op writer",
+    "mutationObservation": "All attributes/text/child-list records in .console; unrelated strips exclude CH 1; observer allocation overhead remains included in timings",
+    "excluded": "Browser painting, CSS layout, RAF meter frames, UDP/TCP, hardware, native macOS/Electron scheduling; this is not FPS or an audio-latency measurement",
+    "sourceSnapshot": "Source files read once before any sample; hashes retained for reproducibility; changedFilesDuringRun detects later edits"
+  },
+  "sourceFiles": [
+    {
+      "version": "066",
+      "directory": "/workspace/scratch/e33d8ee936dc/sculpt-wing-066/dist",
+      "sha256": {
+        "plugin-data.js": "125a1cd03b511a1f71a7ce17a52d4e7ba0b15ccca3e08a72fde8334353f42e21",
+        "plugin-panels.js": "df54ed11832e278c6c77076eb673576718b9704c780d629aa5aa080f12f6d5c0",
+        "plugin-original-layouts.js": "fa0067cdbf27fe76876a8e6ccf4652aed51e538baf9fb190e5277fb318806715",
+        "plugin-original-dynamics.js": "53d3dbb95438515609ccb498773b6a4f34bd4be4ec725830b95d63877656de1e",
+        "plugin-original-eq.js": "53a3fa9110948c9fc43089af6c586c68f27e9cf01a27310f2070388e4c0d367e",
+        "plugin-original-fx.js": "65c5d187d51958f7d14bed9e9b46636c2a06183c19a8ac0d9ef6cb7a492bf493",
+        "plugin-original-channel.js": "2ee496aedd133813ff0d2b15209103856883ad6dbd698be70520db2159ab5bff",
+        "plugin-original-native.js": "810e31eb6b5eacea83db68c75dbfdeff64c8ab22b7d1f967a5539dcd3e6813ff",
+        "plugin-original-dynamics-extra.js": "12e9dc2fb5baa3cfe7f16af72ad2381a08ba24e4f54f494568fed86f82ef215a",
+        "plugin-original-filters.js": "7ada7e56d792fd0588e235d88badcb34e35b54eef3c99c6a4f97af87749b2706",
+        "model.js": "4680b887002bc0a5b2df70dbd256003521c220c79e2ac8d21b24da77ea2bdcc1",
+        "app.js": "f1cd2bbf6e3923974fa7fe46aac8dc58da9fafea467cc636c40b2b5537ddc73b",
+        "desk.js": "ad8c8b1239945db22fd9b359140cd5309616767dc68749e97c77673c7004b28a",
+        "shell.js": "340b6935bc330116e65e163fd13075ea3f5ac187b4308536f90f5c9d052f3997",
+        "plugins.js": "fd400659ce7e7cd66cd143716c69ad9c9891bb7fa02d03ecb71a0c12e19994fa",
+        "editor.js": "20eae373fd77816e4bcb810b8bb8972130efce36251b19390aa45ff608c482f0",
+        "io.js": "1c3672164cd95f5d6fae94b1a279f7ff0b108e221a85a38377c5b3ec1fd0e265",
+        "systems.js": "cc7d9882615afc3bd28531fbb0ec45aa963fc91fa3bf5cfd70e7b9c8e4b836dc",
+        "wing-map.js": "7be531967dd391b29eb65ec2a452b5288f257e497523580bd786a9dde3f6426d",
+        "dca-bank.js": "67477502818312e7c948b87bad6beacab6e29486f0d1afb57808ff376fdbdeb8",
+        "row-layout.js": "f4a214c297c61874ddf7498b07d7d8dd4ccf18a382c4430024e71b28f7bf8e71",
+        "strip-pins.js": "08ef8482d8b051d93a518fb44eab33cbd708ba797222f1f663aa9bfee833b09d"
+      }
+    },
+    {
+      "version": "067",
+      "directory": "/workspace/scratch/e33d8ee936dc/sculpt-wing-067/dist",
+      "sha256": {
+        "plugin-data.js": "125a1cd03b511a1f71a7ce17a52d4e7ba0b15ccca3e08a72fde8334353f42e21",
+        "plugin-panels.js": "df54ed11832e278c6c77076eb673576718b9704c780d629aa5aa080f12f6d5c0",
+        "plugin-original-layouts.js": "fa0067cdbf27fe76876a8e6ccf4652aed51e538baf9fb190e5277fb318806715",
+        "plugin-original-dynamics.js": "53d3dbb95438515609ccb498773b6a4f34bd4be4ec725830b95d63877656de1e",
+        "plugin-original-eq.js": "53a3fa9110948c9fc43089af6c586c68f27e9cf01a27310f2070388e4c0d367e",
+        "plugin-original-fx.js": "65c5d187d51958f7d14bed9e9b46636c2a06183c19a8ac0d9ef6cb7a492bf493",
+        "plugin-original-channel.js": "2ee496aedd133813ff0d2b15209103856883ad6dbd698be70520db2159ab5bff",
+        "plugin-original-native.js": "810e31eb6b5eacea83db68c75dbfdeff64c8ab22b7d1f967a5539dcd3e6813ff",
+        "plugin-original-dynamics-extra.js": "12e9dc2fb5baa3cfe7f16af72ad2381a08ba24e4f54f494568fed86f82ef215a",
+        "plugin-original-filters.js": "7ada7e56d792fd0588e235d88badcb34e35b54eef3c99c6a4f97af87749b2706",
+        "model.js": "8d616f556a8c38c4ba74d0b3c87c009f27d571ab4c74e884ba6def93eecce123",
+        "history.js": "a0585c742873019c39ea51a7b06cef592aecf5af97aff3c5ab6f8f5224aab502",
+        "app.js": "0ac4c0c253a027edfaaf1941a3f1d9c30bcd302b2c54c5d6f1f734d4c34bfa0c",
+        "desk.js": "82cc84cb210a7a412dbcdf13565bd743400a3d2b8c6346bbc2d5798032fa5483",
+        "shell.js": "c4ff4ec79493745e675da7683837a29ba2e0d49ec77f81ed06c9f33dc92af71b",
+        "plugins.js": "01b7a7503b94dbd2188fe0dc577ed9a5858015c15e1ec0ce2230875133716c07",
+        "editor.js": "02abd4a6d6c2662a2c8a5d5a49835c4941e0f15562c2c682a85a056dcaf71912",
+        "io.js": "1c3672164cd95f5d6fae94b1a279f7ff0b108e221a85a38377c5b3ec1fd0e265",
+        "osc.js": "941f05a942609957f76133b37be1684055304085340001d71b78e9dcbb82fd61",
+        "systems.js": "4a931ca4768ce8ab0f915033075614a411905e4612e541c70b2b505522ee8d9f",
+        "wing-map.js": "7be531967dd391b29eb65ec2a452b5288f257e497523580bd786a9dde3f6426d",
+        "dca-bank.js": "af915f7255a23f0e3b0ba357aeb86ef4aff6ead8c0c05688bf1b0ca45810c970",
+        "row-layout.js": "f4a214c297c61874ddf7498b07d7d8dd4ccf18a382c4430024e71b28f7bf8e71",
+        "strip-pins.js": "34de0f0b5c6f4e2fb5d7b6f8abed504d5e0c8c0ac7e5b14913d444b028c09f78"
+      }
+    }
+  ],
+  "changedFilesDuringRun": [],
+  "summary": [
+    {
+      "version": "066",
+      "scenario": "eq_gain",
+      "operations": 120,
+      "runs": 3,
+      "medianElapsedMs": 3856.962,
+      "medianMeanOperationMs": 32.141,
+      "medianStorageWrites": 120,
+      "medianStorageUtf8Bytes": 111138036,
+      "medianDomMutationRecords": 196800,
+      "medianAffectedStripMutationRecords": 2160,
+      "medianUnrelatedStripMutationRecords": 167760,
+      "medianUnrelatedStripCount": 75
+    },
+    {
+      "version": "066",
+      "scenario": "channel_fader",
+      "operations": 120,
+      "runs": 3,
+      "medianElapsedMs": 2536.646,
+      "medianMeanOperationMs": 21.139,
+      "medianStorageWrites": 120,
+      "medianStorageUtf8Bytes": 111138096,
+      "medianDomMutationRecords": 63960,
+      "medianAffectedStripMutationRecords": 2280,
+      "medianUnrelatedStripMutationRecords": 36000,
+      "medianUnrelatedStripCount": 75
+    },
+    {
+      "version": "067",
+      "scenario": "eq_gain",
+      "operations": 120,
+      "runs": 3,
+      "medianElapsedMs": 436.851,
+      "medianMeanOperationMs": 3.64,
+      "medianStorageWrites": 1,
+      "medianStorageUtf8Bytes": 926150,
+      "medianDomMutationRecords": 14880,
+      "medianAffectedStripMutationRecords": 0,
+      "medianUnrelatedStripMutationRecords": 0,
+      "medianUnrelatedStripCount": 0
+    },
+    {
+      "version": "067",
+      "scenario": "channel_fader",
+      "operations": 120,
+      "runs": 3,
+      "medianElapsedMs": 328.867,
+      "medianMeanOperationMs": 2.741,
+      "medianStorageWrites": 1,
+      "medianStorageUtf8Bytes": 926151,
+      "medianDomMutationRecords": 3840,
+      "medianAffectedStripMutationRecords": 1800,
+      "medianUnrelatedStripMutationRecords": 0,
+      "medianUnrelatedStripCount": 0
+    }
+  ],
+  "samples": [
+    {
+      "version": "066",
+      "scenario": "eq_gain",
+      "run": 1,
+      "operations": 120,
+      "elapsedMs": 4070.822,
+      "meanOperationMs": 33.924,
+      "storageWrites": 120,
+      "storageUtf8Bytes": 111138036,
+      "storageByKey": {
+        "sculpt-control-interface-v3": {
+          "writes": 120,
+          "utf8Bytes": 111138036
+        }
+      },
+      "domMutationRecords": 196800,
+      "affectedStripMutationRecords": 2160,
+      "unrelatedStripMutationRecords": 167760,
+      "unrelatedStripCount": 75,
+      "history": null,
+      "eqParameter": {
+        "model": "STD",
+        "key": "1g",
+        "label": "Gain 1"
+      },
+      "finalValue": 5.9
+    },
+    {
+      "version": "066",
+      "scenario": "channel_fader",
+      "run": 1,
+      "operations": 120,
+      "elapsedMs": 2573.46,
+      "meanOperationMs": 21.446,
+      "storageWrites": 120,
+      "storageUtf8Bytes": 111138096,
+      "storageByKey": {
+        "sculpt-control-interface-v3": {
+          "writes": 120,
+          "utf8Bytes": 111138096
+        }
+      },
+      "domMutationRecords": 63960,
+      "affectedStripMutationRecords": 2280,
+      "unrelatedStripMutationRecords": 36000,
+      "unrelatedStripCount": 75,
+      "history": null,
+      "eqParameter": {
+        "model": "STD",
+        "key": "1g",
+        "label": "Gain 1"
+      },
+      "finalValue": -18.1
+    },
+    {
+      "version": "067",
+      "scenario": "eq_gain",
+      "run": 1,
+      "operations": 120,
+      "elapsedMs": 416.191,
+      "meanOperationMs": 3.468,
+      "storageWrites": 1,
+      "storageUtf8Bytes": 926150,
+      "storageByKey": {
+        "sculpt-control-interface-v3": {
+          "writes": 1,
+          "utf8Bytes": 926150
+        }
+      },
+      "domMutationRecords": 14880,
+      "affectedStripMutationRecords": 0,
+      "unrelatedStripMutationRecords": 0,
+      "unrelatedStripCount": 0,
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "busy": false,
+        "undoLabel": "Gain EQ",
+        "redoLabel": "",
+        "undoCount": 1,
+        "redoCount": 0
+      },
+      "eqParameter": {
+        "model": "STD",
+        "key": "1g",
+        "label": "Gain 1"
+      },
+      "finalValue": 5.9
+    },
+    {
+      "version": "067",
+      "scenario": "channel_fader",
+      "run": 1,
+      "operations": 120,
+      "elapsedMs": 510.014,
+      "meanOperationMs": 4.25,
+      "storageWrites": 1,
+      "storageUtf8Bytes": 926151,
+      "storageByKey": {
+        "sculpt-control-interface-v3": {
+          "writes": 1,
+          "utf8Bytes": 926151
+        }
+      },
+      "domMutationRecords": 3840,
+      "affectedStripMutationRecords": 1800,
+      "unrelatedStripMutationRecords": 0,
+      "unrelatedStripCount": 0,
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "busy": false,
+        "undoLabel": "Fader CH 1",
+        "redoLabel": "",
+        "undoCount": 1,
+        "redoCount": 0
+      },
+      "eqParameter": {
+        "model": "STD",
+        "key": "1g",
+        "label": "Gain 1"
+      },
+      "finalValue": -18.1
+    },
+    {
+      "version": "067",
+      "scenario": "eq_gain",
+      "run": 2,
+      "operations": 120,
+      "elapsedMs": 436.851,
+      "meanOperationMs": 3.64,
+      "storageWrites": 1,
+      "storageUtf8Bytes": 926150,
+      "storageByKey": {
+        "sculpt-control-interface-v3": {
+          "writes": 1,
+          "utf8Bytes": 926150
+        }
+      },
+      "domMutationRecords": 14880,
+      "affectedStripMutationRecords": 0,
+      "unrelatedStripMutationRecords": 0,
+      "unrelatedStripCount": 0,
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "busy": false,
+        "undoLabel": "Gain EQ",
+        "redoLabel": "",
+        "undoCount": 1,
+        "redoCount": 0
+      },
+      "eqParameter": {
+        "model": "STD",
+        "key": "1g",
+        "label": "Gain 1"
+      },
+      "finalValue": 5.9
+    },
+    {
+      "version": "067",
+      "scenario": "channel_fader",
+      "run": 2,
+      "operations": 120,
+      "elapsedMs": 283.176,
+      "meanOperationMs": 2.36,
+      "storageWrites": 1,
+      "storageUtf8Bytes": 926151,
+      "storageByKey": {
+        "sculpt-control-interface-v3": {
+          "writes": 1,
+          "utf8Bytes": 926151
+        }
+      },
+      "domMutationRecords": 3840,
+      "affectedStripMutationRecords": 1800,
+      "unrelatedStripMutationRecords": 0,
+      "unrelatedStripCount": 0,
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "busy": false,
+        "undoLabel": "Fader CH 1",
+        "redoLabel": "",
+        "undoCount": 1,
+        "redoCount": 0
+      },
+      "eqParameter": {
+        "model": "STD",
+        "key": "1g",
+        "label": "Gain 1"
+      },
+      "finalValue": -18.1
+    },
+    {
+      "version": "066",
+      "scenario": "eq_gain",
+      "run": 2,
+      "operations": 120,
+      "elapsedMs": 3856.962,
+      "meanOperationMs": 32.141,
+      "storageWrites": 120,
+      "storageUtf8Bytes": 111138036,
+      "storageByKey": {
+        "sculpt-control-interface-v3": {
+          "writes": 120,
+          "utf8Bytes": 111138036
+        }
+      },
+      "domMutationRecords": 196800,
+      "affectedStripMutationRecords": 2160,
+      "unrelatedStripMutationRecords": 167760,
+      "unrelatedStripCount": 75,
+      "history": null,
+      "eqParameter": {
+        "model": "STD",
+        "key": "1g",
+        "label": "Gain 1"
+      },
+      "finalValue": 5.9
+    },
+    {
+      "version": "066",
+      "scenario": "channel_fader",
+      "run": 2,
+      "operations": 120,
+      "elapsedMs": 2536.646,
+      "meanOperationMs": 21.139,
+      "storageWrites": 120,
+      "storageUtf8Bytes": 111138096,
+      "storageByKey": {
+        "sculpt-control-interface-v3": {
+          "writes": 120,
+          "utf8Bytes": 111138096
+        }
+      },
+      "domMutationRecords": 63960,
+      "affectedStripMutationRecords": 2280,
+      "unrelatedStripMutationRecords": 36000,
+      "unrelatedStripCount": 75,
+      "history": null,
+      "eqParameter": {
+        "model": "STD",
+        "key": "1g",
+        "label": "Gain 1"
+      },
+      "finalValue": -18.1
+    },
+    {
+      "version": "066",
+      "scenario": "eq_gain",
+      "run": 3,
+      "operations": 120,
+      "elapsedMs": 3162.192,
+      "meanOperationMs": 26.352,
+      "storageWrites": 120,
+      "storageUtf8Bytes": 111138036,
+      "storageByKey": {
+        "sculpt-control-interface-v3": {
+          "writes": 120,
+          "utf8Bytes": 111138036
+        }
+      },
+      "domMutationRecords": 196800,
+      "affectedStripMutationRecords": 2160,
+      "unrelatedStripMutationRecords": 167760,
+      "unrelatedStripCount": 75,
+      "history": null,
+      "eqParameter": {
+        "model": "STD",
+        "key": "1g",
+        "label": "Gain 1"
+      },
+      "finalValue": 5.9
+    },
+    {
+      "version": "066",
+      "scenario": "channel_fader",
+      "run": 3,
+      "operations": 120,
+      "elapsedMs": 2426.78,
+      "meanOperationMs": 20.223,
+      "storageWrites": 120,
+      "storageUtf8Bytes": 111138096,
+      "storageByKey": {
+        "sculpt-control-interface-v3": {
+          "writes": 120,
+          "utf8Bytes": 111138096
+        }
+      },
+      "domMutationRecords": 63960,
+      "affectedStripMutationRecords": 2280,
+      "unrelatedStripMutationRecords": 36000,
+      "unrelatedStripCount": 75,
+      "history": null,
+      "eqParameter": {
+        "model": "STD",
+        "key": "1g",
+        "label": "Gain 1"
+      },
+      "finalValue": -18.1
+    },
+    {
+      "version": "067",
+      "scenario": "eq_gain",
+      "run": 3,
+      "operations": 120,
+      "elapsedMs": 439.621,
+      "meanOperationMs": 3.664,
+      "storageWrites": 1,
+      "storageUtf8Bytes": 926150,
+      "storageByKey": {
+        "sculpt-control-interface-v3": {
+          "writes": 1,
+          "utf8Bytes": 926150
+        }
+      },
+      "domMutationRecords": 14880,
+      "affectedStripMutationRecords": 0,
+      "unrelatedStripMutationRecords": 0,
+      "unrelatedStripCount": 0,
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "busy": false,
+        "undoLabel": "Gain EQ",
+        "redoLabel": "",
+        "undoCount": 1,
+        "redoCount": 0
+      },
+      "eqParameter": {
+        "model": "STD",
+        "key": "1g",
+        "label": "Gain 1"
+      },
+      "finalValue": 5.9
+    },
+    {
+      "version": "067",
+      "scenario": "channel_fader",
+      "run": 3,
+      "operations": 120,
+      "elapsedMs": 328.867,
+      "meanOperationMs": 2.741,
+      "storageWrites": 1,
+      "storageUtf8Bytes": 926151,
+      "storageByKey": {
+        "sculpt-control-interface-v3": {
+          "writes": 1,
+          "utf8Bytes": 926151
+        }
+      },
+      "domMutationRecords": 3840,
+      "affectedStripMutationRecords": 1800,
+      "unrelatedStripMutationRecords": 0,
+      "unrelatedStripCount": 0,
+      "history": {
+        "canUndo": true,
+        "canRedo": false,
+        "busy": false,
+        "undoLabel": "Fader CH 1",
+        "redoLabel": "",
+        "undoCount": 1,
+        "redoCount": 0
+      },
+      "eqParameter": {
+        "model": "STD",
+        "key": "1g",
+        "label": "Gain 1"
+      },
+      "finalValue": -18.1
+    }
+  ]
+}

@@ -56,12 +56,17 @@ test('macro navigation opens the requested editor section without changing audio
   assert.deepEqual(after.desk.processing, previous.desk.processing);
 });
 
-test('every numeric channel parameter has a rotary sharing exact values with typed entry', t => {
+test('numeric channel parameters have a rotary, while send levels retain a single fader', t => {
   const f = fixture(t);
   for (const tab of ['channel', 'processing', 'sends', 'groups']) {
     f.tab(tab);
     for (const input of f.editor().querySelectorAll('.editor-number')) {
-      const knob = input.closest('.editor-parameter').querySelector('.editor-knob');
+      const parameter = input.closest('.editor-parameter'), knob = parameter.querySelector('.editor-knob');
+      if (parameter.classList.contains('editor-parameter-vertical')) {
+        assert.equal(knob, null, 'a send level must not have a duplicate rotary');
+        assert.equal(Number(parameter.querySelector('.editor-range').value), Number(input.value));
+        continue;
+      }
       assert.ok(knob, `${input.getAttribute('aria-label')} must have a knob`);
       assert.equal(knob.getAttribute('role'), 'slider');
       assert.equal(Number(knob.getAttribute('aria-valuenow')), Number(input.value));
@@ -106,16 +111,20 @@ test('logarithmic filter rotary and preamp controls preserve units, source shari
   assert.match(f.named('Delay — manopola').getAttribute('aria-valuetext'), /34.3 m/);
 });
 
-test('vertical sends retain a cap-only drag and share their level with the added knob and zero-dB double click', t => {
+test('compact vertical sends retain cap-only drag, typed entry and zero-dB double click without a second level knob', t => {
   const f = fixture(t); f.tab('sends');
-  const slider = f.named('Livello → BUS 01 — cursore'), knob = f.named('Livello → BUS 01 — manopola');
-  const rail = slider.closest('.editor-parameter').querySelector('.editor-fader-rail');
+  const slider = f.named('Livello → BUS 01 — cursore'), input = f.named('Livello → BUS 01 in dB');
+  assert.equal(f.named('Livello → BUS 01 — manopola'), undefined);
+  const rail = slider.closest('.editor-parameter').querySelector('.editor-fader-rail'), cap = rail.querySelector('.editor-fader-cap');
+  rail.getBoundingClientRect = () => ({ height: 100 }); cap.getBoundingClientRect = () => ({ height: 20 });
   f.C.setSend('ch-1', 'bus-1', { level: -12.3 });
   f.pointer(rail, 'pointerdown', 200); f.pointer(rail, 'pointermove', 120); f.pointer(rail, 'pointerup', 120);
   assert.equal(f.C.getSend('ch-1', 'bus-1').level, -12.3);
-  f.key(knob, 'ArrowUp'); assert.equal(f.C.getSend('ch-1', 'bus-1').level, -12.2); assert.equal(Number(slider.value), -12.2);
+  f.change(input, -12.2); assert.equal(f.C.getSend('ch-1', 'bus-1').level, -12.2); assert.equal(Number(slider.value), -12.2);
+  f.pointer(cap, 'pointerdown', 200); f.pointer(f.w, 'pointermove', 192); f.pointer(f.w, 'pointerup', 192);
+  assert.equal(f.C.getSend('ch-1', 'bus-1').level, -2.2);
   rail.dispatchEvent(new f.w.MouseEvent('dblclick', { bubbles: true }));
-  assert.equal(f.C.getSend('ch-1', 'bus-1').level, 0); assert.equal(Number(knob.getAttribute('aria-valuenow')), 0);
+  assert.equal(f.C.getSend('ch-1', 'bus-1').level, 0); assert.equal(Number(input.value), 0);
   assert.equal(f.named('Livello → BUS 01 — cursore'), slider);
 });
 
@@ -134,16 +143,17 @@ test('disabling a linked pan or live writes rejects stale gestures and restores 
   delete f.w.SculptLive;
 });
 
-test('original digital dynamics have additional rotaries linked to their original display and rebuild on model change', t => {
+test('WING dynamics uses one compact surface with its original state and switches other models intact', t => {
   const f = fixture(t); f.tab('dynamics');
   const ctx = { type: 'strip', id: 'ch-1', block: 'dyn' };
-  const bank = f.editor().querySelector('.fx-supplemental-knobs'); assert.ok(bank, 'standard digital dynamics needs a visible knob bank');
-  const control = bank.querySelector('[data-parameter]'), key = control.dataset.parameter, knob = control.querySelector('.fx-knob');
-  const original = f.editor().querySelector(`.fx-original-stage [data-parameter="${key}"] .fx-number`);
-  assert.ok(original, 'the original numeric display remains on its face');
-  f.key(knob, 'End'); assert.equal(f.D.processor(ctx).params[key], Number(knob.getAttribute('aria-valuemax')));
-  assert.equal(Number(original.value), f.D.processor(ctx).params[key]);
-  f.change(original, Number(original.min)); assert.equal(Number(knob.getAttribute('aria-valuenow')), Number(original.min));
+  const surface = f.editor().querySelector('.fx-wing-editor'); assert.ok(surface);
+  assert.equal(surface.querySelector('.fx-supplemental-knobs'), null);
+  assert.equal(surface.querySelector('.fx-original-stage'), null);
+  const control = surface.querySelector('[data-parameter="thr"]'), knob = control.querySelector('.fx-knob'), input = control.querySelector('.fx-number');
+  assert.equal(surface.querySelectorAll('[data-parameter="thr"]').length, 1);
+  f.key(knob, 'End'); assert.equal(f.D.processor(ctx).params.thr, Number(knob.getAttribute('aria-valuemax')));
+  assert.equal(Number(input.value), f.D.processor(ctx).params.thr);
+  f.change(input, Number(input.min)); assert.equal(Number(knob.getAttribute('aria-valuenow')), Number(input.min));
   f.change(f.named('Modello dyn'), '76LA');
   assert.equal(f.editor().querySelectorAll('.fx-supplemental-knobs').length, 0, 'an original rotary model does not duplicate its knobs');
   assert.ok(f.editor().querySelector('.fx-original-stage'));
@@ -152,14 +162,14 @@ test('original digital dynamics have additional rotaries linked to their origina
 test('numeric ratio choices expose a stepped rotary without changing the stored enum type', t => {
   const f = fixture(t); f.tab('dynamics');
   const ctx = { type: 'strip', id: 'ch-1', block: 'dyn' };
-  const bank = f.editor().querySelector('.fx-supplemental-knobs');
+  const bank = f.editor().querySelector('.fx-wing-editor');
   const ratio = bank.querySelector('[data-parameter="ratio"] .fx-rotary-choice');
   assert.ok(ratio, 'numeric ratio options receive an accessible stepped knob');
-  const original = f.editor().querySelector('.fx-original-stage [data-parameter="ratio"] select');
+  const original = bank.querySelector('[data-parameter="ratio"] select');
   const options = [...original.options].map(option => option.value);
   f.key(ratio, 'End'); assert.equal(String(f.D.processor(ctx).params.ratio), options.at(-1));
   assert.equal(original.value, options.at(-1));
   f.key(ratio, 'Home'); assert.equal(String(f.D.processor(ctx).params.ratio), options[0]);
   f.change(original, options[1]); assert.equal(Number(ratio.getAttribute('aria-valuenow')), 1);
-  assert.equal(bank.querySelector('[data-parameter="det"]'), null, 'non-numeric detector choice stays a normal selector');
+  assert.equal(bank.querySelector('[data-parameter="det"] .fx-knob'), null, 'non-numeric detector choice stays a normal selector');
 });
