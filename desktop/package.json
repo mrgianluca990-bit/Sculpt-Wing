@@ -1,8 +1,8 @@
 {
   "name": "sculpt-wing-desktop",
   "productName": "Sculpt Wing",
-  "version": "0.6.8",
-  "description": "Sculpt Wing \u2014 controller WING per macOS e Windows",
+  "version": "0.7.1",
+  "description": "Sculpt Wing — controllo WING e rack VST3 per Mac Apple Silicon",
   "private": true,
   "license": "UNLICENSED",
   "author": "Gianluca Vergalito",
@@ -16,8 +16,9 @@
     "start": "electron .",
     "test": "node --test --test-timeout=30000 --test-reporter=spec tests/*.test.cjs",
     "pack": "npm run prepare:app && electron-builder --dir --publish never",
-    "dist:mac": "npm run prepare:app && electron-builder --mac zip --arm64 --publish never -c.mac.identity=- -c.mac.hardenedRuntime=false -c.mac.notarize=false",
-    "dist:win": "npm run prepare:app && electron-builder --win --x64 --publish never"
+    "dist:mac": "npm run build:audio && npm run prepare:app && electron-builder --mac zip --arm64 --publish never -c.mac.identity=- -c.mac.hardenedRuntime=false -c.mac.notarize=false",
+    "dist:win": "npm run prepare:app && electron-builder --win --x64 --publish never",
+    "build:audio": "cmake -S ../audio-host -B ../audio-host/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 && cmake --build ../audio-host/build --config Release --parallel 3"
   },
   "devDependencies": {
     "electron": "45.3.1",
@@ -53,7 +54,8 @@
       ],
       "extendInfo": {
         "NSLocalNetworkUsageDescription": "Sculpt Wing usa la rete locale per controllare la WING e inviare comandi OSC a Sculpt Show o altri dispositivi.",
-        "LSMultipleInstancesProhibited": true
+        "LSMultipleInstancesProhibited": true,
+        "NSMicrophoneUsageDescription": "Sculpt Wing elabora gli ingressi audio USB della WING attraverso i plugin VST3 scelti e restituisce il segnale al mixer."
       }
     },
     "win": {
@@ -83,6 +85,15 @@
     "linux": {
       "icon": "build/icon.png",
       "category": "AudioVideo"
-    }
+    },
+    "extraResources": [
+      {
+        "from": "../audio-host/build/SculptWingAudio_artefacts/Release/SculptWingAudio.app",
+        "to": "audio-host/SculptWingAudio.app",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ]
   }
 }

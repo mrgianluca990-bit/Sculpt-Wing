@@ -351,11 +351,46 @@ test('initial packets stay ordered, foreign peers are ignored, receive queue is 
   assert.deepEqual(stream, Buffer.from([0xdf, 0xd1, 0x01, 0x02]));
   assert.equal(f.events.some(event => event.data === encoded('foreign')), false);
   for (let i = 0; i <= LIMITS.pendingPackets; i++) {
-    f.udp[0].emit('message', Buffer.from([i]), { address: '192.168.1.2' });
+    f.tcp[0].emit('data', Buffer.from([i]));
   }
   assert.equal(f.events.filter(event => event.state === 'error').length, 1);
   assert.ok(f.tcp[0].destroyed && f.udp[0].closed);
   await assert.rejects(f.socket.sendTCP({ sessionId, data: encoded('x') }), hasCode('STALE_SESSION'));
+});
+
+test('a UDP meter burst drops excess datagrams while TCP control stays connected and ordered', async t => {
+  const f = fakeTransport(); t.after(() => f.socket.close());
+  const { sessionId } = await f.socket.connect({ host: '192.168.1.2' }); await tick();
+  for (let i = 0; i < LIMITS.pendingPackets * 4; i++) {
+    f.udp[0].emit('message', Buffer.from([i]), { address: '192.168.1.2' });
+  }
+  f.tcp[0].emit('data', Buffer.from([0xdf, 0xd1, 0x12]));
+  f.tcp[0].emit('data', Buffer.from([0x34, 0xde]));
+  assert.equal(f.events.some(event => event.state === 'error'), false);
+  assert.equal(f.tcp[0].destroyed, false);
+  assert(f.events.filter(event => event.transport === 'udp').length <= LIMITS.pendingPackets / 2);
+  assert.deepEqual(Buffer.concat(f.events.filter(event => event.transport === 'tcp').map(event => Buffer.from(event.data, 'base64'))), Buffer.from([0xdf, 0xd1, 0x12, 0x34, 0xde]));
+  await f.socket.sendTCP({ sessionId, data: encoded('next control request') });
+  await tick();
+  const before = f.events.filter(event => event.transport === 'udp').length;
+  f.udp[0].emit('message', Buffer.from('fresh meter'), { address: '192.168.1.2' });
+  assert.equal(f.events.filter(event => event.transport === 'udp').length, before + 1);
+});
+
+test('queued control data is delivered before pending meters without changing TCP byte order', async t => {
+  const events = [], releases = [];
+  const f = fakeTransport({ emit(name, event) {
+    events.push({ name, ...event });
+    if (name === 'packet') return new Promise(resolve => releases.push(resolve));
+  } }); t.after(() => f.socket.close());
+  await f.socket.connect({ host: '10.0.0.1' }); await tick();
+  f.udp[0].emit('message', Buffer.from('meter1'), { address: '10.0.0.1' });
+  f.udp[0].emit('message', Buffer.from('meter2'), { address: '10.0.0.1' });
+  f.tcp[0].emit('data', Buffer.from('control1'));
+  f.tcp[0].emit('data', Buffer.from('control2'));
+  for (let i = 0; i < 4; i++) { releases.shift()(); await tick(); }
+  assert.deepEqual(events.filter(event => event.name === 'packet').map(event => Buffer.from(event.data, 'base64').toString()), ['meter1', 'control1', 'control2', 'meter2']);
+  assert.equal(f.tcp[0].destroyed, false);
 });
 
 test('asynchronous event delivery preserves order and failure tears down without unhandled rejection', async t => {

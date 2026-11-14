@@ -89,6 +89,7 @@ class WingSocket {
       sends: new Set(), sendBytes: 0, tcpQueue: [], tcpBusy: false,
       packets: [], packetCount: 0, packetBytes: 0, delivering: false,
       deliveryStarted: false, releasedCount: 0, releasedBytes: 0, releaseTask: null,
+      droppedUDP: 0,
     };
     this.session = session;
     return new Promise((resolve, reject) => {
@@ -211,13 +212,24 @@ class WingSocket {
 
   _packet(session, transport, bytes) {
     if (!bytes.length || !this._current(session)) return;
+    // UDP meter/identity datagrams are already best-effort. A burst of stale
+    // metering must not close the reliable control stream. Reserve half the
+    // bounded delivery budget for TCP; identity discovery has its own retries.
+    if (transport === 'udp' && (session.packetCount >= LIMITS.pendingPackets / 2 ||
+        session.packetBytes + bytes.length > LIMITS.pendingPacketBytes / 2)) {
+      session.droppedUDP += 1;
+      return;
+    }
     if (session.packetCount >= LIMITS.pendingPackets || session.packetBytes + bytes.length > LIMITS.pendingPacketBytes) {
       this._end(session, 'error', 'RECEIVE_OVERFLOW', 'Ricezione sovraccarica. Riconnetti la WING.');
       return;
     }
     session.packetCount += 1;
     session.packetBytes += bytes.length;
-    session.packets.push({ transport, data: bytes.toString('base64'), size: bytes.length });
+    const packet = { transport, data: bytes.toString('base64'), size: bytes.length };
+    const firstUDP = transport === 'tcp' ? session.packets.findIndex(item => item.transport === 'udp') : -1;
+    if (firstUDP >= 0) session.packets.splice(firstUDP, 0, packet);
+    else session.packets.push(packet);
     if (session.packetCount >= LIMITS.pendingPackets * 0.75 || session.packetBytes >= LIMITS.pendingPacketBytes * 0.75) {
       session.tcp?.pause();
     }

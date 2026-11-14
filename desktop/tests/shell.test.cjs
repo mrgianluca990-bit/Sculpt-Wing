@@ -7,6 +7,7 @@ const { EventEmitter } = require('node:events');
 const path = require('node:path');
 const vm = require('node:vm');
 const policy = require('../src/bridge-policy.cjs');
+const audioPolicy = require('../src/audio-host.cjs');
 
 test('desktop protocol and IPC policy reject remote origins and traversal', () => {
   assert.equal(policy.isAppURL(policy.APP_URL), true);
@@ -35,6 +36,8 @@ test('preload exposes fixed calls and strips privileged event argument', async (
   assert.equal(bridge.ipcRenderer, undefined); assert.equal(bridge.send, undefined);
   await bridge.connect({ host: '192.168.1.50', requestId: 'x' });
   assert.equal(invokes[0][0], 'sculpt-wing:connect');
+  await bridge.audioRequest({ method: 'status', params: {} });
+  assert.equal(invokes[1][0], 'sculpt-wing:audioRequest');
   const received = [];
   const handle = await bridge.addListener('packet', (...args) => received.push(args));
   const data = { sessionId: 'x', transport: 'udp', data: 'V0lORw==' };
@@ -42,14 +45,21 @@ test('preload exposes fixed calls and strips privileged event argument', async (
   assert.equal(received[0].length, 1); assert.equal(received[0][0], data);
   await handle.remove(); await handle.remove(); assert.equal(removed.length, 1);
   await assert.rejects(bridge.addListener('anything', () => {}));
+  for (const name of ['mixerView', 'audioState', 'audioError', 'audioScanProgress']) {
+    await bridge.addListener(name, (...args) => received.push(args));
+    handlers.get(`sculpt-wing:event:${name}`)({ sender: 'privileged' }, { name });
+    assert.equal(received.at(-1).length, 1);
+    assert.equal(received.at(-1)[0].name, name);
+  }
   await bridge.addListener('linkState', () => {}); unload(); assert.equal(handlers.size, 0);
 });
 
-function loadMain({ singleInstance = true } = {}) {
-  const windows = [], sockets = [], oscSenders = [], ipc = new Map(), protocolHandlers = new Map(), fetches = [];let menuTemplate;
+function loadMain({ singleInstance = true, microphone = 'granted', permissionGranted = true } = {}) {
+  const windows = [], sockets = [], oscSenders = [], audios = [], ipc = new Map(), protocolHandlers = new Map(), fetches = [];let menuTemplate;
   const app = Object.assign(new EventEmitter(), {
     setName(value) { this.name = value; }, setAppUserModelId(value) { this.id = value; },
     requestSingleInstanceLock: () => singleInstance,
+    getPath: name => { assert.equal(name, 'userData'); return '/tmp/sculpt-wing-shell-test'; }, isPackaged: false,
     quit() { this.quitCalls = (this.quitCalls || 0) + 1; }, whenReady: async () => undefined
   });
   class FakeWindow extends EventEmitter {
@@ -83,13 +93,23 @@ function loadMain({ singleInstance = true } = {}) {
     send(options) { this.last = this.protocol.normalizeRequest(options); return Promise.resolve({ sent: true, confirmed: false }); }
     suspend() { this.suspended++; } close() { this.closed++; }
   }
-  const permissions = {}, monitor = new EventEmitter(), protocol = {
+  class Audio {
+    constructor(options) { this.options = options; this.requests = []; this.suspended = 0; this.closed = 0; this.hasProcess = false; audios.push(this); }
+    async request(options) { this.requests.push(options); this.hasProcess = true; return { running: false }; }
+    async suspend() { this.suspended++; }
+    async close() { this.closed++; this.hasProcess = false; }
+  }
+  const permissions = { microphonePrompts: 0 }, monitor = new EventEmitter(), protocol = {
     registerSchemesAsPrivileged(value) { this.schemes = value; },
     handle: (name, fn) => protocolHandlers.set(name, fn)
   };
   const electron = {
     app, BrowserWindow: FakeWindow, Menu: { buildFromTemplate: value => value, setApplicationMenu(value) { menuTemplate=value; } },
     ipcMain: { handle: (name, fn) => ipc.set(name, fn) }, protocol, powerMonitor: monitor,
+    systemPreferences: {
+      getMediaAccessStatus: type => { assert.equal(type, 'microphone'); return microphone; },
+      askForMediaAccess: async type => { assert.equal(type, 'microphone'); permissions.microphonePrompts++; return permissionGranted; }
+    },
     net: { fetch: async url => { fetches.push(url); return new Response('local asset', { headers: { 'Content-Type': 'text/javascript' } }); } },
     session: { defaultSession: {
       setPermissionRequestHandler: fn => { permissions.request = fn; }, setPermissionCheckHandler: fn => { permissions.check = fn; },
@@ -97,10 +117,10 @@ function loadMain({ singleInstance = true } = {}) {
     } }
   };
   vm.runInNewContext(readFileSync(path.join(__dirname, '../src/main.cjs'), 'utf8'), {
-    require: name => name === 'electron' ? electron : name === './wing-socket.cjs' ? { WingSocket: Socket } : name === './osc-sender.cjs' ? { OSCSender: OSC } : name === '../app/osc.js' ? require('../../dist/osc.js') : name === './bridge-policy.cjs' ? policy : require(name),
+    require: name => name === 'electron' ? electron : name === './wing-socket.cjs' ? { WingSocket: Socket } : name === './osc-sender.cjs' ? { OSCSender: OSC } : name === './audio-host.cjs' ? { ...audioPolicy, AudioHost: Audio } : name === '../app/osc.js' ? require('../../dist/osc.js') : name === './bridge-policy.cjs' ? policy : require(name),
     __dirname: path.resolve(__dirname, '../src'), process: { platform: 'darwin' }, Promise, URL, Response, Headers, console
   });
-  return { app, windows, sockets, oscSenders, ipc, monitor, protocol, protocolHandlers, permissions, fetches,menu:()=>menuTemplate };
+  return { app, windows, sockets, oscSenders, audios, ipc, monitor, protocol, protocolHandlers, permissions, fetches,menu:()=>menuTemplate };
 }
 
 test('Mac Undo and Redo use the application history and text fallback remains restricted to its main frame',async()=>{
@@ -150,6 +170,34 @@ test('second app instance exits before opening a window', async () => {
   assert.equal(env.app.quitCalls, 1); assert.equal(env.windows.length, 0); assert.equal(env.ipc.size, 0);
 });
 
+test('opening file dialogs, exporting a scene and blocked links preserve the console connection', async () => {
+  const env = loadMain(); await Promise.resolve();
+  const win = env.windows[0], socket = env.sockets[0];
+  win.emit('blur'); win.emit('focus');
+  for (const url of ['blob:sculpt://app/scene-export', 'https://example.org/scene', 'file:///Users/test/scene.snap']) {
+    win.webContents.emit('did-start-navigation', {}, url, false, true);
+    let prevented = false;
+    win.webContents.emit('will-navigate', { preventDefault() { prevented = true; } }, url);
+    assert.equal(prevented, true);
+  }
+  assert.equal(socket.suspended, 0); assert.equal(socket.closed, 0);
+  win.webContents.emit('did-start-navigation', {}, policy.APP_URL, false, true);
+  assert.equal(socket.suspended, 1, 'a real app reload still invalidates pending console writes');
+});
+
+test('USB capture requests macOS microphone permission only on an explicit configure/start action', async () => {
+  const env = loadMain({ microphone: 'not-determined', permissionGranted: false }); await Promise.resolve();
+  const win = env.windows[0], event = { sender: win.webContents, senderFrame: win.webContents.mainFrame };
+  const handler = env.ipc.get('sculpt-wing:audioRequest');
+  await handler(event, { method: 'status' });
+  assert.equal(env.permissions.microphonePrompts, 0);
+  await assert.rejects(handler(event, { method: 'startAudio' }), /Microfono/);
+  assert.equal(env.permissions.microphonePrompts, 1);
+  assert.equal(env.audios[0].requests.some(request => request.method === 'startAudio'), false);
+  await handler(event, { method: 'stopAudio' });
+  assert.equal(env.permissions.microphonePrompts, 1);
+});
+
 test('OSC IPC uses its own bounded transport and the same trusted main-frame checks', async () => {
   const env=loadMain();await Promise.resolve();const win=env.windows[0],sender=env.oscSenders[0],event={sender:win.webContents,senderFrame:win.webContents.mainFrame};
   const message={host:'127.0.0.1',port:53000,address:'/sculpt/go',args:[],arbitrary:'discarded'};
@@ -158,4 +206,54 @@ test('OSC IPC uses its own bounded transport and the same trusted main-frame che
   await assert.rejects(env.ipc.get('sculpt-wing:sendOSC')({...event,senderFrame:{url:policy.APP_URL}},message));
   await assert.rejects(env.ipc.get('sculpt-wing:sendOSC')(event,{...message,host:'224.0.0.1'}));
   env.monitor.emit('suspend');assert.equal(sender.suspended,1);win.destroy();assert.equal(sender.closed,1);
+});
+
+test('audio IPC rejects arbitrary methods, executable paths, foreign frames and stale windows', async () => {
+  const env = loadMain(); await Promise.resolve();
+  const win = env.windows[0], audio = env.audios[0], event = { sender: win.webContents, senderFrame: win.webContents.mainFrame };
+  const handler = env.ipc.get('sculpt-wing:audioRequest');
+  assert.equal(audio.requests.length, 0, 'opening Sculpt Wing does not start audio or query its helper');
+  await handler(event, { method: 'status' });
+  assert.equal(audio.requests[0].method, 'status');
+  for (const method of ['shutdown', 'exec', 'scan-one']) await assert.rejects(handler(event, { method }));
+  await assert.rejects(handler(event, { method: 'scanPlugins', params: { path: '/tmp/arbitrary.vst3' } }));
+  await assert.rejects(handler({ ...event, sender: {} }, { method: 'status' }));
+  await assert.rejects(handler({ ...event, senderFrame: { url: policy.APP_URL } }, { method: 'status' }));
+  win.webContents.mainFrame.url = 'https://evil.example';
+  await assert.rejects(handler(event, { method: 'startAudio' }));
+  win.webContents.mainFrame.url = policy.APP_URL;
+  audio.options.emit('audioState', { running: true });
+  assert.equal(win.lastSend[0], 'sculpt-wing:event:audioState');
+  audio.options.emit('arbitrary', {});
+  assert.equal(win.lastSend[0], 'sculpt-wing:event:audioState');
+  win.destroy(); env.app.emit('activate');
+  await assert.rejects(handler(event, { method: 'startAudio' }));
+  audio.options.emit('audioState', { running: false });
+  assert.equal(env.windows[1].lastSend, undefined);
+});
+
+test('audio survives screen lock and renderer loss, stops on sleep, and closes before application quit', async () => {
+  const env = loadMain(); await Promise.resolve();
+  const win = env.windows[0], audio = env.audios[0];
+  env.monitor.emit('lock-screen');
+  win.webContents.emit('render-process-gone');
+  win.webContents.emit('did-start-navigation', {}, policy.APP_URL, false, true);
+  assert.equal(audio.suspended, 0); assert.equal(audio.closed, 0);
+  env.monitor.emit('suspend'); assert.equal(audio.suspended, 1);
+  audio.hasProcess = true;
+  let prevented = false;
+  env.app.emit('before-quit', { preventDefault: () => { prevented = true; } });
+  assert.equal(prevented, true); assert.equal(audio.closed, 1);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(env.app.quitCalls, 1);
+});
+
+test('Cmd+= changes mixer layout and zoom does not claim the same shortcut', async () => {
+  const env = loadMain(); await Promise.resolve();
+  const view = env.menu().find(item => item.label === 'Vista').submenu;
+  const toggle = view.find(item => item.accelerator === 'CmdOrCtrl+=');
+  assert.equal(toggle.label, 'Compact / Extended');
+  toggle.click();
+  assert.deepEqual(env.windows[0].lastSend, ['sculpt-wing:event:mixerView', 'toggle']);
+  assert.equal(view.find(item => item.role === 'zoomIn').accelerator, 'CmdOrCtrl+Shift+Plus');
 });
