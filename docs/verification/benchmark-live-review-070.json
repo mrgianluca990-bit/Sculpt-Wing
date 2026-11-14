@@ -1,0 +1,93 @@
+{
+  "conditions": {
+    "timestamp": "2026-11-14T13:21:09.699Z",
+    "node": "v24.22.1",
+    "platform": "linux x64",
+    "cpu": "AMD EPYC 9V74 80-Core Processor",
+    "baselineRef": "4ccd0189ac9a1c31a5787811c96c9af084ea08ed",
+    "samples": 30,
+    "warmups": 5,
+    "state": "76 audio strips, 16 DCA, default desk and complete synthetic metadata; no DOM, IPC, socket, audio or hardware",
+    "note": "Durations measure JavaScript preparation only. They are not WING transport or audio latency."
+  },
+  "fader": {
+    "baseline": {
+      "review": {
+        "samples": 30,
+        "minMs": 103.688,
+        "medianMs": 117.05,
+        "p95Ms": 139.5,
+        "maxMs": 172.586,
+        "meanMs": 119.122
+      },
+      "cloneAndReview": {
+        "samples": 30,
+        "minMs": 107.186,
+        "medianMs": 120.563,
+        "p95Ms": 143.136,
+        "maxMs": 176.748,
+        "meanMs": 123.032
+      },
+      "mappedValues": 20246
+    },
+    "current": {
+      "review": {
+        "samples": 30,
+        "minMs": 21.669,
+        "medianMs": 24.411,
+        "p95Ms": 38.629,
+        "maxMs": 40.722,
+        "meanMs": 25.624
+      },
+      "cloneAndReview": {
+        "samples": 30,
+        "minMs": 24.869,
+        "medianMs": 27.923,
+        "p95Ms": 42.885,
+        "maxMs": 45.767,
+        "meanMs": 29.266
+      },
+      "mappedValues": 20246
+    }
+  },
+  "sofPanAndLevel": {
+    "baseline": {
+      "review": {
+        "samples": 30,
+        "minMs": 106.014,
+        "medianMs": 112.351,
+        "p95Ms": 167.839,
+        "maxMs": 186.015,
+        "meanMs": 122.466
+      },
+      "cloneAndReview": {
+        "samples": 30,
+        "minMs": 109.599,
+        "medianMs": 117.287,
+        "p95Ms": 171.443,
+        "maxMs": 190.918,
+        "meanMs": 126.818
+      },
+      "mappedValues": 20246
+    },
+    "current": {
+      "review": {
+        "samples": 30,
+        "minMs": 26.245,
+        "medianMs": 28.263,
+        "p95Ms": 48.531,
+        "maxMs": 49.118,
+        "meanMs": 30.27
+      },
+      "cloneAndReview": {
+        "samples": 30,
+        "minMs": 29.633,
+        "medianMs": 32.043,
+        "p95Ms": 54.065,
+        "maxMs": 56.384,
+        "meanMs": 34.083
+      },
+      "mappedValues": 20246
+    }
+  }
+}

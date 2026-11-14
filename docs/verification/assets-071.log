@@ -1,0 +1,5 @@
+PASS: native/dist: 64 assets identical; native index present
+PASS: native/ios/App/App/public: 64 assets identical; native index present
+PASS: desktop/app: 64 assets identical; native index present
+PASS: 55 index resources exist; new panels and scenes are cached; offline/worker v26 aligned
+PASS: packages, locks, bridge source/bundle, preload and native helper metadata report 0.7.1

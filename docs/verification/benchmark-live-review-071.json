@@ -1,0 +1,117 @@
+{
+  "conditions": {
+    "timestamp": "2026-11-14T14:13:09.495Z",
+    "node": "v24.22.1",
+    "platform": "linux x64",
+    "cpu": "AMD EPYC 9V74 80-Core Processor",
+    "baselineRef": "0d69574",
+    "samples": 30,
+    "warmups": 5,
+    "state": "76 audio strips, 16 DCA, default desk and complete synthetic metadata; no DOM, IPC, socket, audio or hardware",
+    "note": "Durations measure JavaScript preparation only. They are not WING transport or audio latency."
+  },
+  "fader": {
+    "baseline": {
+      "review": {
+        "samples": 30,
+        "minMs": 23.664,
+        "medianMs": 25.528,
+        "p95Ms": 57.6,
+        "maxMs": 63.967,
+        "meanMs": 29.099
+      },
+      "cloneAndReview": {
+        "samples": 30,
+        "minMs": 27.426,
+        "medianMs": 29.239,
+        "p95Ms": 66.838,
+        "maxMs": 67.411,
+        "meanMs": 33.089
+      },
+      "mappedValues": 20246
+    },
+    "current": {
+      "review": {
+        "samples": 30,
+        "minMs": 4.474,
+        "medianMs": 7.702,
+        "p95Ms": 14.265,
+        "maxMs": 16.062,
+        "meanMs": 8.977
+      },
+      "cloneAndReview": {
+        "samples": 30,
+        "minMs": 7.194,
+        "medianMs": 13.309,
+        "p95Ms": 21.357,
+        "maxMs": 22.383,
+        "meanMs": 14.275
+      },
+      "mappedValues": 20246
+    }
+  },
+  "sofPanAndLevel": {
+    "baseline": {
+      "review": {
+        "samples": 30,
+        "minMs": 29.669,
+        "medianMs": 34.946,
+        "p95Ms": 50.564,
+        "maxMs": 54.075,
+        "meanMs": 37.938
+      },
+      "cloneAndReview": {
+        "samples": 30,
+        "minMs": 32.953,
+        "medianMs": 38.914,
+        "p95Ms": 55.397,
+        "maxMs": 57.169,
+        "meanMs": 41.846
+      },
+      "mappedValues": 20246
+    },
+    "current": {
+      "review": {
+        "samples": 30,
+        "minMs": 4.396,
+        "medianMs": 5.137,
+        "p95Ms": 7.634,
+        "maxMs": 8.516,
+        "meanMs": 5.62
+      },
+      "cloneAndReview": {
+        "samples": 30,
+        "minMs": 7.273,
+        "medianMs": 8.488,
+        "p95Ms": 12.827,
+        "maxMs": 12.97,
+        "meanMs": 9.27
+      },
+      "mappedValues": 20246
+    }
+  },
+  "incomingBatch": {
+    "baseline": {
+      "leaves": 244,
+      "apply": {
+        "samples": 30,
+        "minMs": 21.206,
+        "medianMs": 22.62,
+        "p95Ms": 27.97,
+        "maxMs": 29.343,
+        "meanMs": 23.392
+      }
+    },
+    "current": {
+      "leaves": 244,
+      "apply": {
+        "samples": 30,
+        "minMs": 0.418,
+        "medianMs": 0.483,
+        "p95Ms": 0.887,
+        "maxMs": 0.948,
+        "meanMs": 0.566
+      }
+    }
+  }
+}

@@ -1,12 +1,12 @@
 # Dal PDF di Producer alla scena Sculpt Wing
 
-## Flusso della versione 0.6.6
+## Flusso della versione 0.7.0
 
 Apri **Menu del banco → Importa channel list**, scegli il PDF esportato da Producer e controlla le quattro schede **Canali**, **Strumenti**, **Mandate** e **Rimanenti**. Puoi anche iniziare senza PDF con **Aggiungi canale vuoto**. La lettura avviene sul dispositivo. Il progetto cambia soltanto quando premi **Applica scena**.
 
 Tutti i valori proposti sono modificabili nell’anteprima. Il numero e la pagina del PDF, il nome originale e le informazioni di provenienza restano visibili per aiutare il controllo. **Il routing del canale è sempre conservato.**
 
-Quando cambi un monitor principale o il BUS assegnato, l’anteprima **mantiene la posizione di scorrimento** della tabella e della lista monitor, sia in verticale sia in orizzontale. Anche tornando da una scheda all’altra ritrovi la posizione precedente. Dopo **Applica scena**, se l’operazione riesce, la finestra si chiude e il mixer mostra la conferma. Per annullare puoi riaprire **Importa channel list** e usare **Annulla importazione** senza ricaricare il PDF.
+Quando cambi un monitor principale o il BUS assegnato, l’anteprima **mantiene la posizione di scorrimento** della tabella e della lista monitor, sia in verticale sia in orizzontale. Anche tornando da una scheda all’altra ritrovi la posizione precedente. Dopo **Applica scena**, se l’operazione riesce, la finestra si chiude e il mixer mostra la conferma. Offline puoi riaprire **Importa channel list** e usare **Annulla importazione** senza ricaricare il PDF; in live l’operazione usa la cronologia generale con **Cmd + Z** e le sue verifiche sui valori del banco.
 
 ## Valori iniziali
 
@@ -167,7 +167,9 @@ L’applicazione può modificare soltanto:
 
 Restano conservati sorgenti e sorgenti alternative dei canali, patch delle uscite, preamplificatori, phantom, processing, insert, ordine dei processori, punti di prelievo condivisi, invii a MAIN/MTX e invii ai BUS esclusi dall’elenco dei monitor. Pan e altri parametri delle mandate non previsti nell’anteprima restano quelli del progetto. DCA, automix, Custom Layer e macro restano conservati.
 
-Il comando **Applica scena** opera sul progetto Sculpt offline. L’anteprima si può preparare anche durante una sessione live, ma applicazione e annullamento restano bloccati finché quella sessione è attiva o in transizione. Il progetto esportabile usa il formato Sculpt; questa funzione non genera uno snapshot nativo WING e non invia automaticamente la scena al banco.
+Il comando **Applica scena** opera sul progetto offline oppure sulla WING collegata con **Controllo** attivo. In live legge i campi della proposta, verifica metadati e valori anche quando sembrano invariati, poi invia attraverso la coda verificata e attende i riscontri. La finestra mostra l’avanzamento; un’interruzione può lasciare una parte dei parametri applicati e viene segnalata senza reinvio automatico. Il progetto esportabile conserva il formato Sculpt: questa funzione prepara i campi della channel list e non genera uno snapshot nativo WING.
+
+**CLINK viene conservato.** Prima di cambiare nomi o colori, l’app deve conoscere il collegamento e la sorgente attiva. Se più canali seguono la stessa sorgente, le identità proposte devono essere compatibili e non alterare indirettamente canali esclusi. In caso contrario l’anteprima identifica il conflitto prima dell’invio. Un dato non ricevuto dal banco non viene trattato come un valore già confermato.
 
 ## Applicazione e annullamento
 
@@ -177,7 +179,7 @@ Dopo un’applicazione riuscita la finestra **si chiude automaticamente** e comp
 
 Per usare **Annulla importazione**, riapri **Menu del banco → Importa channel list**: il pulsante è disponibile anche senza caricare un PDF. Ripristina soltanto i valori effettivamente modificati dall’ultima importazione. Se uno di quei valori è stato cambiato successivamente, l’annullamento viene rifiutato interamente per preservare la nuova modifica. Cambiamenti successivi a campi diversi, come il pan, restano conservati. Una seconda applicazione senza cambiamenti conserva l’ultimo annullamento disponibile.
 
-Questo annullamento rimane disponibile durante la sessione corrente dell’app, anche chiudendo e riaprendo la finestra di importazione. Non viene salvato per un riavvio dell’app. Durante una sessione live resta bloccato, come l’applicazione.
+Il pulsante **Annulla importazione** riguarda l’applicazione offline e rimane disponibile nella sessione corrente, anche chiudendo e riaprendo la finestra di importazione. Non viene salvato per un riavvio dell’app. In live si usa invece **Cmd + Z**, con verifica della sessione e dei valori correnti; una modifica esterna può impedire il ripristino di un dato obsoleto.
 
 ## PDF supportati
 
@@ -189,7 +191,7 @@ Il lettore e il worker sono inclusi nell’app. La lettura non richiede Internet
 
 ## Editor del canale nella riga opposta
 
-Fuori dal dialogo di importazione, aprendo l’editor dalla strip del mixer, il pannello occupa la **riga opposta** e lascia visibile quella del canale: un ingresso nella riga inferiore apre l’editor in alto; una strip nella riga superiore lo apre in basso. Nel **Custom Layer** conta la posizione effettiva della strip, anche quando un ingresso è stato collocato sopra o un’uscita sotto. La correzione conserva il mixer a due righe.
+In vista **Compact**, aprendo l’editor dalla strip, il pannello occupa la **riga opposta** e lascia visibile quella del canale: un ingresso nella riga inferiore apre l’editor in alto; una strip nella riga superiore lo apre in basso. Nel **Custom Layer** conta la posizione effettiva della strip. In **Extended** l’editor occupa l’area dei processori sopra i fader. **Cmd + =** alterna le viste.
 
 ## Riferimenti di implementazione e verifica
 
@@ -199,4 +201,5 @@ Fuori dal dialogo di importazione, aprendo l’editor dalla strip del mixer, il 
 - [Reader locale](../native/src/pdf-reader.mjs).
 - [Test parser](../tests/channel-list.test.cjs), [motore scena](../tests/channel-list-scene.test.cjs) e [interfaccia](../tests/channel-list-preview.test.cjs).
 - [Prove con PDF prodotti dall’esportatore Producer](../tests/producer-import.test.cjs) e [dati attesi](../tests/fixtures/pdf/producer-expected.json).
-- [Note della versione 0.6.6](RELEASE_0.6.6_MAC_M1.md).
+- [Test applicazione live e rinomina](../tests/channel-list-live-070.test.cjs).
+- [Note della versione 0.7.0](RELEASE_0.7.0_MAC_M1.md).

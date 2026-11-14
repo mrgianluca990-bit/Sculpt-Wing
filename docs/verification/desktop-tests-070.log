@@ -1,0 +1,54 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> sculpt-wing-desktop@0.7.0 test
+> node --test --test-timeout=30000 --test-reporter=spec tests/*.test.cjs
+
+✔ audio policy only accepts catalog IDs, bounded channels and explicit operations (4.95189ms)
+✔ native helper is lazy, uses fixed argv without a shell, and parses fragmented UTF-8 JSON lines (85.132829ms)
+✔ crash rejects every in-flight request and does not restart from status or getState (83.823568ms)
+✔ pending and byte limits prevent unbounded work, and late replies cannot resolve a new request (117.47186ms)
+✔ an oversized or malformed native message kills the helper and fails pending commands (2.627102ms)
+✔ aggregate request bytes are capped even before the pending-command count is reached (82.334687ms)
+✔ session save is atomic, preserves plugin blobs and missing names, and restore never includes a running flag (13.757887ms)
+✔ sleep stops an existing helper without spawning one and close is idempotent (0.897093ms)
+✔ OSC encoder writes network-endian typed arguments and padded UTF-8 strings (1.914799ms)
+✔ invalid OSC requests fail before any socket is created (1.64394ms)
+✔ OSC sends a real datagram over loopback and reports transport delivery without execution acknowledgement (12.951006ms)
+✔ Show status requires a valid OSC reply from the selected endpoint (2.631739ms)
+✔ Show timeout is an error and closes its pending socket (42.900698ms)
+✔ foreign UDP replies are ignored and app suspension cancels the request (1.130705ms)
+✔ Show rejects errors and malformed status instead of marking transport delivery as confirmed (1.056033ms)
+✔ OSC sender bounds burst rate and concurrent requests (9.6852ms)
+✔ PDF worker is local-only while renderer network access stays disabled (2.901717ms)
+✔ desktop protocol and IPC policy reject remote origins and traversal (4.296812ms)
+✔ preload exposes fixed calls and strips privileged event argument (2.940926ms)
+✔ Mac Undo and Redo use the application history and text fallback remains restricted to its main frame (4.4551ms)
+✔ desktop shell isolates renderer, checks sender, closes stale sessions and blocks navigation (8.589497ms)
+✔ second app instance exits before opening a window (1.494294ms)
+✔ opening file dialogs, exporting a scene and blocked links preserve the console connection (2.990921ms)
+✔ USB capture requests macOS microphone permission only on an explicit configure/start action (8.416737ms)
+✔ OSC IPC uses its own bounded transport and the same trusted main-frame checks (6.024708ms)
+✔ audio IPC rejects arbitrary methods, executable paths, foreign frames and stale windows (4.096459ms)
+✔ audio survives screen lock and renderer loss, stops on sleep, and closes before application quit (16.173076ms)
+✔ Cmd+= changes mixer layout and zoom does not claim the same shortcut (3.355541ms)
+✔ private IPv4 boundary matches iOS; invalid connect never replaces a live session (7.367103ms)
+✔ real sockets carry ordered initial/TCP bytes, UDP identity and meter frames directly (45.625168ms)
+✔ cancel pending connect by request ID; late completion and old disconnect cannot touch replacement (1.218989ms)
+✔ new connection rejects old pending connect and old sends, with no replay (0.973578ms)
+✔ disconnect before ready delivery cancels activation; a delayed UDP bind is still closed (6.137248ms)
+✔ strict base64, send byte boundaries and stale session IDs (9.89824ms)
+✔ TCP backpressure waits for callback and drain, preserving queue order (2.734866ms)
+✔ pending send count and byte caps reject excess without closing a healthy session (15.213052ms)
+✔ connect timeout, network failure and send timeout clean all resources exactly once (32.168059ms)
+✔ TCP callback failure rejects every pending send; invalid UDP size tears down the session (1.216485ms)
+✔ suspend rejects pending writes; reconnect is explicit, close is terminal (3.120588ms)
+✔ initial packets stay ordered, foreign peers are ignored, receive queue is bounded (1.395375ms)
+✔ asynchronous event delivery preserves order and failure tears down without unhandled rejection (1.059028ms)
+ℹ tests 41
+ℹ suites 0
+ℹ pass 41
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 598.938261
