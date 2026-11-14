@@ -1,5 +1,10 @@
 # Sculpt Wing iOS 0.6
 
+Progetto iOS conservato dalla distribuzione precedente. L’interfaccia condivisa
+e il driver seguono ora la 0.7.1 destinata al Mac; i metadati del target Xcode
+restano quelli della precedente consegna e non indicano una nuova release iOS
+compilata o collaudata. Per la consegna corrente: [guida Mac 0.7.1](../docs/RELEASE_0.7.1_MAC_M1.md).
+
 Il progetto iPhone/iPad include la stessa interfaccia completa del sito, più il trasporto WING nativo TCP/UDP.
 
 Questo è il progetto sorgente. La cartella web incorporata e le configurazioni iOS generate non sono incluse nel checkout GitHub: vanno preparate prima di aprire Xcode. Servono macOS, Xcode 26+, Node.js 22+ e npm; target iOS/iPadOS 15.4+.

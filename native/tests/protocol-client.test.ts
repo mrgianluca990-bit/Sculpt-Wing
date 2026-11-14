@@ -42,6 +42,7 @@ class ConsoleTransport implements WingTransport {
   identityEnabled = true;
   omitBus = false;
   holdData = false;
+  heldDefinitions = new Set<number>();
   applyWrites = true;
   readOnlyLevel = false;
   fragmentBytes = 0;
@@ -88,7 +89,9 @@ class ConsoleTransport implements WingTransport {
     command.id = this.nextSelected;
     if (bytes[p] === 0xdd) {
       command.kind = 'definition';
-      this.emit(quoted([...this.nodes.filter(node => node.parent === this.nextSelected).flatMap(definition), 0xde]));
+      if (!this.heldDefinitions.has(this.nextSelected)) {
+        this.emit(quoted([...this.nodes.filter(node => node.parent === this.nextSelected).flatMap(definition), 0xde]));
+      }
     } else if (bytes[p] === 0xdc) {
       command.kind = 'get';
       if (!this.holdData) this.replyValue(this.nextSelected, this.values.get(this.nextSelected));
@@ -209,11 +212,35 @@ describe('WingClient uses live protocol state', () => {
     const read = client.get('/ch/1/send/1/lvl').catch(error => error);
     const queued = client.set('/ch/1/send/1/lvl', -1).catch(error => error);
     await flush(); await vi.advanceTimersByTimeAsync(51);
-    expect(await read).toBeInstanceOf(Error); expect(await queued).toBeInstanceOf(Error);
+    const error = await read;
+    expect(error).toBeInstanceOf(Error); expect(await queued).toBeInstanceOf(Error);
+    expect(error.message).toContain('lettura dati di /ch/1/send/1/lvl');
+    expect(error.message).toContain(`id 0x${transport.id('lvl').toString(16).padStart(8, '0')}`);
+    expect(error.message).toContain('timeout 50 ms');
     expect(statuses.at(-1)).toBe('error');
     transport.replyValue(transport.id('lvl'), -1);
     expect(transport.commands.filter(command => command.kind === 'set')).toHaveLength(0);
     await expect(client.get('/ch/1/send/1/lvl')).rejects.toThrow(/Nessuna WING/);
+  });
+
+  it('identifies the metadata request that timed out and still closes the session', async () => {
+    vi.useFakeTimers();
+    const { client, transport } = setup(undefined, { requestTimeoutMs: 50 });
+    const states: Array<[LinkStatus, string | undefined]> = [];
+    client.onStatus((status, note) => states.push([status, note]));
+    await client.connect('192.168.1.62');
+    const branch = await client.describe('/ch/1');
+    transport.heldDefinitions.add(branch.id);
+    const read = client.list('/ch/1').catch(error => error);
+    await flush(); await vi.advanceTimersByTimeAsync(51);
+    const error = await read;
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).toContain('lettura definizioni di /ch/1');
+    expect(error.message).toContain(`id 0x${branch.id.toString(16).padStart(8, '0')}`);
+    expect(error.message).toContain('timeout 50 ms');
+    expect(states.at(-1)).toEqual(['error', error.message]);
+    expect(transport.disconnectCount).toBe(1);
+    await expect(client.get('/bus/1/fdr')).rejects.toThrow(/Nessuna WING/);
   });
 
   it('requires WING identity and the compatible ch/bus schema before connected', async () => {

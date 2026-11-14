@@ -19,8 +19,8 @@ function setup() {
   const bank = new Map<string, string | number>(), definitions = new Map<string, Meta>();
   const values = new Map<string, string | number>(), metadata = new Map<string, Meta>();
   const listeners = new Set<() => void>();
-  const reads: string[] = [], writes: Array<[string, string | number, boolean]> = [], opened: string[] = [];
-  let live = true, connected = true, writable = true, release: (() => void) | null = null, held = false;
+  const reads: string[] = [], lists: string[] = [], writes: Array<[string, string | number, boolean]> = [], opened: string[] = [];
+  let live = true, connected = true, writable = true, epoch = 1, release: (() => void) | null = null, held = false;
   const notify = () => { for (const fn of listeners) fn(); };
   const put = (path: string, value: string | number, meta: Meta) => { bank.set(path, value); definitions.set(path, meta); };
   const string = (path: string, value: string, readOnly = true) => put(path, value, { type: 7, readOnly });
@@ -55,6 +55,7 @@ function setup() {
   integer('/$ctl/lib/$actionidx', 0, false, 16384);
   enumeration('/$ctl/lib/$action', 'IDLE', ['IDLE', 'GOPREV', 'GONEXT', 'GO', 'PREV', 'NEXT', 'GOTAG']);
   string('/$ctl/lib/$scenes', 'SoloPrimaScena');
+  definitions.set('/$ctl/lib/$scenes', { type: 5, readOnly: true, items: Array.from({ length: 150 }, (_, i) => ({ value: i === 0 ? 'Apertura~Luci di sala' : 'Scena ' + (i + 1), label: '' })) });
 
   const el = (tag: string, cls?: string, text?: unknown) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined) n.textContent = String(text); return n; };
   const button = (text: string, action?: () => void, cls = '') => { const b = el('button', 'desk-button ' + cls, text); if (action) b.addEventListener('click', action); return b; };
@@ -73,10 +74,15 @@ function setup() {
   };
   w.SculptLive = {
     isLive: () => live, isConnected: () => connected, isWritable: () => writable,
+    sessionToken: () => epoch,
     snapshot: () => ({ info: { name: 'WING palco', model: 'ngc-rack', firmware: '3.1.2', host: '192.168.1.62' } }),
     value: (path: string) => values.get(path), hasValue: (path: string) => values.has(path), metadata: (path: string) => metadata.get(path),
     openExplorer: (path: string) => opened.push(path),
     subscribe: (fn: () => void) => { listeners.add(fn); return () => listeners.delete(fn); },
+    async listNode(path: string, options: { refresh: boolean }) {
+      expect(options.refresh).toBe(true); lists.push(path);
+      return [...definitions].filter(([key]) => key.startsWith(path + '/') && !key.slice(path.length + 1).includes('/')).map(([path, def]) => ({ ...def, path, name: path.split('/').at(-1) }));
+    },
     async readNode(path: string, options: { force: boolean }) {
       expect(options.force).toBe(true); reads.push(path);
       // Mimic force refresh: a parent invalidates cached descendants.
@@ -106,12 +112,13 @@ function setup() {
   const container = el('div'); document.body.append(container);
   const render = (id: string, args = {}) => { const page = w.SculptLivePages.render(id, container, args); if (page) pages.push(page); return page; };
   return {
-    container, render, reads, writes, opened, bank, definitions, listeners,
+    container, render, reads, lists, writes, opened, bank, definitions, listeners,
     click: (text: string) => { const b = [...container.querySelectorAll('button')].find(b => b.textContent === text); if (!b) throw new Error('No button: ' + text); b.click(); return b; },
     button: (text: string) => [...container.querySelectorAll('button')].find(b => b.textContent === text)!,
     live: (value: boolean) => { live = value; notify(); },
     connected: (value: boolean) => { connected = value; notify(); },
     writable: (value: boolean) => { writable = value; notify(); },
+    replaceSession: () => { ++epoch; notify(); },
     hold: () => { held = true; },
     release: () => { held = false; release?.(); },
   };
@@ -167,8 +174,9 @@ describe('native recorder/show/setup panels', () => {
     env.click('GO'); await flush();
     expect(env.writes.slice(-2)).toEqual([['/$ctl/lib/$actionidx', 7, false], ['/$ctl/lib/$action', 'GO', true]]);
     expect(env.container.querySelector('.lp-scene-name')?.textContent).toBe('I:Tour/ScenaReale.snap');
-    expect(env.container.querySelector('.lp-raw')?.textContent).toBe('SoloPrimaScena');
-    expect(env.container.querySelectorAll('.sys-scene-row')).toHaveLength(0);
+    expect(env.container.querySelectorAll('.lp-scene-row')).toHaveLength(150);
+    expect(env.container.textContent).toContain('Scena 150');
+    expect(env.container.textContent).not.toContain('SoloPrimaScena');
   });
 
   it('does not enable show recall without an opened show on the console', async () => {
@@ -176,6 +184,83 @@ describe('native recorder/show/setup panels', () => {
     expect(env.button('GO').disabled).toBe(true);
     expect(env.button('GO NEXT').disabled).toBe(true);
     expect(env.container.textContent).toContain('Apri uno Show sul banco');
+  });
+
+  it('opening and refreshing scenes reads bounded leaves without requesting the whole library', async () => {
+    const env = setup();
+    const readNode = w.SculptLive.readNode;
+    w.SculptLive.readNode = async (path: string, options: { force: boolean }) => {
+      if (path === '/$ctl/lib') { env.connected(false); throw new Error('Broad library request exceeded its deadline'); }
+      return readNode(path, options);
+    };
+    env.render('scenes'); await flush();
+    const expected = ['$actshow', '$actshow', '$active', '$actidx', '$activeid', '$actionidx', '$action'].map(name => '/$ctl/lib/' + name);
+    expect(env.reads).toEqual(expected);
+    expect(env.lists).toEqual(['/$ctl/lib']);
+    expect(w.SculptLive.isConnected()).toBe(true);
+    expect(env.button('GO').disabled).toBe(false);
+    env.click('↻ Aggiorna'); await flush();
+    expect(env.reads).toEqual([...expected, ...expected]);
+    await vi.advanceTimersByTimeAsync(1600); await flush();
+    expect(env.reads.slice(-3)).toEqual(['/$ctl/lib/$actidx', '/$ctl/lib/$active', '/$ctl/lib/$actshow']);
+    expect(w.SculptLive.isConnected()).toBe(true);
+    expect(env.writes).toEqual([]);
+  });
+
+  it('an unavailable optional scene list leaves the connection and supported show controls usable', async () => {
+    const env = setup();
+    w.SculptLive.listNode = async () => { throw new Error('Elenco scene non disponibile su questo firmware'); };
+    env.render('scenes'); await flush();
+    expect(w.SculptLive.isConnected()).toBe(true);
+    expect(env.container.querySelector('.lp-scene-name')?.textContent).toBe('I:Tour/Apertura.snap');
+    expect(env.button('GO').disabled).toBe(false);
+    expect(env.container.querySelector('.lp-message')?.textContent).toContain('Lettura incompleta');
+    expect(env.container.querySelectorAll('.lp-scene-row')).toHaveLength(0);
+    expect(env.writes).toEqual([]);
+  });
+
+  it('selects every entry of the complete definition and recalls its one-based Show number', async () => {
+    const env = setup();
+    env.definitions.get('/$ctl/lib/$scenes')!.items![149] = { value: 'Finale, bis~Grazie', label: '' };
+    env.render('scenes'); await flush();
+    const search = env.container.querySelector('input[type="search"]') as HTMLInputElement;
+    search.value = 'bis'; search.dispatchEvent(new Event('input'));
+    expect(env.container.querySelectorAll('.lp-scene-row')).toHaveLength(1);
+    (env.container.querySelector('.lp-scene-row') as HTMLButtonElement).click();
+    expect(env.writes).toEqual([]);
+    env.click('Richiama selezionata'); await flush();
+    expect(env.writes).toEqual([['/$ctl/lib/$actionidx', 150, false], ['/$ctl/lib/$action', 'GO', true]]);
+    expect(env.container.querySelector('.lp-scene-row')?.textContent).toContain('ATTIVA');
+  });
+
+  it('discards a catalogue if the console changes Show while its definition is loading', async () => {
+    const env = setup(), list = w.SculptLive.listNode;
+    w.SculptLive.listNode = async (...args: any[]) => {
+      const result = await list(...args); env.bank.set('/$ctl/lib/$actshow', 'I:Altro'); return result;
+    };
+    env.render('scenes'); await flush();
+    expect(env.container.querySelectorAll('.lp-scene-row')).toHaveLength(0);
+    expect(env.container.textContent).toContain('Show è cambiato');
+    expect(env.writes).toEqual([]);
+  });
+
+  it('refuses a selected name whose Show position changed before recall', async () => {
+    const env = setup(); env.render('scenes'); await flush();
+    (env.container.querySelector('.lp-scene-row') as HTMLButtonElement).click();
+    env.definitions.get('/$ctl/lib/$scenes')!.items![0].value = 'Nuova prima scena';
+    env.click('Richiama selezionata'); await flush();
+    expect(env.writes).toEqual([]);
+    expect(env.container.querySelector('.lp-message')?.textContent).toContain('ordine o il nome');
+  });
+
+  it.each(['show', 'session'])('never sends GO after %s changes between selection and recall', async change => {
+    const env = setup(); env.render('scenes'); await flush();
+    env.hold(); env.click('GO'); await flush();
+    expect(env.writes).toEqual([['/$ctl/lib/$actionidx', 0, false]]);
+    if (change === 'show') env.bank.set('/$ctl/lib/$actshow', 'I:Altro'); else env.replaceSession();
+    env.release(); await flush();
+    expect(env.writes).toHaveLength(1);
+    expect(env.container.querySelector('.lp-message')?.textContent).toMatch(/cambiat/);
   });
 
   it('shows the live identity and sends setup navigation to the actual metadata explorer', async () => {

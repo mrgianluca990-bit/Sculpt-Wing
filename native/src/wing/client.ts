@@ -484,9 +484,14 @@ export class WingClient implements WingSchemaDriver {
   private async request(id: number, kind: 'data' | 'definition', epoch: number): Promise<RequestResult> {
     this.assertSession(epoch);
     if (this.pending) throw new Error('Concurrent WING control request');
+    // Capture context before invalidation clears the hash/path cache. A timeout
+    // still closes the session: DE has no request ID, even after partial data.
+    const path = id === 0 ? '/' : this.aliases.get(id)?.values().next().value ?? '(percorso non disponibile)';
+    const operation = kind === 'data' ? 'lettura dati' : 'lettura definizioni';
+    const context = `${operation} di ${path} (id 0x${id.toString(16).padStart(8, '0')}, timeout ${this.options.requestTimeoutMs} ms)`;
     const result = new Promise<RequestResult>((resolve, reject) => {
       const timer = setTimeout(() => {
-        if (epoch === this.epoch) this.terminate('error', new Error('La WING non risponde. Sessione chiusa; le modifiche in attesa sono annullate.'));
+        if (epoch === this.epoch) this.terminate('error', new Error(`La WING non risponde: ${context}. Sessione chiusa; le modifiche in attesa sono annullate.`));
       }, this.options.requestTimeoutMs);
       this.pending = { id, kind, definitions: [], value: undefined, values: new Map(), resolve, reject, timer };
     });
