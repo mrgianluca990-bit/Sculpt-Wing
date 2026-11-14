@@ -1,0 +1,53 @@
+SCULPT WING 0.7.2 — VERIFICA ASSET E METADATI
+UTC: 2026-11-14T15:49:33+00:00
+Metodo: confronto byte per byte, trasformazioni HTML attese, risoluzione locale src/href, manifest cache e metadati.
+
+prepare:app: exit 0; log desktop-prepare-072.log; unico avviso npm su configurazione http-proxy.
+Inventario dist: 66 file; nessuna esclusione dal confronto salvo le trasformazioni previste di index.html.
+native/dist: 65/65 file identici; index.html confrontato integralmente con il wrapper atteso; 66 file totali.
+native/ios/App/App/public: 65/65 file identici; index.html confrontato integralmente con il wrapper atteso; 66 file totali.
+desktop/app: 65/65 file identici; index.html confrontato integralmente con il wrapper atteso; 67 file totali.
+Wrapper ammessi: native/iOS aggiungono solo data-native-bundle; desktop aggiunge flag native/desktop e CSP, rimuove il link manifest. Nessuna altra differenza HTML ammessa.
+Desktop: THIRD_PARTY_NOTICES.md e build/icon.png corrispondono alle rispettive sorgenti.
+
+dist/index.html: 56 riferimenti locali src/href risolti; 0 esterni.
+dist: SW/offline sculpt-control-v27; 59 asset cache presenti, inclusi tutti i riferimenti locali dell’index e channel-chain.js.
+native/dist/index.html: 56 riferimenti locali src/href risolti; 0 esterni.
+native/dist: SW/offline sculpt-control-v27; 59 asset cache presenti, inclusi tutti i riferimenti locali dell’index e channel-chain.js.
+native/ios/App/App/public/index.html: 56 riferimenti locali src/href risolti; 0 esterni.
+native/ios/App/App/public: SW/offline sculpt-control-v27; 59 asset cache presenti, inclusi tutti i riferimenti locali dell’index e channel-chain.js.
+desktop/app/index.html: 55 riferimenti locali src/href risolti; 0 esterni.
+desktop/app: SW/offline sculpt-control-v27; 59 asset cache presenti, inclusi tutti i riferimenti locali dell’index e channel-chain.js.
+
+Metadati di release: 25/25 valori allineati a 0.7.2.
+  dist/index.html = 0.7.2
+  dist/shell.js About = 0.7.2
+  dist/native-bridge.js = 0.7.2
+  native/dist/index.html = 0.7.2
+  native/dist/shell.js About = 0.7.2
+  native/dist/native-bridge.js = 0.7.2
+  native/ios/App/App/public/index.html = 0.7.2
+  native/ios/App/App/public/shell.js About = 0.7.2
+  native/ios/App/App/public/native-bridge.js = 0.7.2
+  desktop/app/index.html = 0.7.2
+  desktop/app/shell.js About = 0.7.2
+  desktop/app/native-bridge.js = 0.7.2
+  native/package.json = 0.7.2
+  native/package-lock.json root = 0.7.2
+  native/package-lock.json packages[""] = 0.7.2
+  desktop/package.json = 0.7.2
+  desktop/package-lock.json root = 0.7.2
+  desktop/package-lock.json packages[""] = 0.7.2
+  native/src/live-entry.ts = 0.7.2
+  desktop/src/preload.cjs = 0.7.2
+  audio-host/CMakeLists.txt = 0.7.2
+  audio-host/Source/Main.cpp = 0.7.2
+  Xcode MARKETING_VERSION configurazione 1 = 0.7.2
+  Xcode MARKETING_VERSION configurazione 2 = 0.7.2
+  Info.plist CFBundleShortVersionString risolto = 0.7.2
+Xcode: entrambe le MARKETING_VERSION ora sono 0.7.2; CFBundleShortVersionString deriva da quel valore. CURRENT_PROJECT_VERSION resta il contatore build 1.
+
+SHA-256 channel-chain.js: 3cfee5176a43781c057fa2f9f740994b4e25ac3483c1e4288dfa8e0644ba31a1
+Riepilogo: 66 file sorgente; 195 confronti byte di asset non-HTML; 3 wrapper HTML; 223 riferimenti index; 236 presenze asset cache; 25 metadati release.
+Ambito: verifica file e preparazione asset; nessuna nuova compilazione C++, avvio macOS, verifica browser o prova hardware eseguita.
+RISULTATO: PASS — 0 difformità

@@ -1,0 +1,56 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> sculpt-wing-desktop@0.7.2 test
+> node --test --test-timeout=30000 --test-reporter=spec tests/*.test.cjs
+
+✔ audio policy only accepts catalog IDs, bounded channels and explicit operations (4.305955ms)
+✔ native helper is lazy, uses fixed argv without a shell, and parses fragmented UTF-8 JSON lines (83.74805ms)
+✔ crash rejects every in-flight request and does not restart from status or getState (82.956411ms)
+✔ pending and byte limits prevent unbounded work, and late replies cannot resolve a new request (116.541177ms)
+✔ an oversized or malformed native message kills the helper and fails pending commands (2.462595ms)
+✔ aggregate request bytes are capped even before the pending-command count is reached (81.25483ms)
+✔ session save is atomic, preserves plugin blobs and missing names, and restore never includes a running flag (10.846412ms)
+✔ sleep stops an existing helper without spawning one and close is idempotent (0.873277ms)
+✔ OSC encoder writes network-endian typed arguments and padded UTF-8 strings (2.583096ms)
+✔ invalid OSC requests fail before any socket is created (2.722276ms)
+✔ OSC sends a real datagram over loopback and reports transport delivery without execution acknowledgement (15.054429ms)
+✔ Show status requires a valid OSC reply from the selected endpoint (2.460992ms)
+✔ Show timeout is an error and closes its pending socket (43.731807ms)
+✔ foreign UDP replies are ignored and app suspension cancels the request (1.1272ms)
+✔ Show rejects errors and malformed status instead of marking transport delivery as confirmed (1.02791ms)
+✔ OSC sender bounds burst rate and concurrent requests (11.913942ms)
+✔ PDF worker is local-only while renderer network access stays disabled (2.76423ms)
+✔ desktop protocol and IPC policy reject remote origins and traversal (4.681121ms)
+✔ preload exposes fixed calls and strips privileged event argument (4.712259ms)
+✔ Mac Undo and Redo use the application history and text fallback remains restricted to its main frame (5.731115ms)
+✔ desktop shell isolates renderer, checks sender, closes stale sessions and blocks navigation (10.141057ms)
+✔ second app instance exits before opening a window (2.461113ms)
+✔ opening file dialogs, exporting a scene and blocked links preserve the console connection (3.839441ms)
+✔ USB capture requests macOS microphone permission only on an explicit configure/start action (8.290626ms)
+✔ OSC IPC uses its own bounded transport and the same trusted main-frame checks (4.04396ms)
+✔ audio IPC rejects arbitrary methods, executable paths, foreign frames and stale windows (4.05733ms)
+✔ audio survives screen lock and renderer loss, stops on sleep, and closes before application quit (15.680623ms)
+✔ Cmd+= changes mixer layout and zoom does not claim the same shortcut (2.840925ms)
+✔ private IPv4 boundary matches iOS; invalid connect never replaces a live session (6.671774ms)
+✔ real sockets carry ordered initial/TCP bytes, UDP identity and meter frames directly (35.873323ms)
+✔ cancel pending connect by request ID; late completion and old disconnect cannot touch replacement (1.579948ms)
+✔ new connection rejects old pending connect and old sends, with no replay (1.442557ms)
+✔ disconnect before ready delivery cancels activation; a delayed UDP bind is still closed (2.687004ms)
+✔ strict base64, send byte boundaries and stale session IDs (12.559966ms)
+✔ TCP backpressure waits for callback and drain, preserving queue order (4.312836ms)
+✔ pending send count and byte caps reject excess without closing a healthy session (6.051238ms)
+✔ connect timeout, network failure and send timeout clean all resources exactly once (32.140988ms)
+✔ TCP callback failure rejects every pending send; invalid UDP size tears down the session (1.13362ms)
+✔ suspend rejects pending writes; reconnect is explicit, close is terminal (2.118846ms)
+✔ initial packets stay ordered, foreign peers are ignored, receive queue is bounded (1.238739ms)
+✔ a UDP meter burst drops excess datagrams while TCP control stays connected and ordered (1.578601ms)
+✔ queued control data is delivered before pending meters without changing TCP byte order (0.88128ms)
+✔ asynchronous event delivery preserves order and failure tears down without unhandled rejection (0.763331ms)
+ℹ tests 43
+ℹ suites 0
+ℹ pass 43
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 555.912933
