@@ -1,8 +1,10 @@
-# Sculpt Wing 0.7.1
+# Sculpt Wing 0.7.2
 
 Controller WING. La distribuzione attuale è **Mac M1 / Apple Silicon ARM64**; il repository conserva anche i precedenti progetti per altre piattaforme.
 
-La **0.7.1** aggiunge l’editor Compact a dispositivi affiancati, con parametri principali e moduli espandibili in larghezza. Ridisegna i pannelli WING EQ/Dynamics, attiva automaticamente il RTA del canale, abilita Controllo dopo la sincronizzazione e mostra un avviso persistente con Ricollega quando la sessione si interrompe. Corregge macro, catalogo Scene dello Show e prestazioni, e introduce una libreria di scene locali. [Note, istruzioni e verifiche 0.7.1](docs/RELEASE_0.7.1_MAC_M1.md).
+La **0.7.2** porta le stesse nove caselle in Compact ed Extended: **Home, Pre, Gate, EQ, Comp, Insert 1, Insert 2, Send, Master**. Ogni modulo mantiene i parametri principali e si espande in larghezza; il riordino segue le possibilità reali della WING e le due viste condividono lo stato confermato. Extended conserva gli stessi fader, pan e mute sotto gli slot. [Note e utilizzo 0.7.2](docs/RELEASE_0.7.2_MAC_M1.md).
+
+Restano i pannelli WING EQ/Dynamics ridisegnati, il RTA automatico, Controllo dopo la sincronizzazione, l’avviso Ricollega, le correzioni a macro e catalogo Scene e la libreria di scene locali della [0.7.1](docs/RELEASE_0.7.1_MAC_M1.md).
 
 Conserva **Extended**, alternata a Compact con **Cmd + =**, e il motore nativo VST3 sul Mac: **USB per l’audio ed Ethernet per il controllo**. Restano l’applicazione al banco della scena preparata dal PDF, la lettura dei DCA e la rinomina con CLINK introdotte nella 0.7.0.
 
@@ -16,7 +18,7 @@ Questo pacchetto contiene i sorgenti pronti per il repository **sculpt wing**. S
 
 Il workflow è **`.github/workflows/build-desktop.yml`**, incluso anche se Finder nasconde le cartelle che iniziano con un punto. In GitHub compare come **Build Sculpt Wing - Mac M1** e parte con un push su `main` o `master`, una pull request verso questi rami, oppure da **Actions → Build Sculpt Wing - Mac M1 → Run workflow**.
 
-Dopo i test dell’interfaccia, del trasporto e dell’host VST3, produce l’artifact **Sculpt-Wing-Mac-M1**, contenente `Sculpt-Wing-0.7.1-mac-arm64.zip`. Non occorre installare Node sul proprio computer per usare GitHub Actions. Il pacchetto di sorgenti non contiene questo binario già compilato. Runner, firma e verifiche sono descritti nelle [note 0.7.1](docs/RELEASE_0.7.1_MAC_M1.md).
+Dopo i test dell’interfaccia, del trasporto e dell’host VST3, produce l’artifact **Sculpt-Wing-Mac-M1**, contenente `Sculpt-Wing-0.7.2-mac-arm64.zip`. Non occorre installare Node sul proprio computer per usare GitHub Actions. Il pacchetto di sorgenti non contiene questo binario già compilato. Le verifiche della consegna sono descritte nel [report 0.7.2](docs/VERIFICA_0.7.2.md).
 
 ## Cosa aprire
 
@@ -34,7 +36,9 @@ Le **mandate nell’editor canale hanno fader verticali**. Per cambiare nome: ap
 
 Due file compatte: **16 BUS + 8 MTX + 4 MAIN + 16 DCA** sopra, **40 CH + 8 AUX** sotto. Gli AUX sono ingressi. SOF su ogni BUS/MTX, editor da nome strip, macro nella barra inferiore e tema Sculpt rosso. Il pulsante DCA scorre fino ai gruppi nella stessa riga; i DCA ancorati rimangono visibili quando si torna ai BUS.
 
-**Compact / Extended:** Cmd + = oppure il selettore nella testata. Compact mantiene le due righe e apre tutti i dispositivi del canale nella riga opposta: filtro, gate, EQ, dinamica e insert dove previsti. I parametri principali sono subito disponibili; ogni modulo si espande orizzontalmente senza rimuovere i vicini. Extended mostra il banco scelto, con i moduli WING e quattro slot VST3 visibili sopra i fader; Rack apre gli otto slot della catena. Stato, SOF e ancoraggi rimangono condivisi e il cambio vista non scrive parametri audio.
+**Compact / Extended:** Cmd + = oppure il selettore nella testata. Compact mantiene le due righe e apre le nove caselle del canale nella riga opposta. Pre contiene ingresso e filtri; Send raccoglie le mandate; Master espone fader, pan, mute e assegnazioni Main. I parametri principali sono subito disponibili e ogni modulo si espande orizzontalmente mantenendo i vicini. Extended mostra le stesse nove caselle e quattro slot VST3 sopra gli stessi fader, pan e mute; Rack apre gli otto slot VST3. Ordine, stato, SOF e ancoraggi sono condivisi e il cambio vista non scrive parametri audio.
+
+**Riordino WING:** sui CH si spostano Gate, EQ, Comp e Insert 1; Send seleziona il TAP comune alle mandate PRE. Home, Pre e Master sono pagine fisse e Insert 2 resta post-fader. AUX e uscite conservano l’ordine previsto dalla propria famiglia, con le funzioni assenti indicate come non disponibili. Maniglia o tastiera aprono le destinazioni consentite; Escape annulla il gesto, Cmd + Z annulla uno spostamento confermato. In live i comandi dipendono dai valori e dallo schema letti dalla console.
 
 **EQ e Dynamics:** grafici ampi, fascia di controlli compatta e comandi Preset, Salva, Copia, Incolla e Reset nella barra superiore a destra. L’EQ presenta i controlli della banda selezionata; le altre bande restano raggiungibili dalla relativa selezione. Curve e controlli conservano focus e nodi durante gli aggiornamenti ordinari.
 
@@ -90,4 +94,4 @@ Il pacchetto contiene codice sorgente, test, documentazione e risorse. **Non con
 
 Il bundle desktop include la stessa cartella `dist/` e lo stesso driver WING di iOS. Controllo diventa attivo dopo la lettura riuscita del banco. I pacchetti vengono isolati per sessione e i comandi pendenti sono annullati alla disconnessione o alla sospensione.
 
-Il workflow corrente compila soltanto Mac M1 / Apple Silicon ARM64 per la distribuzione. La nuova app macOS deve essere prodotta dal workflow dopo il caricamento autorizzato di questo aggiornamento. Le prove sono elencate in [VERIFICA_0.7.1.md](docs/VERIFICA_0.7.1.md); i test automatici non equivalgono al collaudo della build aggiornata su WING reale.
+Il workflow corrente compila soltanto Mac M1 / Apple Silicon ARM64 per la distribuzione. La nuova app macOS deve essere prodotta dal workflow dopo il caricamento dei sorgenti. Le prove sono elencate in [VERIFICA_0.7.2.md](docs/VERIFICA_0.7.2.md); i test automatici non equivalgono al collaudo della build aggiornata su WING reale.

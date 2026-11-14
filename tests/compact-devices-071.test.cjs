@@ -20,7 +20,7 @@ function fixture(t) {
   w.SculptRTA = { mount(host, options) { rta.push({ host, ...options }); return () => disposed.push(options.sourceId); } };
   const files = ['plugin-data.js', 'model.js', 'history.js', 'app.js', 'desk.js', 'shell.js', 'plugin-panels.js',
     ...['layouts', 'dynamics', 'eq', 'fx', 'channel', 'native', 'dynamics-extra', 'filters'].map(part => `plugin-original-${part}.js`),
-    'plugins.js', 'wing-map.js', 'editor.js', 'dca-bank.js'];
+    'plugins.js', 'wing-map.js', 'channel-chain.js', 'editor.js', 'dca-bank.js'];
   for (const file of files) vm.runInContext(fs.readFileSync(path.join(base, file), 'utf8'), dom.getInternalVMContext(), { filename: file });
   const E = w.SculptEditor, C = w.SculptController, D = w.SculptDesk;
   t.after(() => { E.close(); w.close(); });
@@ -39,10 +39,10 @@ test('Compact opens every supported device in the opposite row with principal co
   const f = fixture(t), fader = f.w.document.querySelector('.strip[data-id="ch-1"] .fader'), levels = JSON.stringify(f.C.capture().values);
   f.E.open('ch-1');
   assert.equal(f.editor().dataset.dockRow, 'outputs');
-  assert.deepEqual([...f.editor().querySelectorAll('.editor-device-panel')].map(node => node.dataset.module), ['filter', 'gate', 'eq', 'dyn', 'pre', 'post']);
-  for (const block of ['filter', 'gate', 'dyn']) assert(f.card(block).querySelector('.fx-principal-controls input,.fx-principal-controls select'));
-  assert(f.card('filter').querySelector('[aria-label="Low cut in Hz"]'));
-  assert(f.card('filter').querySelector('[aria-label="High cut in Hz"]'));
+  assert.deepEqual([...f.editor().querySelectorAll('.editor-device-panel')].map(node => node.dataset.module), ['home', 'input', 'gate', 'eq', 'dyn', 'pre', 'sends', 'post', 'master']);
+  for (const block of ['gate', 'dyn']) assert(f.card(block).querySelector('.fx-principal-controls input,.fx-principal-controls select'));
+  assert(f.card('input').querySelector('[aria-label="Low cut in Hz"]'));
+  assert(f.card('input').querySelector('[aria-label="High cut in Hz"]'));
   assert.equal(f.card('eq').dataset.expanded, 'true');
   assert.equal(f.rta.length, 1); assert.equal(f.rta[0].sourceId, 'ch-1'); assert.equal(f.rta[0].tap, 'PREEQ');
   assert.equal(f.w.document.querySelector('.strip[data-id="ch-1"] .fader'), fader);
@@ -68,11 +68,13 @@ test('each device expands horizontally in place while its neighbours, focus and 
 test('device cards follow actual processor order and channel capabilities without inventing slots', t => {
   const f = fixture(t); f.E.open('ch-1');
   f.D.patchChannel('ch-1', { order: ['dyn', 'insert', 'eq', 'gate'] });
-  assert.deepEqual([...f.editor().querySelectorAll('.editor-device-panel')].map(node => node.dataset.module), ['filter', 'dyn', 'pre', 'eq', 'gate', 'post']);
+  assert.deepEqual([...f.editor().querySelectorAll('.editor-device-panel')].map(node => node.dataset.module), ['home', 'input', 'dyn', 'pre', 'eq', 'gate', 'sends', 'post', 'master']);
   f.E.open('aux-1');
-  assert.deepEqual([...f.editor().querySelectorAll('.editor-device-panel')].map(node => node.dataset.module), ['eq', 'dyn', 'pre']);
+  assert.deepEqual([...f.editor().querySelectorAll('.editor-device-panel')].map(node => node.dataset.module), ['home', 'input', 'gate', 'eq', 'dyn', 'pre', 'post', 'sends', 'master']);
+  assert.equal(f.card('gate').dataset.state, 'unavailable'); assert.equal(f.card('post').dataset.state, 'unavailable');
   f.E.open('bus-1');
-  assert.deepEqual([...f.editor().querySelectorAll('.editor-device-panel')].map(node => node.dataset.module), ['eq', 'dyn', 'pre', 'post']);
+  assert.deepEqual([...f.editor().querySelectorAll('.editor-device-panel')].map(node => node.dataset.module), ['home', 'input', 'gate', 'dyn', 'pre', 'eq', 'post', 'sends', 'master']);
+  assert.equal(f.card('gate').dataset.state, 'unavailable');
   assert.equal(f.editor().dataset.dockRow, 'inputs');
 });
 

@@ -28,7 +28,7 @@ function fixture(t, { saved, desktop = false, realVst = false } = {}) {
   if (saved) w.localStorage.setItem('sculpt-wing-mixer-view-v1', JSON.stringify(saved));
   if (desktop) w.SculptDesktop = { available: true, addListener: (name, fn) => { listeners.set(name, fn); return { remove() {} }; } };
   if (!realVst) w.SculptVst = { getRack: id => racks.get(id), openSlot: (id, index) => vstOpened.push({ id, index }), openRack: id => vstOpened.push({ id, rack: true }) };
-  const files = ['plugin-data.js', 'model.js', 'history.js', 'app.js', 'desk.js', 'shell.js', 'systems.js', 'plugin-panels.js',
+  const files = ['plugin-data.js', 'model.js', 'history.js', 'app.js', 'desk.js', 'channel-chain.js', 'shell.js', 'systems.js', 'plugin-panels.js',
     ...['layouts', 'dynamics', 'eq', 'fx', 'channel', 'native', 'dynamics-extra', 'filters'].map(part => `plugin-original-${part}.js`),
     'plugins.js', 'editor.js', 'wing-map.js', 'dca-bank.js', 'row-layout.js', 'strip-pins.js',
     ...(realVst ? ['vst-rack-model.js', 'vst-rack.js'] : []), 'extended.js'];
@@ -52,7 +52,7 @@ test('Compact and Extended reuse every strip, fader, pin and SOF state without c
   f.P.pin('ch-1', 'left'); f.P.pin('aux-2', 'right'); f.P.pin('bus-3', 'left'); f.P.pin('dca-2', 'right');
   f.C.setSof('bus-3'); f.C.selectStrip('ch-4');
   const before = plain(f.C.capture()), preferences = plain(f.P.preferences());
-  const nodes = new Map([...root.querySelectorAll('.strip')].map(node => [node.dataset.id, { node, fader: node.querySelector('.fader'), cap: node.querySelector('.fader-cap'), parent: node.parentElement }]));
+  const nodes = new Map([...root.querySelectorAll('.strip')].map(node => [node.dataset.id, { node, fader: node.querySelector('.fader'), cap: node.querySelector('.fader-cap'), pan: node.querySelector('.strip-pan'), mute: node.querySelector('.mute-button'), parent: node.parentElement }]));
   const rowRatio = root.style.getPropertyValue('--sculpt-upper-row');
   assert.equal(f.V.mode(), 'compact'); assert.equal(f.V.setMode('extended'), true);
   assert.equal(f.V.mode(), 'extended'); assert.equal(root.querySelector('.mixer-row.outputs').classList.contains('extended-row-hidden'), true);
@@ -60,6 +60,7 @@ test('Compact and Extended reuse every strip, fader, pin and SOF state without c
   for (const [id, item] of nodes) {
     assert.equal(f.strip(id), item.node, id); assert.equal(f.strip(id).querySelector('.fader'), item.fader, id);
     assert.equal(f.strip(id).querySelector('.fader-cap'), item.cap, id); assert.equal(f.strip(id).parentElement, item.parent, id);
+    assert.equal(f.strip(id).querySelector('.strip-pan'), item.pan, id); assert.equal(f.strip(id).querySelector('.mute-button'), item.mute, id);
   }
   f.V.setBank('outputs'); f.V.toggle();
   assert.equal(root.querySelectorAll('.extended-row-hidden').length, 0);
@@ -105,15 +106,20 @@ test('Electron accelerator owns Cmd+= while its mixerView event performs a singl
   f.listeners.get('mixerView')('toggle'); assert.equal(f.V.mode(), 'compact');
 });
 
-test('WING slots open the real EQ, gate, dynamics, filter and insert modules', t => {
+test('all nine WING slots open the same channel device cards while retaining family capabilities', t => {
   const f = fixture(t); f.V.setMode('extended');
-  f.slot('ch-2', 'eq').click(); assert.equal(f.selectedTab(), 'eq'); assert.equal(f.editor().querySelector('.editor-plugin-host').dataset.processorBlock, 'eq');
-  f.slot('ch-2', 'gate').click(); assert.equal(f.selectedTab(), 'dynamics'); assert.equal(f.editor().querySelector('.editor-plugin-host').dataset.processorBlock, 'gate');
-  f.slot('ch-2', 'dyn').click(); assert.equal(f.editor().querySelector('.editor-plugin-host').dataset.processorBlock, 'dyn');
-  f.slot('ch-2', 'filter').click(); assert.equal(f.selectedTab(), 'processing'); assert(f.editor().querySelector('#editor-filter-section'));
-  f.slot('ch-2', 'pre').click(); assert.equal(f.selectedTab(), 'processing'); assert(f.editor().querySelector('#editor-insert-section'));
-  f.D.assignFx(1, 'ch-2', 'pre'); f.slot('ch-2', 'pre').click(); assert.deepEqual(f.fxOpened, [{ type: 'fx', slot: 1 }]);
-  assert.equal(f.slot('bus-1', 'gate').disabled, true); assert.equal(f.slot('aux-1', 'filter').disabled, true); assert.equal(f.slot('aux-1', 'post').disabled, true);
+  const modules = ['home', 'input', 'gate', 'eq', 'dyn', 'pre', 'post', 'sends', 'master'];
+  assert.equal(f.strip('ch-2').querySelectorAll('.extended-wing .extended-slot').length, 9);
+  assert.deepEqual(modules.map(key => f.slot('ch-2', key).querySelector('.extended-slot-label').textContent), ['Home', 'Pre', 'Gate', 'EQ', 'Comp', 'Insert', 'Insert', 'Send', 'Master']);
+  for (const key of modules) {
+    f.slot('ch-2', key).click(); assert.equal(f.selectedTab(), 'devices');
+    const card = f.editor().querySelector(`.editor-device-panel[data-module="${key}"]`);
+    assert.ok(card); assert.equal(card.dataset.expanded, 'true'); assert.equal(card.classList.contains('is-selected'), true);
+  }
+  f.D.assignFx(1, 'ch-2', 'pre'); f.slot('ch-2', 'pre').click();
+  assert.equal(f.editor().querySelector('.editor-device-panel[data-module="pre"] .fx-processor').dataset.model, f.D.processor({ type: 'fx', slot: 1 }).model);
+  assert.deepEqual(f.fxOpened, [], 'the assigned insert opens inline in the common board');
+  assert.equal(f.slot('bus-1', 'gate').disabled, true); assert.equal(f.slot('aux-1', 'input').disabled, false); assert.equal(f.slot('aux-1', 'post').disabled, true); assert.equal(f.slot('mtx-1', 'sends').disabled, true);
   f.slot('bus-1', 'dyn').click(); assert.equal(f.V.bank(), 'outputs'); assert.equal(f.editor().dataset.dockRow, 'extended');
 });
 
@@ -151,7 +157,7 @@ test('live slots show unknown state until the relevant model, enable and insert 
   const f = fixture(t), received = new Set();
   f.w.SculptLive = { isLive: () => true, isConnected: () => true, hasValue: path => received.has(path) };
   f.V.setMode('extended');
-  for (const block of ['filter', 'gate', 'eq', 'dyn', 'pre', 'post']) {
+  for (const block of ['gate', 'eq', 'dyn', 'pre', 'post']) {
     assert.equal(f.slot('ch-1', block).dataset.state, 'unknown', block);
     assert.equal(f.slot('ch-1', block).querySelector('.extended-slot-name').textContent, '—', block);
   }
@@ -224,4 +230,105 @@ test('saved VST3 labels stay distinct from a connected and running native host',
   f.V.setMode('extended'); assert.equal(f.slot('ch-1', 'vst-0').dataset.state, 'unknown');
   engine.connected = true; f.w.dispatchEvent(new f.w.CustomEvent('sculpt-vst-state')); assert.equal(f.slot('ch-1', 'vst-0').dataset.state, 'ready');
   engine.running = true; f.w.dispatchEvent(new f.w.CustomEvent('sculpt-vst-state')); assert.equal(f.slot('ch-1', 'vst-0').dataset.state, 'active');
+});
+
+function device(f, id, key) { return f.strip(id).querySelector(`.extended-device[data-module="${key}"]`); }
+function deviceOrder(f, id) { return [...f.strip(id).querySelectorAll('.extended-wing > .extended-device')].map(node => node.dataset.module); }
+function dragEvent(f, node, type, y = 0) {
+  const event = new f.w.MouseEvent(type, { clientY: y, bubbles: true, cancelable: true });
+  Object.defineProperty(event, 'dataTransfer', { value: { setData() {}, setDragImage() {}, effectAllowed: '', dropEffect: '' } });
+  node.dispatchEvent(event); return event;
+}
+function deviceKey(f, node, key) { return node.dispatchEvent(new f.w.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })); }
+
+test('Extended drag uses the shared real proc order, changes no other field and preserves every slot node', async t => {
+  const f = fixture(t); f.D.patchChannel('ch-1', { tap: '4' }); f.V.setMode('extended');
+  const before = plain(f.C.capture()), nodes = new Map([...f.strip('ch-1').querySelectorAll('.extended-device')].map(node => [node.dataset.module, node]));
+  const source = device(f, 'ch-1', 'gate').querySelector('.extended-device-drag'), target = device(f, 'ch-1', 'dyn');
+  target.getBoundingClientRect = () => ({ top: 50, height: 20 });
+  assert.equal(dragEvent(f, source, 'dragstart').defaultPrevented, false);
+  assert.equal(dragEvent(f, device(f, 'ch-2', 'dyn'), 'dragover', 69).defaultPrevented, false, 'a device cannot be transferred to a different channel');
+  dragEvent(f, device(f, 'ch-2', 'dyn'), 'drop', 69); assert.deepEqual(plain(f.C.capture()), before);
+  assert.equal(dragEvent(f, target, 'dragover', 69).defaultPrevented, true); assert.equal(target.dataset.drop, 'after');
+  assert.deepEqual(plain(f.C.capture()), before, 'a drop marker never previews an audio mutation');
+  dragEvent(f, target, 'drop', 69); await tick();
+  assert.deepEqual(plain(f.D.channel('ch-1').order), ['eq', 'dyn', 'gate', 'insert']); assert.equal(f.D.channel('ch-1').tap, '4');
+  const expected = plain(before); expected.desk.channels['ch-1'].order = ['eq', 'dyn', 'gate', 'insert'];
+  assert.deepEqual(plain(f.C.capture()), expected, 'only the requested proc order changes');
+  for (const [key, node] of nodes) assert.equal(device(f, 'ch-1', key), node, key);
+  assert.deepEqual(deviceOrder(f, 'ch-1'), ['home', 'input', 'eq', 'dyn', 'sends', 'gate', 'pre', 'post', 'master']);
+  f.V.setMode('compact'); f.E.openDevice('ch-1', 'eq');
+  assert.deepEqual([...f.editor().querySelectorAll('.editor-device-board > .editor-device-panel')].map(node => node.dataset.module), deviceOrder(f, 'ch-1'), 'both views follow the same confirmed channel order');
+});
+
+test('the Send drag palette offers eight actual taps and changes ptap independently from proc', async t => {
+  const f = fixture(t); f.V.setMode('extended'); const before = plain(f.C.capture());
+  const handle = device(f, 'ch-1', 'sends').querySelector('.extended-device-drag'); handle.click();
+  const palette = f.w.document.querySelector('.extended-tap-palette'); assert.equal(palette.hidden, false);
+  assert.deepEqual([...palette.querySelectorAll('.extended-tap-choice')].map(node => node.dataset.target), ['tap:IN', 'tap:FILT', 'tap:3', 'tap:4', 'tap:5', 'tap:PFL', 'tap:AFL', 'tap:POST']);
+  assert.equal(palette.querySelector('[data-target="tap:PFL"]').getAttribute('aria-pressed'), 'true');
+  assert.deepEqual(plain(f.C.capture()), before);
+  const choice = palette.querySelector('[data-target="tap:IN"]'); choice.click(); await tick();
+  const expected = plain(before); expected.desk.channels['ch-1'].tap = 'IN';
+  assert.deepEqual(plain(f.C.capture()), expected); assert.deepEqual(deviceOrder(f, 'ch-1').slice(0, 3), ['home', 'sends', 'input']);
+  assert.equal(f.slot('ch-1', 'sends').querySelector('.extended-slot-name').textContent, 'TAP IN');
+  assert.equal(palette.hidden, true); assert.equal(f.w.document.activeElement, handle);
+  assert.equal(device(f, 'ch-1', 'post').querySelector('.extended-device-drag').disabled, true, 'INS2 is fixed after the fader');
+  assert.match(f.slot('ch-1', 'post').getAttribute('aria-label'), /post-fader/);
+  assert.equal(device(f, 'bus-1', 'eq').querySelector('.extended-device-drag').disabled, true, 'output processing remains fixed');
+  dragEvent(f, handle, 'dragstart'); const post = palette.querySelector('[data-target="tap:POST"]');
+  assert.equal(dragEvent(f, post, 'dragover').defaultPrevented, true); assert.equal(post.dataset.drop, 'true');
+  dragEvent(f, post, 'drop'); await tick(); expected.desk.channels['ch-1'].tap = 'POST';
+  assert.deepEqual(plain(f.C.capture()), expected, 'the same semantic tap also accepts pointer drop');
+});
+
+test('keyboard ordering supports preview, Escape and confirmation without requiring a pointer drag', async t => {
+  const f = fixture(t); f.V.setMode('extended'); const before = plain(f.C.capture());
+  const handle = device(f, 'ch-1', 'gate').querySelector('.extended-device-drag'); handle.focus();
+  deviceKey(f, handle, ' '); deviceKey(f, handle, 'End');
+  assert.equal(device(f, 'ch-1', 'pre').dataset.drop, 'after'); assert.deepEqual(plain(f.C.capture()), before);
+  deviceKey(f, handle, 'Escape'); assert.equal(f.w.document.querySelector('.extended-device[data-drop]'), null); assert.equal(f.w.document.activeElement, handle);
+  assert.deepEqual(plain(f.C.capture()), before);
+  deviceKey(f, handle, ' '); deviceKey(f, handle, 'End'); deviceKey(f, handle, 'Enter'); await tick();
+  const expected = plain(before); expected.desk.channels['ch-1'].order = ['eq', 'dyn', 'insert', 'gate'];
+  assert.deepEqual(plain(f.C.capture()), expected); assert.equal(f.w.document.activeElement, handle);
+});
+
+test('a control loss, session or schema change, and a view change cancel old Extended drag tokens before any commit', async t => {
+  const f = fixture(t); f.V.setMode('extended');
+  let epoch = 1, writable = true, commits = 0;
+  const proc = ['GEDI', 'EDGI'], path = '/ch/1/proc', tapPath = '/ch/1/ptap', values = new Map([[path, 'GEDI'], [tapPath, 'PFL']]);
+  const metadata = new Map([[path, { path, type: 5, revision: 1, readOnly: false, items: proc.map(value => ({ value })) }], [tapPath, { path: tapPath, type: 5, revision: 1, readOnly: false, items: ['IN', 'FILT', '3', '4', '5', 'PFL', 'AFL', 'POST'].map(value => ({ value })) }]]);
+  f.w.SculptLive = { isLive: () => true, isConnected: () => true, isWritable: () => writable, sessionToken: () => epoch,
+    hasValue: key => values.has(key), value: key => values.get(key), metadata: key => metadata.get(key),
+    describeNode: async key => metadata.get(key), readValues: async key => ({ [key]: values.get(key) }) };
+  const api = f.w.SculptChannelChain;
+  f.w.SculptChannelChain = { ...api, commit: (...args) => { commits++; return api.commit(...args); } };
+  f.V.refresh('ch-1'); const before = plain(f.C.capture());
+  const source = device(f, 'ch-1', 'gate').querySelector('.extended-device-drag'), target = device(f, 'ch-1', 'dyn');
+  target.getBoundingClientRect = () => ({ top: 50, height: 20 });
+  for (const change of [() => { writable = false; }, () => { epoch++; }, () => { metadata.get(path).revision++; }, () => f.V.setMode('compact')]) {
+    writable = true; f.V.setMode('extended'); f.V.refresh('ch-1');
+    assert.equal(source.disabled, false); dragEvent(f, source, 'dragstart'); dragEvent(f, target, 'dragover', 69);
+    assert.equal(target.dataset.drop, 'after'); change(); f.w.dispatchEvent(new f.w.CustomEvent('sculpt-live-state'));
+    dragEvent(f, target, 'drop', 69); await tick();
+    assert.equal(commits, 0); assert.equal(f.w.document.querySelector('.extended-device[data-dragging]'), null);
+    assert.deepEqual(plain(f.C.capture()), before);
+  }
+});
+
+test('a pending shared commit keeps the actual rack order and leaves the native fader usable', async t => {
+  const f = fixture(t); f.V.setMode('extended');
+  const api = f.w.SculptChannelChain, beforeOrder = deviceOrder(f, 'ch-1');
+  let release; const gate = new Promise(resolve => { release = resolve; });
+  f.w.SculptChannelChain = { ...api, commit: async (...args) => { await gate; return api.commit(...args); } };
+  const source = device(f, 'ch-1', 'gate').querySelector('.extended-device-drag'), target = device(f, 'ch-1', 'dyn');
+  target.getBoundingClientRect = () => ({ top: 50, height: 20 });
+  dragEvent(f, source, 'dragstart'); dragEvent(f, target, 'drop', 69);
+  assert.deepEqual(deviceOrder(f, 'ch-1'), beforeOrder); assert.deepEqual(plain(f.D.channel('ch-1').order), ['gate', 'eq', 'dyn', 'insert']);
+  const fader = f.strip('ch-1').querySelector('.fader'), level = f.C.getStrip('ch-1').level;
+  deviceKey(f, fader, 'ArrowUp'); assert(f.C.getStrip('ch-1').level > level);
+  const changedLevel = f.C.getStrip('ch-1').level; release(); await tick();
+  assert.deepEqual(plain(f.D.channel('ch-1').order), ['eq', 'dyn', 'gate', 'insert']);
+  assert.equal(f.C.getStrip('ch-1').level, changedLevel); assert.equal(f.strip('ch-1').querySelector('.fader'), fader);
 });

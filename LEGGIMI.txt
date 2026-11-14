@@ -1,10 +1,17 @@
-SCULPT WING 0.7.1 — COMPACT A MODULI E CORREZIONI LIVE
+SCULPT WING 0.7.2 — NOVE MODULI IN COMPACT ED EXTENDED
 
 Il pacchetto contiene i sorgenti completi aggiornati dalla versione 0.6.8.
 La nuova app Mac ARM64 viene creata dal workflow GitHub dopo il caricamento.
 
 NOVITÀ
 
+• Compact ed Extended condividono nove caselle: Home, Pre, Gate, EQ, Comp,
+  Insert 1, Insert 2, Send, Master. Extended conserva fader, pan e mute.
+• Sui CH, Gate/EQ/Comp/Insert 1 si riordinano tramite le maniglie.
+  Send sceglie il TAP comune alle mandate PRE. Home/Pre/Master sono pagine
+  fisse e Insert 2 rimane post-fader. Le altre famiglie seguono la WING.
+• Cmd + Z annulla gli spostamenti confermati; Escape annulla un gesto.
+  I pannelli aperti, EQ e analizzatore restano montati durante il riordino.
 • Compact apre i processori affiancati nella riga opposta ai fader del canale.
   I parametri principali sono subito disponibili; ogni modulo si espande
   orizzontalmente per mostrare tutti i controlli, mantenendo le schede vicine.
@@ -60,17 +67,17 @@ sul sistema Mac/WING effettivamente utilizzato.
 
 COMPILAZIONE
 
-Estrai Sculpt-Wing-0.7.1-source.zip. Segui CARICA_SU_GITHUB.md per il caricamento
+Estrai Sculpt-Wing-0.7.2-source.zip. Segui CARICA_SU_GITHUB.md per il caricamento
 in un ramo del repository e la compilazione. Nel Finder, Cmd + Shift + . rende
 visibile .github. L’artifact previsto è Sculpt-Wing-Mac-M1, contenente
-Sculpt-Wing-0.7.1-mac-arm64.zip e Sculpt Wing.app.
+Sculpt-Wing-0.7.2-mac-arm64.zip e Sculpt Wing.app.
 
 GUIDE
 
 README.md — panoramica e sviluppo.
 CARICA_SU_GITHUB.md — compilazione e download della nuova app.
-docs/RELEASE_0.7.1_MAC_M1.md — uso, modifiche e limiti.
-docs/VERIFICA_0.7.1.md — risultati delle prove e collaudo ancora necessario.
+docs/RELEASE_0.7.2_MAC_M1.md — uso, modifiche e limiti.
+docs/VERIFICA_0.7.2.md — risultati delle prove e collaudo ancora necessario.
 docs/RTA_WING.md — analizzatore, profili e fonti.
 docs/CHANNEL_LIST_IMPORT.md — anteprima e applicazione della channel list.
 audio-host/README.md — motore nativo VST3 e test.
