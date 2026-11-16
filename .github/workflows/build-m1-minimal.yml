@@ -1,0 +1,77 @@
+name: Build Sculpt Wing - Mac M1 (minimal)
+
+on:
+  push:
+    branches: ['codex/build-m1-073-*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sculpt-wing-m1-minimal-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-m1:
+    name: Mac M1 - build and essential smoke checks
+    runs-on: macos-15
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: bash
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      CSC_FOR_PULL_REQUEST: 'true'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Verify native ARM64 runner
+        run: |
+          test "$(uname -s)" = Darwin
+          test "$(uname -m)" = arm64
+      - name: Build interface and install desktop dependencies
+        run: |
+          npm ci --prefix native --no-audit --no-fund
+          npm run build --prefix native
+          npm ci --prefix desktop --no-audit --no-fund
+      - name: Build VST3 host and one test effect
+        run: npm run build:audio --prefix desktop -- --with-test-plugin
+      - name: Sign bundled audio host
+        run: codesign --force --deep --sign - audio-host/build/SculptWingAudio_artefacts/Release/SculptWingAudio.app
+      - name: Package Mac M1 app
+        working-directory: desktop
+        run: |
+          npm run prepare:app
+          npx --no-install electron-builder --mac zip --arm64 --publish never -c.mac.identity=- -c.mac.hardenedRuntime=false -c.mac.notarize=false
+      - name: Verify packaged architecture and signatures
+        run: |
+          app="desktop/release/mac-arm64/Sculpt Wing.app"
+          host="$app/Contents/Resources/audio-host/SculptWingAudio.app"
+          test "$(lipo -archs "$app/Contents/MacOS/Sculpt Wing")" = arm64
+          test "$(lipo -archs "$host/Contents/MacOS/SculptWingAudio")" = arm64
+          codesign --verify --deep --strict --verbose=2 "$host"
+          codesign --verify --deep --strict --verbose=2 "$app"
+      - name: Smoke - bundled host and one real VST3
+        timeout-minutes: 3
+        run: |
+          ctest --test-dir audio-host/build --build-config Release --output-on-failure -R '^(audio-routing|osm-analysis)$'
+          host="desktop/release/mac-arm64/Sculpt Wing.app/Contents/Resources/audio-host/SculptWingAudio.app/Contents/MacOS/SculptWingAudio"
+          fixture="audio-host/build/SculptWingAudioTestGain_artefacts/Release/VST3/SculptWingAudioTestGain.vst3"
+          "$host" --self-test
+          node desktop/scripts/check-audio-host.cjs "$host"
+          "$host" --test-plugin "$fixture"
+      - name: Smoke - launch packaged interface
+        timeout-minutes: 2
+        run: node desktop/scripts/smoke-packaged.cjs "desktop/release/mac-arm64/Sculpt Wing.app/Contents/MacOS/Sculpt Wing"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: Sculpt-Wing-Mac-M1
+          path: desktop/release/Sculpt-Wing-*-mac-arm64.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
