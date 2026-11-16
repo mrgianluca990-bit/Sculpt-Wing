@@ -1,0 +1,6 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> sculpt-control@0.7.3 build
+> tsc -b && node scripts/build-live.mjs
+
+Sculpt Wing: bundle app e lettore PDF locale aggiornati.
