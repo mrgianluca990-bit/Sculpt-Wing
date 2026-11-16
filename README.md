@@ -1,8 +1,8 @@
-# Sculpt Wing 0.7.2
+# Sculpt Wing 0.7.3
 
 Controller WING. La distribuzione attuale è **Mac M1 / Apple Silicon ARM64**; il repository conserva anche i precedenti progetti per altre piattaforme.
 
-La **0.7.2** porta le stesse nove caselle in Compact ed Extended: **Home, Pre, Gate, EQ, Comp, Insert 1, Insert 2, Send, Master**. Ogni modulo mantiene i parametri principali e si espande in larghezza; il riordino segue le possibilità reali della WING e le due viste condividono lo stato confermato. Extended conserva gli stessi fader, pan e mute sotto gli slot. [Note e utilizzo 0.7.2](docs/RELEASE_0.7.2_MAC_M1.md).
+La **0.7.3** riunisce l’editor nelle tre schede **Canale, VST3 e FX**. Canale raccoglie i nove moduli **Home, Pre, Gate, EQ, Comp, Insert 1, Insert 2, Send, Master**; VST3 contiene il rack Mac del canale e la posizione **Pre / Insert 1 / Insert 2**; FX apre i 16 slot interni della WING. La Send mostra **otto mini-strip per banco** ed Extended riserva più spazio ai fader. [Note e utilizzo 0.7.3](docs/RELEASE_0.7.3_MAC_M1.md).
 
 Restano i pannelli WING EQ/Dynamics ridisegnati, il RTA automatico, Controllo dopo la sincronizzazione, l’avviso Ricollega, le correzioni a macro e catalogo Scene e la libreria di scene locali della [0.7.1](docs/RELEASE_0.7.1_MAC_M1.md).
 
@@ -18,7 +18,7 @@ Questo pacchetto contiene i sorgenti pronti per il repository **sculpt wing**. S
 
 Il workflow è **`.github/workflows/build-desktop.yml`**, incluso anche se Finder nasconde le cartelle che iniziano con un punto. In GitHub compare come **Build Sculpt Wing - Mac M1** e parte con un push su `main` o `master`, una pull request verso questi rami, oppure da **Actions → Build Sculpt Wing - Mac M1 → Run workflow**.
 
-Dopo i test dell’interfaccia, del trasporto e dell’host VST3, produce l’artifact **Sculpt-Wing-Mac-M1**, contenente `Sculpt-Wing-0.7.2-mac-arm64.zip`. Non occorre installare Node sul proprio computer per usare GitHub Actions. Il pacchetto di sorgenti non contiene questo binario già compilato. Le verifiche della consegna sono descritte nel [report 0.7.2](docs/VERIFICA_0.7.2.md).
+Dopo i test dell’interfaccia, del trasporto e dell’host VST3, produce l’artifact **Sculpt-Wing-Mac-M1**, contenente `Sculpt-Wing-0.7.3-mac-arm64.zip`. Il runner Mac ARM64 compila anche il motore e un VST3 di verifica, quindi controlla architettura e firma del pacchetto. Non occorre installare Node sul proprio computer per usare GitHub Actions. Il pacchetto di sorgenti non contiene questo binario già compilato. Le verifiche della consegna sono descritte nel [report 0.7.3](docs/VERIFICA_0.7.3.md).
 
 ## Cosa aprire
 
@@ -36,7 +36,11 @@ Le **mandate nell’editor canale hanno fader verticali**. Per cambiare nome: ap
 
 Due file compatte: **16 BUS + 8 MTX + 4 MAIN + 16 DCA** sopra, **40 CH + 8 AUX** sotto. Gli AUX sono ingressi. SOF su ogni BUS/MTX, editor da nome strip, macro nella barra inferiore e tema Sculpt rosso. Il pulsante DCA scorre fino ai gruppi nella stessa riga; i DCA ancorati rimangono visibili quando si torna ai BUS.
 
-**Compact / Extended:** Cmd + = oppure il selettore nella testata. Compact mantiene le due righe e apre le nove caselle del canale nella riga opposta. Pre contiene ingresso e filtri; Send raccoglie le mandate; Master espone fader, pan, mute e assegnazioni Main. I parametri principali sono subito disponibili e ogni modulo si espande orizzontalmente mantenendo i vicini. Extended mostra le stesse nove caselle e quattro slot VST3 sopra gli stessi fader, pan e mute; Rack apre gli otto slot VST3. Ordine, stato, SOF e ancoraggi sono condivisi e il cambio vista non scrive parametri audio.
+**Compact / Extended:** Cmd + = oppure il selettore nella testata. Compact mantiene le due righe e apre Canale, VST3 e FX nella riga opposta. Canale contiene le nove caselle condivise, con identità, gruppi e Automix in Home. Ogni modulo si espande orizzontalmente. Extended mostra i nove moduli e gli slot VST3 effettivamente occupati, con una sola apertura per i rack vuoti; il rack si colloca vicino alla posizione scelta. Il processing ha scorrimento proprio e lascia spazio a fader, pan e mute. Ordine, stato, SOF e ancoraggi sono condivisi e il cambio vista non scrive parametri audio.
+
+**Send:** espandi il modulo per visualizzare otto destinazioni o sorgenti per banco, con nome, colore, ON, fader verticale, valore numerico, pan, pre/post e le opzioni esposte dalla famiglia/firmware. Doppio clic sulla testa del fader: 0 dB; sul pan: centro. BUS, MTX e MAIN offrono anche le ricezioni previste. Il cambio banco mantiene le altre card, lo scroll e i grafici.
+
+**FX:** selettore dei 16 slot, editor del processore scelto e assegnazioni Insert 1/2 del canale. Cambiare slot visualizzato non assegna automaticamente l’effetto a un insert.
 
 **Riordino WING:** sui CH si spostano Gate, EQ, Comp e Insert 1; Send seleziona il TAP comune alle mandate PRE. Home, Pre e Master sono pagine fisse e Insert 2 resta post-fader. AUX e uscite conservano l’ordine previsto dalla propria famiglia, con le funzioni assenti indicate come non disponibili. Maniglia o tastiera aprono le destinazioni consentite; Escape annulla il gesto, Cmd + Z annulla uno spostamento confermato. In live i comandi dipendono dai valori e dallo schema letti dalla console.
 
@@ -46,7 +50,7 @@ Due file compatte: **16 BUS + 8 MTX + 4 MAIN + 16 DCA** sopra, **40 CH + 8 AUX**
 
 **PDF in live:** dal menu Importa channel list, leggi il PDF, modifica l’anteprima e usa Applica scena con Controllo attivo. L’app legge i parametri necessari, verifica l’intera proposta e mostra avanzamento e conferma delle scritture. I/O, gain, phantom e processori non fanno parte di questa importazione. Le identità collegate rispettano CLINK; conflitti sulle sorgenti condivise sono segnalati prima dell’invio.
 
-**VST3 sul Mac:** apri Audio USB, scegli la WING e applica dispositivo, frequenza e buffer. Dal rack di un canale assegna ingressi/ritorni USB, scansiona gli effetti installati, carica i plugin e apri i loro editor nativi dagli slot. Configura il corrispondente loop External sulla WING, quindi avvia esplicitamente l’audio. Il motore è incluso nell’app e resta fermo al lancio; la pagina browser non elabora audio USB o VST3. Vedi [host nativo](audio-host/README.md) e [guida 0.7.0](docs/RELEASE_0.7.0_MAC_M1.md).
+**VST3 sul Mac:** apri Audio USB, scegli la WING e applica dispositivo, frequenza e buffer. Nella scheda VST3 scegli Pre, Insert 1 o Insert 2 per il canale; configura ingressi/ritorni USB, scansiona gli effetti e apri i loro editor nativi dagli slot. **Leggi percorso WING** prepara il patch; **Applica percorso WING** lo applica soltanto dopo una nuova verifica di valori, risorse e permessi. Pre usa una sorgente fisica diretta, ritorna al canale via ALT USB e lascia liberi i due insert. Insert 1/2 usano uno slot External disponibile. Il pulsante di ripristino recupera il percorso originale senza sovrascrivere modifiche esterne. Posizione scelta, percorso verificato e audio USB attivo sono stati distinti. Il motore incluso nell’app e il routing non si avviano automaticamente. Vedi [guida 0.7.3](docs/RELEASE_0.7.3_MAC_M1.md) e [host nativo](audio-host/README.md).
 
 **Cmd+Z** annulla e **Maiusc+Cmd+Z** ripristina le modifiche registrate. Un trascinamento equivale a una sola operazione. Nei campi di testo resta l’annullamento della digitazione. In live l’operazione passa dalle stesse verifiche e riletture del mixer; un valore cambiato esternamente non viene sovrascritto da una cronologia obsoleta. Il cambio di algoritmo live richiede il ripristino tramite preset. I comandi OSC già inviati non sono annullabili.
 
@@ -94,4 +98,4 @@ Il pacchetto contiene codice sorgente, test, documentazione e risorse. **Non con
 
 Il bundle desktop include la stessa cartella `dist/` e lo stesso driver WING di iOS. Controllo diventa attivo dopo la lettura riuscita del banco. I pacchetti vengono isolati per sessione e i comandi pendenti sono annullati alla disconnessione o alla sospensione.
 
-Il workflow corrente compila soltanto Mac M1 / Apple Silicon ARM64 per la distribuzione. La nuova app macOS deve essere prodotta dal workflow dopo il caricamento dei sorgenti. Le prove sono elencate in [VERIFICA_0.7.2.md](docs/VERIFICA_0.7.2.md); i test automatici non equivalgono al collaudo della build aggiornata su WING reale.
+Il workflow corrente compila soltanto Mac M1 / Apple Silicon ARM64 per la distribuzione. La nuova app macOS deve essere prodotta dal workflow dopo il caricamento dei sorgenti. Le prove sono elencate in [VERIFICA_0.7.3.md](docs/VERIFICA_0.7.3.md); i test automatici non equivalgono al collaudo della build aggiornata su WING reale.
