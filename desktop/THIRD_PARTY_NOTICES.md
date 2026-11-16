@@ -1,5 +1,31 @@
 # Sculpt Wing desktop — third-party notices
 
+## Open Sound Meter measurement engine
+
+The bundled SculptWingAudio helper incorporates a portable adaptation of
+measurement math from Open Sound Meter v1.5.2, commit
+`1e08de2322f5e8849e1ba39e1d3993187a7cc75c`:
+https://github.com/psmokotnin/osm/tree/1e08de2322f5e8849e1ba39e1d3993187a7cc75c
+
+Copyright (C) 2018, 2019 Pavel Smokotnin. The retained upstream headers specify
+GNU GPL version 3 or later. The source package includes the original files,
+licence, checksum manifest and modified implementation in
+`audio-host/vendor/open-sound-meter/` and `audio-host/Source/`.
+The helper bundle preserves the licence and provenance in
+`Contents/Resources/ThirdParty/OpenSoundMeter-*`.
+
+This is a measurement-engine subset integrated in Sculpt Wing, not a copy of
+the complete Open Sound Meter application. It does not use the later commercial
+OSM distribution.
+
+## JUCE and native-host dependencies
+
+The helper uses the pinned JUCE 9.0.5 source. Its upstream licence offers
+AGPLv3 or commercial licensing; the original JUCE licence and SPDX manifest,
+VST3 SDK licences and notices for the included third-party components are
+preserved inside the helper's `Contents/Resources/ThirdParty/` directory.
+Each component retains its stated licence terms.
+
 ## Mozilla PDF.js
 
 The local PDF channel-list reader embeds `pdfjs-dist` version 6.5.438, published

@@ -1,14 +1,18 @@
-# Sculpt Wing per Mac M1 · 0.7.3
+# Sculpt Wing per Mac M1 · 0.7.4
 
-L’app desktop usa la stessa interfaccia del progetto web e comunica direttamente con la WING tramite TCP/UDP. Include un trasporto OSC per Sculpt Show e il motore nativo VST3 `SculptWingAudio`, incluso nello stesso pacchetto. Ethernet controlla la console, USB porta l’audio al Mac e indietro. Non occorre installare un’app ponte separata.
+L’app desktop usa la stessa interfaccia del progetto web e comunica direttamente con la WING tramite TCP/UDP. Include un trasporto OSC per Sculpt Show e il motore nativo VST3 e di misura `SculptWingAudio`, incluso nello stesso pacchetto. Ethernet controlla la console, USB porta l’audio al Mac e indietro. Non occorre installare un’app ponte separata.
 
 ## Pacchetto generato da GitHub
 
-Il workflow **Build Sculpt Wing - Mac M1**, in `.github/workflows/build-desktop.yml`, distribuisce il target **Apple Silicon ARM64**. L’artifact previsto **Sculpt-Wing-Mac-M1** contiene `Sculpt-Wing-0.7.3-mac-arm64.zip`, con **Sculpt Wing.app**. Estrai l’app e spostala in Applicazioni dopo aver chiuso la versione precedente. L’app incorpora il runtime e il motore VST3: non richiede Node.js sul computer dell’utente.
+Il workflow **Build Sculpt Wing - Mac M1**, in `.github/workflows/build-desktop.yml`, distribuisce il target **Apple Silicon ARM64**. L’artifact previsto **Sculpt-Wing-Mac-M1** contiene `Sculpt-Wing-0.7.4-mac-arm64.zip`, con **Sculpt Wing.app**. Estrai l’app e spostala in Applicazioni dopo aver chiuso la versione precedente. L’app incorpora il runtime e il motore VST3: non richiede Node.js sul computer dell’utente.
 
 Il workflow esegue prima i test nell’ambiente Linux e poi quelli del trasporto sul runner Mac. Compila un host e un effetto VST3 di prova per verificare caricamento, stato e processing sul runner, poi compila esplicitamente l’app e il motore ARM64. Verifica entrambe le architetture e la firma ad hoc. Non applica Developer ID o notarizzazione e non pubblica automaticamente una Release. La compilazione macOS resta da eseguire dopo il caricamento autorizzato dei sorgenti.
 
 Per il caricamento seguire [CARICA_SU_GITHUB.md](../CARICA_SU_GITHUB.md).
+
+## Errore ENOENT del motore audio
+
+L’errore `spawn … SculptWingAudio ENOENT` indica che il motore manca nel pacchetto e non dipende dalla WING scollegata. Occorre ricompilare con i sorgenti completi e il workflow aggiornato. I nuovi hook prima/dopo il packaging impediscono di produrre un’app Mac con il motore assente o Intel. Il workflow prova anche il motore nella sua posizione finale dentro Sculpt Wing.app.
 
 ## Collegare la WING
 
@@ -22,11 +26,17 @@ Aprire una pagina, scegliere un file o esportare una scena conserva la connessio
 
 ## Compact, Extended e USB
 
-**Cmd + =** alterna le due viste anche dal menu Vista. Compact conserva le due righe e presenta le schede Canale, VST3 e FX, con i moduli del canale affiancati nella riga opposta: parametri principali e singoli moduli espandibili orizzontalmente. Extended conserva i processori WING e gli slot VST3 sopra i fader del banco selezionato. Il cambio non modifica i parametri audio. Gli slot VST3 richiamano l’editor nativo del plugin.
+**Cmd + =** alterna le due viste anche dal menu Vista. Compact conserva le due righe e presenta le schede Canale, VST3 e FX, con i moduli del canale affiancati nella riga opposta: parametri principali e singoli moduli espandibili orizzontalmente. Extended conserva i processori WING e gli slot VST3 sopra i fader del banco selezionato. Il cambio non modifica i parametri audio. Le strip hanno la stessa larghezza di Compact; gli slot WING aprono finestre dedicate con i controlli visibili. SOF è disponibile in Compact; in Extended viene sospeso. Gli slot VST3 richiamano l’editor nativo del plugin.
 
 In **Audio USB** scegli la WING come unica interfaccia di ingresso e uscita, applica frequenza e buffer e prepara il routing dei rack. Al primo uso macOS può richiedere il permesso Microfono, necessario anche per gli ingressi USB. L’audio si avvia solo con **Avvia audio USB**. Le catene sono salvate localmente e ripristinate con l’audio fermo.
 
-Il motore ospita effetti VST3 compatibili con Apple Silicon, fino a 16 rack mono/stereo con 8 slot ciascuno e fino a 48 canali USB. Modifiche alla struttura richiedono audio fermo; editor e bypass sono utilizzabili durante l’elaborazione. Il bypass del rack lascia passare il segnale attraverso il Mac. Per escludere il computer usa il ripristino del percorso WING nella scheda VST3; in modalità insert è disponibile anche il bypass sul banco. PRE conserva i due slot insert e mantiene gain/phantom sulla sorgente fisica originale. Dettagli, limiti e collegamenti sono nelle [note 0.7.3](../docs/RELEASE_0.7.3_MAC_M1.md).
+Il motore ospita effetti VST3 compatibili con Apple Silicon, fino a 16 rack mono/stereo con 8 slot ciascuno e fino a 48 canali USB. Modifiche alla struttura richiedono audio fermo; editor e bypass sono utilizzabili durante l’elaborazione. Il bypass del rack lascia passare il segnale attraverso il Mac. Per escludere il computer usa il ripristino del percorso WING nella scheda VST3; in modalità insert è disponibile anche il bypass sul banco. PRE conserva i due slot insert e mantiene gain/phantom sulla sorgente fisica originale. Dettagli, limiti e collegamenti sono nelle [note 0.7.4](../docs/RELEASE_0.7.4_MAC_M1.md).
+
+## Misure Open Sound Meter
+
+Apri **Analisi → Open Sound Meter** con **Cmd + Maiusc + M**, oppure Analisi impianto dal menu dell’app. Il motore di misura è integrato nel medesimo processo VST3 e può acquisire senza rack. Scegli mic e reference su due ingressi USB distinti, importa il profilo del microfono e avvia la misura. La selezione WING verifica soltanto i collegamenti già presenti; non cambia il patch.
+
+La misura mostra risposta, fase, coerenza, RTA, impulso e stima del ritardo. La compensazione modifica soltanto il misuratore. I comandi di acquisizione e i rack VST hanno avvio/arresto indipendenti; modifiche al dispositivo e alla struttura richiedono entrambi fermi. Nessuna applicazione automatica di EQ o ritardi in questa versione. Vedi la [guida alla misura manuale](../docs/RELEASE_0.7.4_MAC_M1.md).
 
 ## EQ, pan e RTA
 
@@ -81,4 +91,4 @@ Gli output sono in `desktop/release/`. L’app incorpora `dist/` dalla radice e 
 
 L’interfaccia usa l’origine locale `sculpt://app` e conserva i dati sul computer. Node è disabilitato nel renderer; restano sandbox, isolamento del contesto, blocco delle navigazioni e controllo del mittente IPC.
 
-Le prove comprendono la suite desktop con UDP reali in loopback, menu Mac simulato, isolamento dei processi, salvataggio dei preset e protocollo dell’host VST3. Non è stato eseguito il binario 0.7.3 su un Mac fisico né collaudato questo aggiornamento con una WING reale. Vedi [risultati e procedura di verifica](../docs/RELEASE_0.7.3_MAC_M1.md).
+Le prove comprendono la suite desktop con UDP reali in loopback, menu Mac simulato, isolamento dei processi, salvataggio dei preset e protocollo dell’host VST3. Non è stato eseguito il binario 0.7.4 su un Mac fisico né collaudato questo aggiornamento con una WING reale. Vedi [risultati e procedura di verifica](../docs/RELEASE_0.7.4_MAC_M1.md).

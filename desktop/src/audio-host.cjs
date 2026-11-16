@@ -5,7 +5,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { randomBytes } = require('node:crypto');
 
-const NATIVE_METHODS = Object.freeze(['status', 'devices', 'scanPlugins', 'configureAudio', 'startAudio', 'stopAudio', 'setRack', 'removeRack', 'openEditor', 'closeEditors', 'getState', 'restoreState']);
+const NATIVE_METHODS = Object.freeze(['status', 'devices', 'scanPlugins', 'configureAudio', 'startAudio', 'stopAudio', 'configureAnalysis', 'startAnalysis', 'stopAnalysis', 'getAnalysis', 'setRack', 'removeRack', 'openEditor', 'closeEditors', 'getState', 'restoreState']);
 const AUDIO_METHODS = Object.freeze([...NATIVE_METHODS, 'loadSession', 'saveSession']);
 const AUDIO_EVENTS = Object.freeze({ state: 'audioState', error: 'audioError', scanProgress: 'audioScanProgress' });
 const MAX_MESSAGE_BYTES = 64 * 1024 * 1024;
@@ -43,6 +43,42 @@ function audioConfiguration(value, allowEmpty = false) {
   const sampleRate = value.sampleRate === undefined ? 48000 : value.sampleRate;
   if (!Number.isFinite(sampleRate) || sampleRate < 8000 || sampleRate > 384000 || !Number.isInteger(value.bufferSize) || value.bufferSize < 16 || value.bufferSize > 8192) throw failure('Frequenza o buffer audio non validi.', 'AUDIO_INVALID_REQUEST');
   return { inputDevice, outputDevice, sampleRate, bufferSize: value.bufferSize };
+}
+
+function analysisConfiguration(value) {
+  keys(value, ['measurementChannel', 'referenceChannel', 'fftSize', 'averages', 'delayMs', 'calibration', 'calibrationEnabled', 'levelOffsetDb']);
+  const { measurementChannel, referenceChannel } = value;
+  if (![measurementChannel, referenceChannel].every(channel => Number.isInteger(channel) && channel >= 0 && channel < 48) || measurementChannel === referenceChannel) {
+    throw failure('Scegli due ingressi USB distinti per misura e reference.', 'AUDIO_INVALID_REQUEST');
+  }
+  const fftSize = value.fftSize ?? 16384, averages = value.averages ?? 8, delayMs = value.delayMs ?? 0;
+  if (![16384, 32768, 65536].includes(fftSize) || !Number.isInteger(averages) || averages < 2 || averages > 32 || !Number.isFinite(delayMs) || Math.abs(delayMs) > 500) {
+    throw failure('FFT, medie o ritardo del misuratore non validi.', 'AUDIO_INVALID_REQUEST');
+  }
+  const calibrationEnabled = value.calibrationEnabled ?? false, levelOffsetDb = value.levelOffsetDb ?? null;
+  if (typeof calibrationEnabled !== 'boolean' || levelOffsetDb !== null && (!Number.isFinite(levelOffsetDb) || Math.abs(levelOffsetDb) > 240)) {
+    throw failure('Calibrazione di livello non valida.', 'AUDIO_INVALID_REQUEST');
+  }
+  const points = value.calibration ?? [];
+  if (!Array.isArray(points) || points.length > 4096 || calibrationEnabled && points.length < 2) {
+    throw failure('La calibrazione richiede da 2 a 4096 punti validi.', 'AUDIO_INVALID_REQUEST');
+  }
+  let previous = 0;
+  const calibration = points.map(point => {
+    keys(point, ['frequency', 'gainDb', 'phaseDeg']);
+    const { frequency, gainDb } = point, phaseDeg = point.phaseDeg ?? 0;
+    if (!Number.isFinite(frequency) || frequency <= previous || frequency > 192000 || !Number.isFinite(gainDb) || Math.abs(gainDb) > 120 || !Number.isFinite(phaseDeg) || Math.abs(phaseDeg) > 3600) {
+      throw failure('Punti di calibrazione non validi: frequenze crescenti e valori finiti.', 'AUDIO_INVALID_REQUEST');
+    }
+    previous = frequency;
+    return { frequency, gainDb, phaseDeg };
+  });
+  return { measurementChannel, referenceChannel, fftSize, averages, delayMs, calibration, calibrationEnabled, levelOffsetDb };
+}
+
+function launchFailure(error) {
+  if (error?.code === 'ENOENT') return failure('Il motore audio manca nel pacchetto di Sculpt Wing. Serve la build completa con SculptWingAudio incluso; collegare il mixer o riconnettere non risolve questo errore.', 'AUDIO_HOST_MISSING');
+  return failure(`Impossibile aprire il motore audio: ${error.message}`, 'AUDIO_HOST_UNAVAILABLE');
 }
 
 function channels(value) {
@@ -122,6 +158,7 @@ function validateAudioRequest(value) {
   let result;
   switch (value.method) {
     case 'configureAudio': result = audioConfiguration(params); break;
+    case 'configureAnalysis': result = analysisConfiguration(params); break;
     case 'setRack': result = rack(params); break;
     case 'removeRack': keys(params, ['id']); result = { id: identifier(params.id) }; break;
     case 'openEditor':
@@ -180,21 +217,21 @@ class AudioHost {
   _ensureChild(method) {
     if (this.closed || this.closing) throw failure('Il motore audio è in chiusura.', 'AUDIO_HOST_CLOSED');
     if (this.child) return;
-    if (this.fault && !RECOVERY_METHODS.has(method)) throw failure(`${this.fault.message} Usa Riconnetti motore per riaprire il collegamento; l’audio resterà fermo.`, this.fault.code);
+    if (this.fault && !RECOVERY_METHODS.has(method)) throw failure(this.fault.code === 'AUDIO_HOST_MISSING' ? this.fault.message : `${this.fault.message} Usa Riconnetti motore per riaprire il collegamento; l’audio resterà fermo.`, this.fault.code);
     this.fragments = []; this.fragmentBytes = 0; this.stderr = ''; this.fault = null;
     let child;
     try {
       const args = ['--stdio', ...(this.dataDirectory ? ['--data-dir', this.dataDirectory] : [])];
       child = this.spawn(this.executablePath, args, { cwd: path.dirname(this.executablePath), shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
     } catch (error) {
-      this.fault = failure(`Impossibile aprire il motore audio: ${error.message}`, 'AUDIO_HOST_UNAVAILABLE');
+      this.fault = launchFailure(error);
       this._event('audioError', { code: this.fault.code, message: this.fault.message, fatal: true });
       throw this.fault;
     }
     this.child = child;
     child.stdout.on('data', chunk => { if (this.child === child) this._read(chunk); });
     child.stderr.on('data', chunk => { if (this.child === child) this.stderr = (this.stderr + chunk.toString('utf8')).slice(-4096); });
-    child.on('error', error => this._crash(child, failure(`Impossibile aprire il motore audio: ${error.message}`, 'AUDIO_HOST_UNAVAILABLE')));
+    child.on('error', error => this._crash(child, launchFailure(error)));
     child.stdin.on('error', error => this._crash(child, failure(`Collegamento al motore audio interrotto: ${error.message}`, 'AUDIO_HOST_PIPE_ERROR')));
     child.stdout.on('error', error => this._crash(child, failure(`Risposta del motore audio interrotta: ${error.message}`, 'AUDIO_HOST_PIPE_ERROR')));
     child.stderr.on('error', () => {});
@@ -363,9 +400,14 @@ class AudioHost {
     return result;
   }
 
-  suspend() {
+  async suspend() {
     if (!this.child || this.closing || this.closed) return Promise.resolve();
-    return this._send('stopAudio', {}).then(result => { this._scheduleSave(); return result; }).catch(error => this._event('audioError', { code: error.code, message: error.message, fatal: false }));
+    for (const method of ['stopAudio', 'stopAnalysis']) {
+      if (!this.child) break;
+      try { await this._send(method, {}); }
+      catch (error) { this._event('audioError', { code: error.code, message: error.message, fatal: false }); }
+    }
+    this._scheduleSave();
   }
 
   close() {
@@ -388,8 +430,12 @@ class AudioHost {
       };
       this.finishClose = finish;
       void (async () => {
+        for (const method of ['stopAudio', 'stopAnalysis']) {
+          if (this.child !== child) break;
+          try { await this._send(method, {}, Math.min(1000, this.shutdownTimeoutMs)); }
+          catch { /* Stop each consumer independently before shutting down the shared host. */ }
+        }
         try {
-          await this._send('stopAudio', {}, Math.min(1000, this.shutdownTimeoutMs));
           if (this.sessionFile && this.child === child) {
             const state = await this._send('getState', {}, Math.min(1000, this.shutdownTimeoutMs));
             await this._persist(state);

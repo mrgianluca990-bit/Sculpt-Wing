@@ -190,12 +190,17 @@ test('USB capture requests macOS microphone permission only on an explicit confi
   const win = env.windows[0], event = { sender: win.webContents, senderFrame: win.webContents.mainFrame };
   const handler = env.ipc.get('sculpt-wing:audioRequest');
   await handler(event, { method: 'status' });
+  await handler(event, { method: 'configureAnalysis', params: { measurementChannel: 0, referenceChannel: 1 } });
   assert.equal(env.permissions.microphonePrompts, 0);
   await assert.rejects(handler(event, { method: 'startAudio' }), /Microfono/);
   assert.equal(env.permissions.microphonePrompts, 1);
   assert.equal(env.audios[0].requests.some(request => request.method === 'startAudio'), false);
+  await assert.rejects(handler(event, { method: 'startAnalysis' }), /Microfono/);
+  assert.equal(env.permissions.microphonePrompts, 2);
+  assert.equal(env.audios[0].requests.some(request => request.method === 'startAnalysis'), false);
   await handler(event, { method: 'stopAudio' });
-  assert.equal(env.permissions.microphonePrompts, 1);
+  await handler(event, { method: 'stopAnalysis' });
+  assert.equal(env.permissions.microphonePrompts, 2);
 });
 
 test('OSC IPC uses its own bounded transport and the same trusted main-frame checks', async () => {

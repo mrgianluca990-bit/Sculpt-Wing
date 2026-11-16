@@ -83,7 +83,7 @@ function installIPC() {
       event.senderFrame !== active.window.webContents.mainFrame || !isAppURL(event.senderFrame?.url) ||
       !isAppURL(active.window.webContents.getURL())) throw new Error('Origine audio desktop non autorizzata.');
     const request = validateAudioRequest(input);
-    if (['configureAudio', 'startAudio'].includes(request.method)) await requireAudioInputPermission();
+    if (['configureAudio', 'startAudio', 'startAnalysis'].includes(request.method)) await requireAudioInputPermission();
     const oldHosts = [...audioHosts].filter(audio => audio !== active.audio);
     if (oldHosts.length) await Promise.allSettled(oldHosts.map(closeAudio));
     if (current !== active || active.window.isDestroyed()) throw new Error('Sessione audio desktop terminata.');
@@ -134,6 +134,12 @@ function installMenu() {
     { type: 'separator' }, { role: 'resetZoom' },
     { role: 'zoomIn', accelerator: 'CmdOrCtrl+Shift+Plus' }, { role: 'zoomOut' },
     { type: 'separator' }, { role: 'togglefullscreen' }
+  ] });
+  menus.push({ label: 'Analisi', submenu: [
+    { label: 'Open Sound Meter', accelerator: 'CmdOrCtrl+Shift+M', click: () => {
+      const win = current?.window;
+      if (win && !win.isDestroyed() && !win.webContents.isDestroyed() && isAppURL(win.webContents.getURL())) win.webContents.send('sculpt-wing:event:analysis', 'open');
+    } }
   ] });
   menus.push({ role: 'windowMenu' });
   Menu.setApplicationMenu(Menu.buildFromTemplate(menus));

@@ -19,6 +19,17 @@ async function main() {
     assert.equal(initial.running, false);
     assert.equal(initial.audio.configured, false);
     assert.equal(initial.audio.inputDevice, '');
+    assert.equal(initial.analysis.running, false);
+    const measurement = await host.request({ method: 'configureAnalysis', params: {
+      measurementChannel: 0, referenceChannel: 1, fftSize: 16384, averages: 8
+    } });
+    assert.equal(measurement.configured, true);
+    assert.equal(measurement.running, false);
+    const emptyMeasurement = await host.request({ method: 'getAnalysis' });
+    assert.equal(emptyMeasurement.valid, false);
+    assert.equal(emptyMeasurement.estimatedDelayMs, null);
+    assert.equal(emptyMeasurement.frequency.length, 0);
+    assert.equal((await host.request({ method: 'status' })).audio.configured, false, 'analysis configuration never opens an audio device');
     const created = await host.request({ method: 'setRack', params: {
       id: 'ch-1', name: 'Bridge fixture', placement: 'pre', inputChannels: [0], outputChannels: [1], enabled: false,
       slots: [{ pluginId: null, bypass: false }]
@@ -47,7 +58,7 @@ async function main() {
     assert.equal(restored.state.racks[0].enabled, true);
     assert.equal(restored.state.racks[0].placement, 'pre');
     assert.deepEqual(restored.state.racks[0].outputChannels, [1]);
-    console.log('Native bridge integration passed: real helper, placement and metadata round-trip, atomic session save and stopped restore.');
+    console.log('Native bridge integration passed: real helper, analysis without automatic capture, placement and metadata round-trip, atomic session save and stopped restore.');
   } finally {
     await host.close();
     await fs.rm(directory, { recursive: true, force: true });

@@ -108,6 +108,43 @@ test('native helper is lazy, uses fixed argv without a shell, and parses fragmen
   assert.equal(env.events.at(-1).data.fatal, false);
 });
 
+test('analysis validates independent USB inputs and bounded calibration before forwarding to the shared host', async t => {
+  const env = fixture({ onRequest: (child, request) => child.reply(request, { configured: true, running: false, config: request.params }) });
+  t.after(() => env.host.close());
+  const base = { measurementChannel: 0, referenceChannel: 1 };
+  for (const params of [
+    { ...base, referenceChannel: 0 }, { ...base, measurementChannel: 48 },
+    { ...base, fftSize: 1024 }, { ...base, averages: 1 }, { ...base, delayMs: Infinity },
+    { ...base, calibrationEnabled: true }, { ...base, levelOffsetDb: 241 },
+    { ...base, calibration: [{ frequency: 100, gainDb: 0 }, { frequency: 50, gainDb: 0 }] },
+    { ...base, calibration: [{ frequency: 10, gainDb: NaN }] },
+    { ...base, matrixDelayMs: 5 }
+  ]) await assert.rejects(env.host.request({ method: 'configureAnalysis', params }), { code: 'AUDIO_INVALID_REQUEST' });
+  assert.equal(env.children.length, 0, 'invalid settings never launch the helper');
+  const calibration = [{ frequency: 20, gainDb: -1 }, { frequency: 20000, gainDb: 2, phaseDeg: 10 }];
+  const configured = await env.host.request({ method: 'configureAnalysis', params: { ...base, calibration, calibrationEnabled: true } });
+  assert.deepEqual(configured.config, { ...base, fftSize: 16384, averages: 8, delayMs: 0, calibration: [{ frequency: 20, gainDb: -1, phaseDeg: 0 }, calibration[1]], calibrationEnabled: true, levelOffsetDb: null });
+  assert.deepEqual(env.children[0].requests.map(request => request.method), ['configureAnalysis'], 'configuration never starts either audio consumer');
+  for (const method of ['startAnalysis', 'getAnalysis', 'stopAnalysis']) await env.host.request({ method });
+  assert.deepEqual(env.children[0].requests.map(request => request.method), ['configureAnalysis', 'startAnalysis', 'getAnalysis', 'stopAnalysis']);
+  assert.equal(env.spawns.length, 1, 'VST and analysis use the same bundled helper');
+});
+
+test('missing bundled audio executable reports a packaging error without suggesting mixer reconnection', async t => {
+  for (const synchronous of [false, true]) {
+    const error = Object.assign(new Error('spawn /bundle/SculptWingAudio ENOENT'), { code: 'ENOENT' });
+    const env = fixture(synchronous ? { spawn: () => { throw error; } } : {});
+    t.after(() => env.host.close());
+    const pending = env.host.request({ method: 'status' });
+    const check = assert.rejects(pending, failure => failure.code === 'AUDIO_HOST_MISSING' && /manca nel pacchetto/.test(failure.message));
+    if (!synchronous) env.children[0].emit('error', error);
+    await check;
+    assert.equal(env.events.at(-1).data.code, 'AUDIO_HOST_MISSING');
+    await assert.rejects(env.host.request({ method: 'getState' }), failure => failure.code === 'AUDIO_HOST_MISSING' && !/Usa Riconnetti/.test(failure.message));
+    assert.equal(env.host.hasProcess, false);
+  }
+});
+
 test('crash rejects every in-flight request and does not restart from status or getState', async t => {
   const env = fixture(); t.after(() => env.host.close());
   const first = env.host.request({ method: 'status' }), second = env.host.request({ method: 'devices' });
@@ -207,11 +244,11 @@ test('sleep stops an existing helper without spawning one and close is idempoten
   await env.host.suspend(); assert.equal(env.children.length, 0);
   await env.host.request({ method: 'status' });
   await env.host.suspend();
-  assert.equal(env.children[0].requests.at(-1).method, 'stopAudio');
+  assert.deepEqual(env.children[0].requests.slice(-2).map(item => item.method), ['stopAudio', 'stopAnalysis'], 'sleep stops both consumers without restarting either one');
   const firstClose = env.host.close(), secondClose = env.host.close();
   assert.equal(firstClose, secondClose);
   await firstClose;
-  assert.deepEqual(env.children[0].requests.slice(-2).map(item => item.method), ['stopAudio', 'shutdown']);
+  assert.deepEqual(env.children[0].requests.slice(-3).map(item => item.method), ['stopAudio', 'stopAnalysis', 'shutdown']);
   assert.equal(env.events.some(item => item.data.fatal), false, 'normal shutdown is not presented as a crash');
   await assert.rejects(env.host.request({ method: 'devices' }), { code: 'AUDIO_HOST_CLOSED' });
 });
