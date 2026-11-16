@@ -50,12 +50,19 @@ function channels(value) {
   return [...value];
 }
 
+function placement(value) {
+  if (value === undefined || value === null) return null;
+  if (value !== 'pre' && value !== 'insert1' && value !== 'insert2') throw failure('Posizione VST non valida: scegliere PRE, Insert 1 o Insert 2.', 'AUDIO_INVALID_REQUEST');
+  return value;
+}
+
 function rack(value, restoring = false) {
   if (!object(value)) throw failure('Rack audio non valido.', 'AUDIO_INVALID_REQUEST');
-  if (!restoring) keys(value, ['id', 'name', 'inputChannels', 'outputChannels', 'enabled', 'slots', 'latencySamples', 'missing']);
+  if (!restoring) keys(value, ['id', 'name', 'placement', 'inputChannels', 'outputChannels', 'enabled', 'slots', 'latencySamples', 'missing']);
   if (typeof value.enabled !== 'boolean' || !Array.isArray(value.slots) || value.slots.length > 8) throw failure('Configurazione rack non valida.', 'AUDIO_INVALID_REQUEST');
   return {
     id: identifier(value.id),
+    placement: placement(value.placement),
     ...(value.name === undefined ? {} : { name: text(value.name, 160, true) }),
     inputChannels: channels(value.inputChannels), outputChannels: channels(value.outputChannels), enabled: value.enabled,
     slots: value.slots.map(slot => {

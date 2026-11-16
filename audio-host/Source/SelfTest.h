@@ -27,6 +27,24 @@ inline int runRoutingSelfTest()
         for (int n = 0; n < 17; ++n) tooMany.push_back({std::to_string(n), {n}, {n}});
         expect(!validateRoutes(tooMany).empty(), "Rack capacity ignored");
 
+        expect(rackPlacementName(RackPlacement::Unassigned) == nullptr,
+               "An unassigned legacy rack acquired a placement");
+        for (const auto value : {RackPlacement::Pre, RackPlacement::Insert1, RackPlacement::Insert2})
+        {
+            const auto parsed = parseRackPlacement(rackPlacementName(value));
+            expect(parsed.has_value() && *parsed == value, "Rack placement did not round-trip");
+        }
+        for (const auto* invalid : {"", "PRE", "insert0", "insert3", "pre ", "post"})
+            expect(!parseRackPlacement(invalid).has_value(), "Invalid rack placement accepted");
+        for (const auto previous : {RackPlacement::Unassigned, RackPlacement::Pre, RackPlacement::Insert1, RackPlacement::Insert2})
+            for (const auto requested : {RackPlacement::Unassigned, RackPlacement::Pre, RackPlacement::Insert1, RackPlacement::Insert2})
+                expect(sameRackRouting(mono, mono, previous, requested) == (previous == requested),
+                       "A live rack update can change its WING placement");
+        expect(!sameRackRouting(mono, {"ch-1", {3}, {4}}, RackPlacement::Pre, RackPlacement::Pre),
+               "A live rack update can change its USB input");
+        expect(!sameRackRouting(mono, {"ch-1", {2}, {5}}, RackPlacement::Pre, RackPlacement::Pre),
+               "A live rack update can change its USB output");
+
         constexpr int frames = 8;
         std::array<std::array<float, frames>, 5> source {}, destination {};
         for (int ch = 0; ch < 5; ++ch)
@@ -61,7 +79,7 @@ inline int runRoutingSelfTest()
         clearOutputs(outputs.data(), 5, frames);
         expect(peak(const_cast<const float* const*>(outputs.data()), 5, frames) == 0.0f,
                "Stopped engine outputs not silent");
-        std::cout << "Sculpt Wing audio routing: 14 checks passed. No audio hardware was opened.\n";
+        std::cout << "Sculpt Wing audio routing and placement checks passed. No audio hardware was opened.\n";
         return 0;
     }
     catch (const std::exception& error)

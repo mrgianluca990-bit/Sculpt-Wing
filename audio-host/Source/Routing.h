@@ -4,8 +4,10 @@
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <optional>
 #include <set>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace sculpt
@@ -23,6 +25,37 @@ struct Route
     std::vector<int> inputs;
     std::vector<int> outputs;
 };
+
+// This describes the intended WING insertion point. It never changes the
+// host's DSP graph or proves that the console has been patched accordingly.
+enum class RackPlacement { Unassigned, Pre, Insert1, Insert2 };
+
+inline std::optional<RackPlacement> parseRackPlacement(std::string_view value)
+{
+    if (value == "pre") return RackPlacement::Pre;
+    if (value == "insert1") return RackPlacement::Insert1;
+    if (value == "insert2") return RackPlacement::Insert2;
+    return std::nullopt;
+}
+
+inline const char* rackPlacementName(RackPlacement value) noexcept
+{
+    switch (value)
+    {
+        case RackPlacement::Pre: return "pre";
+        case RackPlacement::Insert1: return "insert1";
+        case RackPlacement::Insert2: return "insert2";
+        case RackPlacement::Unassigned: return nullptr;
+    }
+    return nullptr;
+}
+
+inline bool sameRackRouting(const Route& previous, const Route& requested,
+                            RackPlacement previousPlacement, RackPlacement requestedPlacement)
+{
+    return previous.id == requested.id && previous.inputs == requested.inputs
+        && previous.outputs == requested.outputs && previousPlacement == requestedPlacement;
+}
 
 inline std::string validateRoutes(const std::vector<Route>& routes,
                                   int availableInputs = maxChannels,

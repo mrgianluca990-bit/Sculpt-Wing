@@ -100,7 +100,7 @@ Methods:
 | `scanPlugins` | Returns `{scanning:true}` immediately, then progress and final state events. Audio must be stopped. |
 | `configureAudio` | `{inputDevice,outputDevice,sampleRate,bufferSize}`. Requires the same input/output device, opens explicitly selected channels, leaves outputs silent. |
 | `startAudio` / `stopAudio` | Explicitly starts / stops processing. Start requires a device and at least one routed rack. |
-| `setRack` | `{id,name?,inputChannels,outputChannels,enabled,slots:[{pluginId,bypass,state?,name?}]}`. Channel numbers are zero based. |
+| `setRack` | `{id,name?,placement?,inputChannels,outputChannels,enabled,slots:[{pluginId,bypass,state?,name?}]}`. Channel numbers are zero based. `placement` is `null`, `pre`, `insert1`, or `insert2`; legacy omission means `null`. |
 | `removeRack` | `{id}`; audio must be stopped. |
 | `openEditor` | `{rackId,slot}`; slot is zero based. Opens the plugin's actual native editor or a generic parameter editor if unavailable. |
 | `closeEditors` | Closes native editors and captures updated presets. |
@@ -119,6 +119,14 @@ changed during processing using `setRack` only when plugin identities, slot
 count and channel mapping are unchanged; preset blobs in that live update are
 ignored. Loading/removing/reordering plugins, applying preset blobs and changing
 device/routing require Stop. This avoids hidden graph rebuilds during a show.
+
+Placement is persisted channel metadata; the host does not write WING routing.
+Changing placement also requires Stop. The app's explicit WING routing manager
+reads, previews, applies and restores the matching mixer patch separately.
+PRE preserves the original physical source for headamp control and uses a USB
+return through ALT; it does not consume either insert point. Insert 1/2 use
+the console's External effect and reserve a free FX slot. Saving or restoring
+a host session never replays a mixer patch.
 
 State blobs use standard Base64, up to 8 MiB encoded per slot and a 64 MiB JSON
 message limit. The catalogue is local XML populated only by the scanner;

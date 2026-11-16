@@ -54,14 +54,42 @@ test('audio policy only accepts catalog IDs, bounded channels and explicit opera
   assert.equal(restored.params.state.racks[0].slots[0].state, 'YWJj');
   assert.equal(restored.params.state.racks[0].slots[0].name, 'Missing Compressor');
   assert.equal(restored.params.state.racks[0].slots[0].missing, undefined);
+  assert.equal(restored.params.state.racks[0].placement, null, 'legacy sessions do not imply a WING patch');
   const roundTripRack = exampleState().racks[0];
   roundTripRack.missing = true; roundTripRack.slots[0].error = 'Plugin assente'; roundTripRack.slots[0].latencySamples = 128;
   const update = validateAudioRequest({ method: 'setRack', params: roundTripRack });
   assert.equal(update.params.latencySamples, undefined);
   assert.equal(update.params.missing, undefined);
+  assert.equal(update.params.placement, null);
   assert.equal(update.params.slots[0].error, undefined);
   assert.equal(update.params.slots[0].latencySamples, undefined);
   assert.equal(audioHostPath({ isPackaged: true, resourcesPath: '/fixed/resources' }), '/fixed/resources/audio-host/SculptWingAudio.app/Contents/MacOS/SculptWingAudio');
+});
+
+test('rack placement is validated and round-trips through setRack, getState and restoreState IPC', async t => {
+  let state = exampleState();
+  const env = fixture({ onRequest(child, request) {
+    if (request.method === 'setRack') state = { ...state, racks: [request.params] };
+    if (request.method === 'restoreState') state = { ...request.params.state, running: false };
+    child.reply(request, state);
+  } });
+  t.after(() => env.host.close());
+  for (const value of ['', 'PRE', 'pre ', 'insert0', 'insert3', 'post', 0, false, [], {}, ['pre']]) {
+    await assert.rejects(env.host.request({ method: 'setRack', params: { ...exampleState().racks[0], placement: value } }), { code: 'AUDIO_INVALID_REQUEST' });
+    await assert.rejects(env.host.request({ method: 'restoreState', params: { state: { ...exampleState(), racks: [{ ...exampleState().racks[0], placement: value }] } } }), { code: 'AUDIO_INVALID_REQUEST' });
+  }
+  assert.equal(env.children.length, 0, 'invalid placement never reaches or launches the native helper');
+  for (const placement of [null, 'pre', 'insert1', 'insert2']) {
+    const updated = await env.host.request({ method: 'setRack', params: { ...exampleState().racks[0], placement } });
+    assert.equal(env.children[0].requests.at(-1).params.placement, placement);
+    assert.equal(updated.racks[0].placement, placement);
+    const snapshot = await env.host.request({ method: 'getState' });
+    assert.equal(snapshot.racks[0].placement, placement);
+    const restored = await env.host.request({ method: 'restoreState', params: { state: snapshot } });
+    assert.equal(env.children[0].requests.at(-1).params.state.racks[0].placement, placement);
+    assert.equal(restored.racks[0].placement, placement);
+    assert.equal(restored.running, false);
+  }
 });
 
 test('native helper is lazy, uses fixed argv without a shell, and parses fragmented UTF-8 JSON lines', async t => {
@@ -143,8 +171,10 @@ test('session save is atomic, preserves plugin blobs and missing names, and rest
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
   const sessionFile = path.join(directory, 'audio-rack-session.json');
   const state = exampleState();
+  state.racks[0].placement = 'insert2';
   const env = fixture({ sessionFile, onRequest(child, request) {
-    if (request.method === 'getState' || request.method === 'restoreState') child.reply(request, state);
+    if (request.method === 'getState') child.reply(request, state);
+    else if (request.method === 'restoreState') child.reply(request, { ...request.params.state, running: false });
     else child.reply(request, { running: false });
   } });
   t.after(() => env.host.close());
@@ -154,12 +184,20 @@ test('session save is atomic, preserves plugin blobs and missing names, and rest
   const saved = JSON.parse(await fs.readFile(sessionFile, 'utf8'));
   assert.equal(saved.state.racks[0].slots[0].state, 'YWJj');
   assert.equal(saved.state.racks[0].slots[0].name, 'Missing Compressor');
+  assert.equal(saved.state.racks[0].placement, 'insert2');
   assert.equal(saved.state.running, undefined);
   assert.equal(saved.state.plugins, undefined);
   const loaded = await env.host.request({ method: 'loadSession' });
   assert.equal(loaded.loaded, true);
   const restore = env.children[0].requests.find(item => item.method === 'restoreState');
   assert.equal(restore.params.state.running, undefined);
+  assert.equal(restore.params.state.racks[0].placement, 'insert2');
+  assert.equal(loaded.state.racks[0].placement, 'insert2');
+  delete saved.state.racks[0].placement;
+  await fs.writeFile(sessionFile, JSON.stringify(saved));
+  const legacy = await env.host.request({ method: 'loadSession' });
+  assert.equal(legacy.state.racks[0].placement, null, 'old saved sessions restore with no assumed WING placement');
+  assert.equal(env.children[0].requests.at(-1).params.state.racks[0].placement, null);
   assert.deepEqual(await fs.readdir(directory), ['audio-rack-session.json']);
   await env.host.close();
 });

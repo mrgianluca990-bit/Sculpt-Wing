@@ -97,6 +97,18 @@ static Route routeFrom(const var& source)
             channelsField(source, "inputChannels"), channelsField(source, "outputChannels")};
 }
 
+static RackPlacement placementFrom(const var& source)
+{
+    const auto field = source.getProperty("placement", {});
+    // Old sessions have no placement metadata. Do not infer a console patch
+    // from the rack ID or its USB channel numbers.
+    if (field.isVoid() || field.isUndefined()) return RackPlacement::Unassigned;
+    require(field.isString(), "Posizione VST non valida: usa pre, insert1, insert2 oppure null.");
+    const auto parsed = parseRackPlacement(field.toString().toStdString());
+    require(parsed.has_value(), "Posizione VST non valida: usa pre, insert1, insert2 oppure null.");
+    return *parsed;
+}
+
 static MemoryBlock decodeState(const String& state)
 {
     require(static_cast<std::size_t>(state.getNumBytesAsUTF8()) <= maxStateBytes, "Preset VST3 oltre il limite di 8 MiB.");
@@ -160,6 +172,7 @@ struct Slot
 struct Rack
 {
     Route route;
+    RackPlacement placement = RackPlacement::Unassigned;
     String name;
     std::atomic<bool> enabled {false};
     std::vector<std::unique_ptr<Slot>> slots;
@@ -470,7 +483,9 @@ private:
                                     {"state", slot->cachedState}, {"missing", slot->missing}, {"error", slot->loadError},
                                     {"latencySamples", slot->instance ? slot->instance->getLatencySamples() : 0}}));
             }
+            const auto* placement = rackPlacementName(rack->placement);
             rackValues.add(obj({{"id", rack->route.id.c_str()}, {"name", rack->name},
+                                {"placement", placement == nullptr ? var() : var(placement)},
                                 {"inputChannels", numbers(rack->route.inputs)}, {"outputChannels", numbers(rack->route.outputs)},
                                 {"enabled", rack->enabled.load()}, {"slots", slotValues},
                                 {"latencySamples", rack->latency()}, {"missing", rack->hasMissing()}}));
@@ -641,6 +656,7 @@ private:
     std::unique_ptr<Rack> buildRack(const var& source, bool allowMissing, Rack* previous = nullptr)
     {
         auto rack = std::make_unique<Rack>(routeFrom(source));
+        rack->placement = placementFrom(source);
         rack->name = source.getProperty("name", String(rack->route.id)).toString().substring(0, 256);
         rack->enabled.store(booleanField(source, "enabled", false));
         const auto slotData = source.getProperty("slots", {});
@@ -706,15 +722,16 @@ private:
     {
         ensureNotScanning();
         const auto route = routeFrom(source);
+        const auto placement = placementFrom(source);
         auto* existing = findRack(route.id);
         const auto slotData = source.getProperty("slots", {});
         const auto* requestedSlots = slotData.getArray();
         require(requestedSlots && requestedSlots->size() <= maxSlots, "Slot rack non validi.");
         if (engine.running.load())
         {
-            require(existing && existing->route.inputs == route.inputs && existing->route.outputs == route.outputs
+            require(existing && sameRackRouting(existing->route, route, existing->placement, placement)
                     && existing->slots.size() == static_cast<std::size_t>(requestedSlots->size()),
-                    "Ferma l'audio prima di modificare il routing o gli slot.");
+                    "Ferma l'audio prima di modificare il routing, la posizione VST o gli slot.");
             for (int i = 0; i < requestedSlots->size(); ++i)
                 require((*requestedSlots)[i].getProperty("pluginId", {}).toString() == existing->slots[static_cast<std::size_t>(i)]->id,
                         "Ferma l'audio prima di cambiare plugin.");
@@ -1031,7 +1048,7 @@ class Application final : public JUCEApplication
 {
 public:
     const String getApplicationName() override { return "SculptWingAudio"; }
-    const String getApplicationVersion() override { return "0.7.2"; }
+    const String getApplicationVersion() override { return "0.7.3"; }
     bool moreThanOneInstanceAllowed() override { return true; }
     void initialise(const String& commandLine) override
     {

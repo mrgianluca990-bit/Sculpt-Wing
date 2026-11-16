@@ -101,12 +101,23 @@ def run(executable, fixture):
                     "enabled": False, "slots": [{"pluginId": identifier, "bypass": False}]}
             loaded = host.call("setRack", rack)
             assert loaded["running"] is False and loaded["racks"][0]["slots"][0]["missing"] is False
+            assert loaded["racks"][0]["placement"] is None, "Legacy rack implied a mixer patch"
+            for placement in (None, "pre", "insert1", "insert2"):
+                placed = host.call("setRack", {**rack, "placement": placement})
+                assert placed["racks"][0]["placement"] == placement
+                assert host.call("getState")["racks"][0]["placement"] == placement
             snapshot = host.call("getState")
             encoded = snapshot["racks"][0]["slots"][0]["state"]
             assert base64.b64decode(encoded, validate=True), "Native preset was not captured"
             restored = host.call("restoreState", {"state": snapshot})
             assert restored["running"] is False and restored["audio"]["configured"] is False
             assert restored["racks"][0]["slots"][0]["pluginId"] == identifier
+            assert restored["racks"][0]["placement"] == "insert2"
+            for invalid in ("", "PRE", "insert0", "post", False, 1, [], {}):
+                host.call("setRack", {**rack, "placement": invalid}, expect_error=True)
+                invalid_state = {**snapshot, "racks": [{**snapshot["racks"][0], "placement": invalid}]}
+                host.call("restoreState", {"state": invalid_state}, expect_error=True)
+                assert host.call("getState")["racks"][0]["placement"] == "insert2", "Rejected placement changed the rack"
             collision = {**rack, "id": "ch-2"}
             host.call("setRack", collision, expect_error=True)
             assert len(host.call("getState")["racks"]) == 1, "Rejected mutation changed the graph"
@@ -120,6 +131,7 @@ def run(executable, fixture):
             assert absent["running"] is False and absent["racks"][0]["enabled"] is False
             assert absent["racks"][0]["slots"][0]["missing"] is True
             assert absent["racks"][0]["slots"][0]["state"] == missing_blob
+            assert absent["racks"][0]["placement"] is None
             retained = host.call("setRack", {**missing, "enabled": False, "outputChannels": [1]})
             assert retained["racks"][0]["slots"][0]["state"] == missing_blob
             host.call("startAudio", expect_error=True)

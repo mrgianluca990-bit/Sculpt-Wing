@@ -1,7 +1,7 @@
 {
   "name": "sculpt-wing-desktop",
   "productName": "Sculpt Wing",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "description": "Sculpt Wing — controllo WING e rack VST3 per Mac Apple Silicon",
   "private": true,
   "license": "UNLICENSED",
