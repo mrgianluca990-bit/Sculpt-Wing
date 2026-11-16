@@ -80,10 +80,14 @@ test('banks follow keyboard, group, channel and Compact/Extended navigation with
   f.key(f.named('Banco BUS 1–8'), 'ArrowRight'); assert.equal(f.w.document.activeElement, f.named('Banco BUS 9–16'));
   f.named('Mandate verso MTX').click(); assert.equal(f.rows().length, 8); assert.equal(f.rows()[0].dataset.targetId, 'mtx-1');
   f.named('Mandate verso BUS').click(); assert.equal(f.rows()[0].dataset.targetId, 'bus-9');
-  const card = f.card(), board = f.board(); f.w.SculptMixerView.setMode('extended');
-  assert.equal(f.card(), card); assert.equal(f.board(), board); assert.equal(f.rows()[0].dataset.targetId, 'bus-9');
+  f.w.SculptMixerView.setMode('extended');
+  assert.equal(f.editor().dataset.dockRow, 'window'); assert.equal(f.editor().dataset.slot, 'sends');
+  assert.equal(f.board().children.length, 1, 'Extended opens only the selected Send module');
+  assert.equal(f.rows().length, 8); assert.equal(f.rows()[0].dataset.targetId, 'bus-9');
   f.E.open('ch-2'); assert.equal(f.card().dataset.expanded, 'true'); assert.equal(f.rows()[0].dataset.targetId, 'bus-9'); assert.equal(f.rows()[0].dataset.sourceId, 'ch-2');
-  f.w.SculptMixerView.setMode('compact'); assert.equal(f.rows()[0].dataset.targetId, 'bus-9');
+  f.w.SculptMixerView.setMode('compact'); assert.equal(f.editor().dataset.dockRow, 'outputs');
+  assert.equal(f.board().children.length, 9, 'Compact restores the opposite-row channel editor');
+  assert.equal(f.rows().length, 8); assert.equal(f.rows()[0].dataset.targetId, 'bus-9');
   f.key(f.named('Banco BUS 9–16'), 'Home'); assert.equal(f.rows()[0].dataset.targetId, 'bus-1');
   f.key(f.named('Banco BUS 1–8'), 'End'); assert.equal(f.rows()[0].dataset.targetId, 'bus-9');
 });

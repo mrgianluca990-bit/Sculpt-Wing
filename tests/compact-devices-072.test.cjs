@@ -92,14 +92,27 @@ test('all families retain nine identities and only WING-supported pages and move
   }
 });
 
-test('Compact and Extended share the same open device row while retaining the original mixer controls', t => {
+test('Compact device row becomes an Extended slot window while preserving mixer controls and cleaning up RTA mounts', t => {
   const f = fixture(t,true), strip = f.w.document.querySelector('.strip[data-id="ch-1"]');
-  const fader = strip.querySelector('.fader'), mute = strip.querySelector('.mute-button'), original = [...strip.querySelectorAll('[role="slider"]')];
-  assert(fader); assert(mute); assert(strip.querySelector('.strip-pan'));
-  f.E.open('ch-1'); const eq = f.card('eq'), board = f.editor().querySelector('.editor-device-board');
-  f.w.SculptMixerView.setMode('extended'); assert.equal(f.editor().dataset.dockRow,'extended'); assert.equal(f.editor().querySelector('.editor-device-board'),board); assert.equal(f.card('eq'),eq);
-  assert.equal(f.editor().querySelectorAll('.editor-device-panel').length,9); assert.equal(strip.querySelector('.fader'),fader); assert.equal(strip.querySelector('.mute-button'),mute);
-  for (const slider of original) assert.equal(slider.isConnected,true);
+  const fader = strip.querySelector('.fader'), mute = strip.querySelector('.mute-button'), pan = strip.querySelector('.strip-pan'), original = [...strip.querySelectorAll('[role="slider"]')];
+  assert(fader); assert(mute); assert(pan);
+  const assertMixerRetained = () => {
+    assert.equal(strip.querySelector('.fader'),fader); assert.equal(strip.querySelector('.mute-button'),mute); assert.equal(strip.querySelector('.strip-pan'),pan);
+    for (const slider of original) assert.equal(slider.isConnected,true);
+  };
+  f.E.openDevice('ch-1','eq'); const eq = f.card('eq'), board = f.editor().querySelector('.editor-device-board'), before = plain(f.C.capture());
+  assert.equal(f.editor().dataset.dockRow,'outputs'); assert.equal(board.children.length,9); assert.equal(f.rta.length-f.closed.length,1);
+  f.w.SculptMixerView.setMode('extended');
+  assert.equal(f.editor().dataset.dockRow,'window'); assert.equal(f.editor().parentElement,f.w.document.body); assert.equal(f.editor().dataset.slot,'eq');
+  assert(f.editor().classList.contains('editor-slot-window')); assert.equal(f.editor().querySelectorAll('.editor-device-panel').length,1);
+  assert.equal(f.card('eq').dataset.expanded,'true'); assert.equal(f.card('eq').querySelectorAll('.fx-wing-band-pane:not([hidden])').length,6);
+  assert.notEqual(f.editor().querySelector('.editor-device-board'),board); assert.notEqual(f.card('eq'),eq); assert.equal(board.isConnected,false); assert.equal(eq.isConnected,false);
+  assert.equal(f.closed.length,1); assert.equal(f.rta.length-f.closed.length,1); assert.equal(f.rta[0].host.isConnected,false); assert.equal(f.rta.at(-1).host.isConnected,true);
+  assertMixerRetained();
   f.E.openDevice('ch-1','master'); assert.equal(f.card('master').dataset.expanded,'true'); assert(f.card('master').querySelector('[aria-label="Pan"]'));
-  f.w.SculptMixerView.setMode('compact'); assert.equal(f.editor().dataset.dockRow,'outputs'); assert.equal(f.card('master').dataset.expanded,'true'); assert.equal(f.rta.length,1);
+  assert.equal(f.editor().dataset.slot,'master'); assert.equal(f.editor().querySelectorAll('.editor-device-panel').length,1); assert.equal(f.rta.length-f.closed.length,0);
+  f.w.SculptMixerView.setMode('compact'); assert.equal(f.editor().dataset.dockRow,'outputs'); assert.equal(f.card('master').dataset.expanded,'true');
+  assert.equal(f.editor().querySelectorAll('.editor-device-panel').length,9); assert.equal(f.editor().classList.contains('editor-slot-window'),false); assert.equal(f.rta.length-f.closed.length,1);
+  assertMixerRetained(); assert.deepEqual(plain(f.C.capture().values),before.values); assert.deepEqual(plain(f.C.capture().sends),before.sends);
+  f.E.close(); assert.equal(f.closed.length,f.rta.length,'closing the editor disposes every mounted analyzer exactly once');
 });
