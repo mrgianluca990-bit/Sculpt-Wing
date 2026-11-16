@@ -174,25 +174,26 @@
   }
 
   let surfaceId=0;
-  function makeWingEq(model,ctx,bindings,viewState){
+  function makeWingEq(model,ctx,bindings,viewState,fullControls=false){
     const layout=el('div','fx-wing-eq-layout'),display=el('section','fx-wing-display'),head=el('div','fx-wing-display-heading');
     head.append(el('strong','','RISPOSTA EQ'),el('span','fx-wing-analysis-status','RTA non disponibile'));display.append(head);
     const plot=makePlot(model,ctx,bindings);display.append(plot);layout.append(display);
     const editor=el('section','fx-wing-band-editor'),tabs=el('div','fx-wing-band-tabs'),panes=el('div','fx-wing-band-panes'),uid=`fx-eq-${++surfaceId}`;
-    tabs.setAttribute('role','tablist');tabs.setAttribute('aria-label','Bande EQ');
+    tabs.setAttribute('role',fullControls?'toolbar':'tablist');tabs.setAttribute('aria-label','Bande EQ');
     const colors=['#e99b73','#d9bb67','#8ecb98','#62c5c0','#83ace8','#b09aeb','#d491c4','#ed949f'];
     const bands=['l','1','2','3','4','5','6','h'].filter(id=>model.parameters.some(p=>p.key===id+'g')),entries=[];
+    panes.style.setProperty('--eq-band-count',String(bands.length));
     const choose=id=>{
       if(!bands.includes(id))return;viewState.eqBand=id;
       layout.style.setProperty('--active-band-color',colors[bands.indexOf(id)]);
-      for(const entry of entries){const active=entry.id===id;entry.button.setAttribute('aria-selected',String(active));entry.button.tabIndex=active?0:-1;entry.pane.hidden=!active;}
+      for(const entry of entries){const active=entry.id===id;entry.button.setAttribute(fullControls?'aria-pressed':'aria-selected',String(active));entry.button.tabIndex=fullControls||active?0:-1;entry.pane.hidden=!fullControls&&!active;entry.pane.classList.toggle('is-selected',active);}
       for(const point of plot.querySelectorAll('.fx-eq-point')){const active=point.dataset.band.toLowerCase()===id;point.classList.toggle('fx-eq-point-selected',active);point.setAttribute('aria-current',String(active));}
       for(const curve of plot.querySelectorAll('.fx-plot-band'))curve.classList.toggle('fx-plot-band-selected',curve.dataset.bandCurve.toLowerCase()===id);
     };
     bands.forEach((id,index)=>{
       const name=id==='l'?'LOW':id==='h'?'HIGH':`B${id}`,pane=el('section','fx-wing-band-pane'),row=el('div','fx-wing-knob-row'),button=btn('',()=>choose(id),'fx-wing-band-tab'),gain=el('output','fx-wing-band-gain');
-      pane.id=uid+'-pane-'+id;pane.setAttribute('role','tabpanel');pane.setAttribute('aria-labelledby',uid+'-tab-'+id);pane.setAttribute('aria-label',`Banda ${name}`);pane.style.setProperty('--band-color',colors[index]);button.style.setProperty('--band-color',colors[index]);
-      button.id=uid+'-tab-'+id;button.setAttribute('role','tab');button.setAttribute('aria-controls',pane.id);button.setAttribute('aria-label',`Banda ${name}`);button.append(el('span','fx-wing-band-name',name),gain);
+      pane.id=uid+'-pane-'+id;pane.setAttribute('role',fullControls?'group':'tabpanel');pane.setAttribute('aria-labelledby',uid+'-tab-'+id);pane.setAttribute('aria-label',`Banda ${name}`);pane.style.setProperty('--band-color',colors[index]);button.style.setProperty('--band-color',colors[index]);
+      button.id=uid+'-tab-'+id;button.setAttribute('role',fullControls?'button':'tab');button.setAttribute('aria-controls',pane.id);button.setAttribute('aria-label',`Banda ${name}`);button.append(el('span','fx-wing-band-name',name),gain);
       const g=model.parameters.find(p=>p.key===id+'g'),f=model.parameters.find(p=>p.key===id+'f');
       bindings.push(()=>{const known=parameterKnown(ctx,g),value=Number(rawValue(ctx,g));text(gain,known?`${value>0?'+':''}${pretty(value,g)}`:'—');const next=known?`${name} · ${pretty(rawValue(ctx,f),f)} Hz · ${value>0?'+':''}${pretty(value,g)} dB`:`${name} · valore non disponibile`;if(button.title!==next)button.title=next;});
       const title=el('h4','fx-wing-control-heading',id==='l'?'BANDA BASSA':id==='h'?'BANDA ALTA':`BANDA ${id}`);pane.append(title);
@@ -528,7 +529,7 @@
       const panel=Panels?.forModel(model)||{face:model.layout,sections:[...new Set(model.parameters.map(p=>p.group||'Controls'))].map(title=>({title,keys:model.parameters.filter(p=>(p.group||'Controls')===title).map(p=>p.key)})),heroes:[],subtitle:model.name};
       stateSignature=presentationState();liveMode=live();mountedSession=gestureSession();modelSchema=schemaState();modelKeys=model.parameters.map(parameter=>parameter.key);processorValues=valuesFor(proc);
       const wingEditor=panel.native||(model.id==='STD'&&model.layout==='eq'?'eq':model.category==='gate_dynamics'&&['GATE','DUCK','COMP','EXP'].includes(model.id)?'dynamics':model.category==='filter'?'filter':null);
-      const wrapper=el('div',`fx-processor fx-theme-${model.theme} fx-layout-${model.layout} fx-panel-${panel.face}`);wrapper.dataset.model=model.id;wrapper.dataset.context=keyFor(ctx);if(wingEditor)wrapper.classList.add('fx-wing-editor');if(wingEditor&&!options.principal)wrapper.classList.add('fx-wing-'+wingEditor);container.append(wrapper);
+      const wrapper=el('div',`fx-processor fx-theme-${model.theme} fx-layout-${model.layout} fx-panel-${panel.face}`);wrapper.dataset.model=model.id;wrapper.dataset.context=keyFor(ctx);if(wingEditor)wrapper.classList.add('fx-wing-editor');if(wingEditor&&!options.principal)wrapper.classList.add('fx-wing-'+wingEditor);if(options.fullControls)wrapper.classList.add('fx-full-controls');container.append(wrapper);
       const surfaceSession=gestureSession();
       // A browser can deliver blur/change after a card was collapsed or after
       // reconnect. Obsolete surfaces never commit into a replacement session.
@@ -573,19 +574,19 @@
       }else{
         const reference=referenceFor(model);let used=new Set(),sectionParent=face;
         if(wingEditor){
-          face.append(wingEditor==='eq'?makeWingEq(model,ctx,bindings,viewState):wingEditor==='dynamics'?makeWingDynamics(model,ctx,bindings,viewState):makeWingFilter(model,ctx,bindings));used=new Set(model.parameters.map(p=>p.key));
+          face.append(wingEditor==='eq'?makeWingEq(model,ctx,bindings,viewState,!!options.fullControls):wingEditor==='dynamics'?makeWingDynamics(model,ctx,bindings,viewState):makeWingFilter(model,ctx,bindings));used=new Set(model.parameters.map(p=>p.key));
         }else if(reference){
           wrapper.classList.add('fx-original-enabled');const original=makeReferenceSurface(model,ctx,reference,bindings,surfaceCleanups,options.rotaryBank?{minScale:.35,fitWithin:container.closest?.('.editor-panel')}:{ });face.append(original.element);used=original.used;
-          if(model.parameters.some(p=>!used.has(p.key))){const extras=el('details','fx-original-extras');extras.append(el('summary','','Altri controlli del processore'));face.append(extras);sectionParent=extras;if(model.id==='VSS3'){bindings.push(()=>{extras.open=!!Number(instance(ctx)?.params?.view);});}}
+          if(model.parameters.some(p=>!used.has(p.key))){const extras=el('details','fx-original-extras');extras.open=!!options.fullControls;extras.append(el('summary','','Altri controlli del processore'));face.append(extras);sectionParent=extras;if(model.id==='VSS3'&&!options.fullControls){bindings.push(()=>{extras.open=!!Number(instance(ctx)?.params?.view);});}}
         }else{const plot=makePlot(model,ctx,bindings);if(plot)face.append(plot);}
         const sections=panel.sections.map(part=>({...part,keys:part.keys.filter(key=>!used.has(key))})).filter(part=>part.keys.length);
         const tabs=el('div','fx-section-tabs'),sectionNodes=[],sectionButtons=[];
         const selectGroup=name=>{cancelGestures();activeGroup=name;for(const [button,title]of sectionButtons)button.setAttribute('aria-pressed',String(title===name));for(const [section,title]of sectionNodes)section.hidden=name!=='Tutti'&&title!==name;};
-        if(sections.length>1&&!reference){for(const name of ['Tutti',...sections.map(s=>s.title)]){const b=btn(groupNames[name]||name,()=>selectGroup(name),'fx-section-tab');b.setAttribute('aria-pressed',String(activeGroup===name));tabs.append(b);sectionButtons.push([b,name]);}sectionParent.append(tabs);}
+        if(sections.length>1&&!reference&&!options.fullControls){for(const name of ['Tutti',...sections.map(s=>s.title)]){const b=btn(groupNames[name]||name,()=>selectGroup(name),'fx-section-tab');b.setAttribute('aria-pressed',String(activeGroup===name));tabs.append(b);sectionButtons.push([b,name]);}sectionParent.append(tabs);}
         const surface=el('div','fx-panel-sections');if(sections.length)sectionParent.append(surface);
         for(const [index,part] of sections.entries()){
           const section=el('section','fx-panel-section');section.dataset.section=part.title;section.style.setProperty('--section-hue',[25,43,105,163,207,258,305,345][index%8]);
-          if(!reference){section.hidden=activeGroup!=='Tutti'&&activeGroup!==part.title;sectionNodes.push([section,part.title]);}
+          if(!reference){section.hidden=!options.fullControls&&activeGroup!=='Tutti'&&activeGroup!==part.title;sectionNodes.push([section,part.title]);}
           const heading=el('h4','fx-section-title');heading.append(el('span','fx-section-index',String(index+1).padStart(2,'0')),el('span','',groupNames[part.title]||part.title));section.append(heading);
           const isBands=model.layout==='geq'&&part.title==='Bands',isKeys=model.id==='PCORR'&&part.title==='Notes';
           const grid=el('div',isBands?'fx-geq-bank':isKeys?'fx-piano-keyboard':'fx-knob-grid');

@@ -137,7 +137,12 @@
     document.getElementById('inputs-mode').textContent=layerLayout?`${layerLayout.bottom.length} STRIP · RIGA INFERIORE${target?' · SOF':''}`:target?`48 INGRESSI → ${shortLabel(target)}`:'40 CANALI · 8 AUX';
     all().forEach(updateStrip);updateSelection();window.SculptDcaBank?.refresh();
   }
-  function setSof(targetId){if(!M.setSof(state,targetId))return false;updateMode();emit('sof');return true;}
+  function setSof(targetId){
+    // Explicit SOF actions (including macros) reveal the Compact mixer first.
+    // Extended never leaves its faders controlling a hidden send target.
+    if(targetId&&window.SculptMixerView?.mode?.()==='extended')window.SculptMixerView.setMode('compact');
+    if(!M.setSof(state,targetId))return false;updateMode();emit('sof');return true;
+  }
   function changeLevel(id,level,targetId,persist=true){
     const strip=stripById(id);if(!strip)return false;
     if((targetId?M.getSend(state,id,targetId).level:strip.level)===level)return true;
@@ -396,7 +401,6 @@
         section.querySelector('.bank-navigation').hidden=!!layerMembers;
         scroller.setAttribute('aria-label',layerLayout?`${layerName}, riga ${key==='top'?'1 superiore':'2 inferiore'}, scorri orizzontalmente`:row==='outputs'?'Bus, matrici, master e DCA, scorri orizzontalmente':'Canali e ingressi AUX, scorri orizzontalmente');
         let empty=bank.querySelector('.layer-empty');if(!empty){empty=document.createElement('div');empty.className='layer-empty';empty.textContent='Riga vuota · assegna i canali in Custom Layer';bank.append(empty);}empty.hidden=!layerLayout||layerLayout[key].length>0;
-        let exit=section.querySelector('.layer-exit');if(!exit){exit=document.createElement('button');exit.className='layer-exit';exit.type='button';exit.textContent='Tutti i canali ×';exit.addEventListener('click',()=>window.SculptController.showLayer(null));section.querySelector('.row-header').append(exit);}exit.hidden=!layerMembers;
         scroller.scrollLeft=0;bankUpdates.get(row)?.();
       }
       if(!layerMembers&&state.desk)state.desk.activeLayer=null;

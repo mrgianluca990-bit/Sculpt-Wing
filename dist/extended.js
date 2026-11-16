@@ -12,8 +12,8 @@
   const VST_ANCHORS = { pre: 'input', insert1: 'pre', insert2: 'post' };
   const strips = new Map(), scrollPositions = new Map();
   const preparations = new Map();
-  let mode = 'compact', bank = 'inputs', savedMode = 'compact';
-  let reorder = null, chainObserver = null, markedDrop = null;
+  let mode = 'compact', bank = 'inputs', savedMode = 'compact', compactSof = null;
+  let reorder = null, chainObserver = null, markedDrop = null, suspendingSof = false;
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
     if (saved?.version === 1) {
@@ -47,21 +47,13 @@
     return C.getStrip(id)?.kind === 'MTX' && !!C.listStrips?.().some(peer => C.canSend?.(peer.id, id));
   }
 
-  // This control moves between existing headers; Compact keeps its original row
-  // heights and fader geometry. Only the new rack nodes are hidden in Compact.
+  // Only the bank selector belongs in the mixer. View changes remain available
+  // from the native View menu and Cmd/Ctrl+=, keeping both mixer headers clear.
   const toolbar = el('div', 'mixer-view-controls');
-  const viewGroup = el('div', 'mixer-view-switch'); viewGroup.setAttribute('role', 'group'); viewGroup.setAttribute('aria-label', 'Vista mixer');
-  const compactButton = button('Compact', 'mixer-view-button', () => setMode('compact'));
-  const extendedButton = button('Extended', 'mixer-view-button', () => setMode('extended'));
-  for (const node of [compactButton, extendedButton]) {
-    node.title = `${node.textContent} · ⌘= / Ctrl+=`;
-    node.setAttribute('aria-keyshortcuts', 'Meta+= Control+=');
-  }
-  viewGroup.append(compactButton, extendedButton);
   const bankGroup = el('div', 'mixer-bank-switch'); bankGroup.setAttribute('role', 'group'); bankGroup.setAttribute('aria-label', 'Fila della vista Extended');
   const inputButton = button('Ingressi', 'mixer-view-button', () => setBank('inputs'));
   const outputButton = button('Uscite', 'mixer-view-button', () => setBank('outputs'));
-  bankGroup.append(inputButton, outputButton); toolbar.append(viewGroup, bankGroup);
+  bankGroup.append(inputButton, outputButton); toolbar.append(bankGroup);
 
   const editorOverlay = el('section', 'extended-editor-host');
   editorOverlay.setAttribute('aria-label', 'Editor sopra i fader');
@@ -97,8 +89,7 @@
     consoleNode.dataset.mixerView = mode; consoleNode.dataset.extendedBank = bank;
     consoleNode.classList.toggle('mixer-extended', extended);
     for (const [name, row] of Object.entries(rows)) row.classList.toggle('extended-row-hidden', extended && name !== bank);
-    compactButton.setAttribute('aria-pressed', String(!extended)); extendedButton.setAttribute('aria-pressed', String(extended));
-    bankGroup.hidden = !extended;
+    toolbar.hidden = !extended;
     inputButton.textContent = layer ? 'Riga 2' : 'Ingressi'; outputButton.textContent = layer ? 'Riga 1' : 'Uscite';
     inputButton.setAttribute('aria-pressed', String(bank === 'inputs')); outputButton.setAttribute('aria-pressed', String(bank === 'outputs'));
     placeControls();
@@ -120,6 +111,13 @@
     if (!['compact', 'extended'].includes(next)) return false;
     if (next === mode) return true;
     cancelReorder(); rememberScroll(); const previousMode = mode; mode = next;
+    // SOF belongs to Compact. Suspend its target while Extended exposes channel
+    // levels, and restore it when returning to the original two-row mixer.
+    if (mode === 'extended') {
+      compactSof = C.getSof();
+      if (compactSof) { suspendingSof = true; try { C.setSof(null); } finally { suspendingSof = false; } }
+    }
+    else { const target = compactSof; compactSof = null; if (target) C.setSof(target); }
     syncControls(); if (mode === 'extended') { refresh(); prepareChain(strips.get(C.getState().selected)); }
     restoreScroll(previousMode); persist(); notifyView();
     return true;
@@ -153,7 +151,7 @@
   }
   function openWing(id, block, origin) {
     cancelReorder();
-    if (window.SculptEditor?.openDevice) return window.SculptEditor.openDevice(id, block, { origin });
+    if (window.SculptEditor?.openDevice) return window.SculptEditor.openDevice(id, block, { origin, presentation: 'window' });
     const ch = D.channel(id), path = window.SculptWingMap?.stripPath(id);
     if (block === 'home' || block === 'master') return window.SculptEditor?.openSection(id, 'channel', { origin });
     if (block === 'sends') return window.SculptEditor?.openSection(id, 'sends', { origin });
@@ -557,6 +555,7 @@
     refresh
   });
   C.subscribe(event => {
+    if (event.type === 'sof' && mode === 'extended' && !suspendingSof) compactSof = null;
     if (event.type === 'selection' && mode === 'extended') {
       if (reorder && reorder.record.id !== event.id) cancelReorder('Spostamento annullato: canale cambiato.');
       const row = strips.get(event.id)?.article.closest('.mixer-row');
@@ -600,8 +599,7 @@
     for (const row of Object.values(rows)) observer.observe(row);
   }
   if (typeof MutationObserver === 'function') {
-    // In Compact an editor covers the opposite row. Keep the view selector in
-    // the uncovered header without adding vertical space or another toolbar.
+    // The bank selector follows the active row without adding vertical space.
     const observer = new MutationObserver(placeControls);
     for (const row of Object.values(rows)) observer.observe(row, { attributes: true, attributeFilter: ['class'] });
   }

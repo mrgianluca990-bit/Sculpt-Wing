@@ -20,7 +20,7 @@
   const stripName = id => { const s = C.getStrip(id); return s ? `${s.kind} ${s.number} · ${s.name}` : id.toUpperCase(); };
   const getRack = id => state.racks.find(r => r.id === id) || null;
   const getCount = (kind, fallback = 48) => { const v = state.audio?.[kind]; return Array.isArray(v) ? v.length : Number.isInteger(v) && v > 0 ? v : fallback; };
-  const isStructuralLocked = () => busy || state.running || state.scanning || !connected;
+  const isStructuralLocked = () => busy || state.running || state.analysis?.running || state.scanning || !connected;
   function message(error) { fault = typeof error === 'string' ? error : error?.message || 'Operazione audio non riuscita.'; updateStatus(); renderAlert(); refreshChannelViews(); }
   function emit(id) { window.dispatchEvent(new CustomEvent('sculpt-vst-state', { detail: { ...(id ? { id } : {}), connected, running: state.running, error: fault, racks: state.racks } })); refreshChannelViews(); }
   function routingStatus(id) {
@@ -35,13 +35,13 @@
   function accept(data) {
     if (!data || typeof data !== 'object') return;
     if (data.telemetry || data.partial) {
-      const controlsChanged = ('running' in data && data.running !== state.running) || ('scanning' in data && data.scanning !== state.scanning);
-      for (const key of ['running', 'scanning', 'audio', 'cpu', 'xruns', 'rackMeters']) if (key in data) state[key] = data[key];
+      const controlsChanged = ('running' in data && data.running !== state.running) || ('scanning' in data && data.scanning !== state.scanning) || ('analysis' in data && data.analysis?.running !== state.analysis?.running);
+      for (const key of ['running', 'scanning', 'audio', 'analysis', 'cpu', 'xruns', 'rackMeters']) if (key in data) state[key] = data[key];
       updateStatus();
       if (controlsChanged) { emit(); if (modal?.open && !busy) render(); }
       return;
     }
-    const oldRunning = state.running, oldScanning = state.scanning;
+    const oldRunning = state.running, oldScanning = state.scanning, oldAnalysisRunning = state.analysis?.running;
     if (Array.isArray(data.racks)) for (const id of routePlans.keys()) {
       if (routeFingerprint(getRack(id)) !== routeFingerprint(data.racks.find(rack => rack.id === id))) routePlans.delete(id);
     }
@@ -49,7 +49,7 @@
     connected = true;
     try { localStorage.setItem(KEY, JSON.stringify(M.metadata(state))); } catch { /* Plugin presets remain in the desktop session file. */ }
     emit(); updateStatus();
-    if (modal?.open && !busy && (oldRunning !== state.running || oldScanning !== state.scanning || panel === 'rack')) render();
+    if (modal?.open && !busy && (oldRunning !== state.running || oldScanning !== state.scanning || oldAnalysisRunning !== state.analysis?.running || panel === 'rack')) render();
   }
   async function request(method, params = {}) {
     if (!available()) throw new Error('Il rack VST3 è disponibile nell’app Sculpt Wing per Mac Apple Silicon.');
@@ -71,7 +71,7 @@
   }
   async function action(work, { structure = false, save = true, refresh = true } = {}) {
     if (busy) return false;
-    if (structure && state.running) { message('Ferma l’audio USB prima di modificare plugin o collegamenti.'); return false; }
+    if (structure && (state.running || state.analysis?.running)) { message('Ferma audio USB e misura prima di modificare plugin o collegamenti.'); return false; }
     if (state.scanning) { message('Attendi il completamento della scansione VST3.'); return false; }
     busy = true; fault = ''; render();
     try {
@@ -300,7 +300,7 @@
       audioDraft = null;
     }, { structure: true }), 'vst-primary'); apply.disabled = isStructuralLocked();
     const reload = button(connected ? 'Aggiorna dispositivi' : 'Riconnetti motore', async () => {
-      if (busy || state.running || state.scanning) return;
+      if (busy || state.running || state.analysis?.running || state.scanning) return;
       busy = true; fault = ''; render();
       try {
         // devices is an explicit user action and may restart a failed helper.
@@ -308,7 +308,7 @@
         if (!initialized) { const restored = await request('loadSession'); if (restored?.state) accept(restored.state); initialized = true; }
         accept(await request('getState'));
       } catch (error) { message(error); } finally { busy = false; render(); }
-    }); reload.disabled = busy || state.running || state.scanning;
+    }); reload.disabled = busy || state.running || state.analysis?.running || state.scanning;
     controls.append(apply, reload); container.append(controls);
     if (hasManagedRoute()) container.append(note('Interfaccia associata a un percorso WING: ripristina i percorsi dei rack prima di cambiarla. Buffer e frequenza restano modificabili con audio fermo.'));
     const latency = note(''); latency.dataset.vstLatency = ''; container.append(latency);
@@ -453,7 +453,7 @@
   }
   function openRack(id = C.getState().selected) { return show('rack', M.validId(id) ? id : 'ch-1'); }
   function openAudio() { return show('audio'); }
-  window.SculptVst = Object.freeze({ getRack, openSlot, openRack, openAudio, renderChannel, setPlacement, routingStatus, snapshot: () => ({ ...state, connected, error: fault }), available });
+  window.SculptVst = Object.freeze({ getRack, openSlot, openRack, openAudio, renderChannel, setPlacement, routingStatus, ensureHost: async () => { await ensure(); return { ...state, connected }; }, snapshot: () => ({ ...state, connected, error: fault }), available });
   window.addEventListener('sculpt-vst-route-state', event => { if (event.detail?.state !== 'prepared') routePlans.delete(event.detail?.rackId); render(); });
   window.addEventListener('sculpt-live-state', () => {
     const key = liveControlKey();
@@ -465,7 +465,7 @@
   toolbar.setAttribute('aria-label', 'Apri audio USB e rack VST3'); document.querySelector('.macro-rail')?.insertBefore(toolbar, document.getElementById('info-button'));
   if (window.SculptDesktop?.addListener) {
     window.SculptDesktop.addListener('audioState', accept).catch(message);
-    window.SculptDesktop.addListener('audioError', error => { if (error?.fatal !== false) { connected = false; state.running = false; state.scanning = false; initialized = false; } message(error?.message || error?.error || error); emit(); if (modal?.open) render(); }).catch(message);
+    window.SculptDesktop.addListener('audioError', error => { if (error?.fatal !== false) { connected = false; state.running = false; state.scanning = false; state.analysis = { ...state.analysis, running: false }; initialized = false; } message(error?.message || error?.error || error); emit(); if (modal?.open) render(); }).catch(message);
     window.SculptDesktop.addListener('audioScanProgress', data => { scanMessage = data?.message || (data?.name ? `Scansione · ${data.name}` : 'Scansione VST3…'); const footer = modal?.querySelector('.vst-footer .vst-note'); if ((busy || state.scanning) && footer) footer.textContent = scanMessage; }).catch(message);
   }
   C.subscribe(event => { if (event.type === 'selection' && modal?.open && panel === 'rack' && !busy && M.validId(event.id) && event.id !== rackId) { rackId = event.id; routingDraft = null; render(); } });
