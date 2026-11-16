@@ -1,0 +1,14 @@
+**/node_modules/
+native/dist/
+native/ios/App/App/public/
+native/ios/App/App/capacitor.config.json
+native/ios/App/Pods/
+desktop/app/
+desktop/build/
+desktop/release/
+audio-host/build*/
+**/__pycache__/
+*.pyc
+*.tsbuildinfo
+.DS_Store
+
