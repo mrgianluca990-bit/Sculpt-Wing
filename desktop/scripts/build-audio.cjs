@@ -16,12 +16,21 @@ try {
   if (process.platform !== 'darwin') throw new Error('Build the Apple Silicon audio engine on macOS, or use the Mac M1 GitHub Actions workflow.');
   const args = process.argv.slice(2);
   if (args.some(arg => arg !== '--with-test-plugin')) throw new Error('Usage: npm run build:audio [-- --with-test-plugin]');
-  const electronPlist = path.join(desktopDir, 'node_modules/electron/dist/Electron.app/Contents/Info.plist');
+  // Recent Electron packages download their binary on first resolution rather
+  // than during npm ci. Resolve through the package before reading its bundle.
+  let electronExecutable;
+  try {
+    electronExecutable = require('electron');
+  } catch (error) {
+    throw new Error(`Cannot install or locate Electron for macOS: ${error.message}`);
+  }
+  if (typeof electronExecutable !== 'string' || !electronExecutable) throw new Error('Electron did not provide an executable path.');
+  const electronPlist = path.resolve(path.dirname(electronExecutable), '..', 'Info.plist');
   let minOS;
   try {
     minOS = execFileSync('/usr/libexec/PlistBuddy', ['-c', 'Print :LSMinimumSystemVersion', electronPlist], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
-  } catch {
-    throw new Error('Cannot read the installed Electron minimum macOS version. Run `npm ci --prefix desktop` on the Mac before building audio.');
+  } catch (error) {
+    throw new Error(`Cannot read the minimum macOS version from ${electronPlist}: ${error.message}`);
   }
   if (!/^\d+\.\d+(\.\d+)?$/.test(minOS)) throw new Error(`Invalid Electron minimum macOS version: ${minOS}`);
   console.log(`Building SculptWingAudio for arm64, macOS ${minOS}+ (same minimum as Electron).`);
