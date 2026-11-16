@@ -56,7 +56,11 @@ test('M10 opens the chosen channel EQ through the real editor and clearing the s
   f.choose('Destinazione azione 1','ch-2');f.choose('Sezione editor 1','eq');f.fill('Nome macro','EQ voce');
   await f.run(f.button('▶ Esegui'),10);
   assert.equal(f.U.current(),null);assert.equal(f.E.isOpen(),true);assert.equal(f.C.getState().selected,'ch-2');
-  assert.equal(f.w.document.querySelector('.editor-dialog [role="tab"][aria-selected="true"]').dataset.tab,'eq');assert.equal(f.w.document.querySelector('.desk-workspace').open,false);assert.deepEqual(f.audio(),before);
+  const editor=f.w.document.querySelector('.editor-dialog'),eq=editor.querySelector('[data-module="eq"]');
+  assert.deepEqual([...editor.querySelectorAll('.editor-tabs [role="tab"]')].map(node=>node.textContent),['Canale','VST3','FX']);
+  assert.equal(editor.querySelector('.editor-tabs [aria-selected="true"]').dataset.tab,'devices');
+  assert.equal(eq.dataset.expanded,'true');assert.equal(eq.classList.contains('is-selected'),true);assert(eq.querySelector('.editor-device-full .fx-processor'),'the macro opens the real EQ processor inside its channel card');
+  assert.equal(f.w.document.querySelector('.desk-workspace').open,false);assert.deepEqual(f.audio(),before);
   f.E.close();f.rail(10).dispatchEvent(new f.w.MouseEvent('contextmenu',{bubbles:true,cancelable:true}));f.button('Svuota pulsante').click();
   assert.equal(f.D.get().macros[9].name,'');assert.equal(f.D.get().macros[9].actions.length,0);assert.equal(f.button('▶ Esegui').disabled,true);assert.equal(f.named('Cosa vuoi assegnare?').value,'');
   f.button('‹ Mixer').click();assert.equal(f.rail(10).getAttribute('aria-label'),'Macro 10 · Assegna');assert.equal(f.rail(10).classList.contains('is-empty'),true);

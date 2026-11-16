@@ -94,8 +94,9 @@ test('real app connects through the native boundary, guards edits, reads back an
   const beforeMixed=C.getStrip('ch-1').level,writesBeforeMixed=driver.writes.length;
   assert.equal(C.transact(s=>{s.inputs.find(x=>x.id==='ch-1').level=-2;s.desk.setup.unmappedFeature=true;},'mixed'),false);
   assert.equal(C.getStrip('ch-1').level,beforeMixed);assert.equal(driver.writes.length,writesBeforeMixed);assert.equal(D.get().setup.unmappedFeature,undefined);
-  // Exercise the editor's actual live read gate. Its first network read is
-  // delayed and fails, then a user retries against the same real coordinator.
+  // Utility cards own their bounded live reads. Fail the Input read while
+  // already-confirmed controls remain usable, then reopen that card to retry
+  // against the same real coordinator.
   const mapped=w.SculptWingMap.capture(C.getState());
   const sourceIds=new Set([D.channel('ch-1').source,D.channel('ch-1').altSource]);
   for(const descriptor of w.SculptWingMap.descriptors(C.getState())){
@@ -104,21 +105,33 @@ test('real app connects through the native boundary, guards edits, reads back an
     driver.field(descriptor.path,value,typeof value==='string'?7:descriptor.type==='integer'?4:1,{readOnly:!!descriptor.readOnly,min:-144,max:20000,maxLength:256});
   }
   driver.values.set('/io/in/LCL/1/g',23);
-  const held=deferred();driver.describeHook=path=>path==='/ch/1/in/set'?held.promise:undefined;
-  w.SculptEditor.openSection('ch-1','channel');
-  assert.equal(w.document.querySelector('.editor-live-read').dataset.state,'loading');assert.equal(w.document.querySelector('.editor-panel input'),null,'seeded controls stay hidden while the read is pending');
-  held.reject(new Error('Read interruption fixture'));await until(()=>w.document.querySelector('.editor-live-read')?.dataset.state==='error','editor failed read state');
-  assert.equal(w.document.querySelector('.editor-panel input'),null,'failed reads never expose seeded controls');
-  driver.describeHook=null;[...w.document.querySelectorAll('.editor-panel button')].find(b=>b.textContent==='Riprova lettura').click();
-  await until(()=>!!w.document.querySelector('.editor-panel input[aria-label="Gain preamp in dB"]'),'editor hydrated source gain');
-  let gain=w.document.querySelector('.editor-panel input[aria-label="Gain preamp in dB"]');assert.equal(gain.value,'23');
+  const held=deferred();let inputReadStarted=false;driver.describeHook=path=>{if(path==='/ch/1/in/set'){inputReadStarted=true;return held.promise;}};
+  w.SculptEditor.openDevice('ch-1','input');
+  const inputCard=()=>w.document.querySelector('.editor-device-panel[data-module="input"]');
+  const gainControl=()=>inputCard()?.querySelector('input[aria-label="Gain preamp in dB"]');
+  const trimControl=()=>inputCard()?.querySelector('input[aria-label="Trim in dB"]');
+  await until(()=>inputReadStarted,'Input card starts its bounded read');
+  assert.match(inputCard().querySelector('.editor-device-read-status').textContent,/Lettura WING/);
+  assert.equal(gainControl(),null,'the active source must be read before its preamp is exposed');
+  assert.equal(trimControl().disabled,true);assert.equal(trimControl().value,'','unread values do not display seeded defaults');
+  assert.equal(w.document.querySelector('.editor-device-panel[data-module="master"] input[aria-label="Fader in dB"]').disabled,false,'confirmed Master controls are independent from an Input read');
+  held.reject(new Error('Read interruption fixture'));
+  await until(()=>inputCard().querySelector('.editor-device-read-status').textContent.includes('Read interruption fixture'),'Input card failed read state');
+  assert.equal(gainControl(),null);assert.equal(trimControl().disabled,true);assert.equal(trimControl().value,'');
+  const writesBeforeUnread=driver.writes.length,trimBeforeUnread=driver.values.get('/ch/1/in/set/trim');
+  trimControl().value='-4';trimControl().dispatchEvent(new w.Event('change',{bubbles:true}));
+  assert.equal(driver.writes.length,writesBeforeUnread,'even a dispatched event from an unread control cannot write');assert.equal(driver.values.get('/ch/1/in/set/trim'),trimBeforeUnread);
+  driver.describeHook=null;w.SculptEditor.close();w.SculptEditor.openDevice('ch-1','input');
+  await until(()=>gainControl()?.disabled===false,'editor hydrated source gain');
+  let gain=gainControl();assert.equal(gain.value,'23');
   driver.values.set('/io/in/LCL/1/g',27);driver.emit('value','/io/in/LCL/1/g',27);await until(()=>gain.value==='27','external source push updates editor binding');
+  w.SculptEditor.openDevice('ch-1','home');
   const white=[...w.document.querySelectorAll('.editor-colors button')].find(b=>b.getAttribute('aria-label')==='Colore Bianco');white.click();
   await until(()=>w.SculptLive.snapshot().pending===0&&C.getStrip('ch-1').color==='#e0e0e0','palette conversion accepted by mutation guard');
   w.SculptEditor.close();w.SculptFX.open({type:'fx',slot:1});
   w.SculptUI.open('connection');w.document.querySelector('.live-arm').click();
   decay=w.document.querySelector('.fx-modal [data-parameter="dcy"] input');decay.value='7';decay.dispatchEvent(new w.Event('change',{bubbles:true}));assert.equal(processorRef.params.dcy,3.2);assert.equal(D.processor({type:'fx',slot:1}),processorRef,'processor reference survives rejected edit');
-  w.SculptEditor.openSection('ch-1','channel');await until(()=>!!w.document.querySelector('.editor-panel input[aria-label="Gain preamp in dB"]'),'reopen hydrated editor');
+  w.SculptEditor.openDevice('ch-1','input');await until(()=>!!gainControl(),'reopen hydrated editor');
   driver.emit('status','suspended','Background fixture');
   assert.equal(w.SculptLive.snapshot().mode,'suspended');assert.equal(w.document.querySelector('.editor-panel input'),null,'connection status removes stale editor controls immediately');
   assert.equal(w.SculptLive.gainReduction('ch-1'),null,'suspension clears actual GR frames along with stereo metering');

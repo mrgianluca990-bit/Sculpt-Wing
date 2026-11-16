@@ -28,7 +28,7 @@ function fixture(t) {
     return replaceChildren.apply(this, nodes);
   };
   const files = ['plugin-data.js', 'model.js', 'history.js', 'app.js', 'desk.js', 'shell.js', 'plugin-panels.js',
-    ...['layouts', 'dynamics', 'eq', 'fx', 'channel', 'native', 'dynamics-extra', 'filters'].map(part => `plugin-original-${part}.js`), 'plugins.js', 'editor.js'];
+    ...['layouts', 'dynamics', 'eq', 'fx', 'channel', 'native', 'dynamics-extra', 'filters'].map(part => `plugin-original-${part}.js`), 'plugins.js', 'wing-map.js', 'channel-chain.js', 'editor.js'];
   for (const file of files) vm.runInContext(fs.readFileSync(path.join(base, file), 'utf8'), dom.getInternalVMContext(), { filename: file });
   const E = w.SculptEditor, C = w.SculptController, D = w.SculptDesk;
   const renderProcessor = w.SculptFX.renderProcessor;
@@ -41,9 +41,12 @@ function fixture(t) {
   t.after(() => { E.close(); dom.window.close(); });
   const editor = () => w.document.querySelector('.editor-dialog');
   const panel = () => editor()?.querySelector('.editor-panel');
+  const card = key => editor()?.querySelector(`.editor-device-panel[data-module="${key}"]`);
+  const board = () => editor()?.querySelector('.editor-device-board');
   const named = name => [...editor().querySelectorAll('[aria-label]')].find(node => node.getAttribute('aria-label') === name);
   const selectedTab = () => editor().querySelector('[role="tab"][aria-selected="true"]').dataset.tab;
-  const selectedGroup = () => editor().querySelector('.editor-send-groups [aria-pressed="true"]')?.textContent;
+  const selectedModule = () => editor().querySelector('.editor-device-panel.is-selected')?.dataset.module;
+  const selectedGroup = () => card('sends').querySelector('.editor-send-groups [aria-pressed="true"]')?.textContent;
   const clickStrip = id => w.document.querySelector(`.strip[data-id="${id}"] .strip-label`).click();
   const change = (input, value) => { input.value = String(value); input.dispatchEvent(new w.Event('change', { bubbles: true })); };
   const pointer = (node, type, y, id = 1) => {
@@ -52,7 +55,7 @@ function fixture(t) {
     Object.defineProperties(event, { pointerId: { value: id }, pointerType: { value: 'mouse' } });
     node.dispatchEvent(event);
   };
-  return { w, E, C, D, events, captures, editor, panel, named, selectedTab, selectedGroup, clickStrip, change, pointer,
+  return { w, E, C, D, events, captures, editor, panel, board, card, named, selectedTab, selectedModule, selectedGroup, clickStrip, change, pointer,
     renders: () => panelRenders, resetCounts: () => { panelRenders = 0; events.length = 0; } };
 }
 
@@ -63,40 +66,54 @@ function deferred() {
 }
 
 function liveFixture(t) {
-  const f = fixture(t), requests = [], listeners = new Set();
+  const f = fixture(t), requests = [], listeners = new Set(), states = new Map();
   let session = 1;
+  const key = (ctx, epoch = session) => `${epoch}:${ctx.id}:${ctx.block}`;
+  const notify = () => { for (const fn of [...listeners]) fn(); };
   f.w.SculptLive = {
     isLive: () => true, isConnected: () => true, isWritable: () => false, applying: () => false,
     snapshot: () => ({ mode: 'live', writable: false, pending: 0 }), sessionToken: () => session,
     canPersist: () => false, reviewMutation: () => false, hasStripValue: () => true,
+    hasValue: () => true, value: () => undefined, metadata: () => undefined,
+    processorState: ctx => states.get(key(ctx)) || { ready: false, loading: true },
+    parameterDefinition(ctx, name) {
+      const parameter = f.w.SculptCatalog.get(ctx, f.D.processor(ctx)?.model)?.parameters.find(item => item.key === name);
+      return parameter ? { ...parameter, path: `/test/${key(ctx)}/${name}`, readOnly: true } : null;
+    },
     subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
     loadScope(scope, args) { requests.push({ type: scope, ...args, session }); return Promise.resolve(); },
-    ensureProcessor(ctx) { const wait = deferred(); requests.push({ ...ctx, type: 'processor', session, ...wait }); return wait.promise; }
+    ensureProcessor(ctx) {
+      const existing = requests.find(request => request.type === 'processor' && request.id === ctx.id && request.block === ctx.block && request.session === session);
+      if (existing) return existing.promise;
+      const wait = deferred(), epoch = session;
+      states.set(key(ctx, epoch), { ready: false, loading: true });
+      requests.push({ ...ctx, type: 'processor', session: epoch, promise: wait.promise,
+        resolve() { states.set(key(ctx, epoch), { ready: true, loading: false }); wait.resolve(); notify(); },
+        reject(error) { states.set(key(ctx, epoch), { ready: false, loading: false, error: error.message }); wait.reject(error); notify(); }
+      });
+      return wait.promise;
+    }
   };
-  // Exercise the editor's hydration/lifecycle boundary independently of plugin
-  // firmware metadata and transport. Offline tests above use the real plugins.
-  f.w.SculptFX.renderProcessor = (host, ctx) => {
-    f.events.push({ type: 'processor', id: ctx.id, block: ctx.block });
-    const label = f.w.document.createElement('span'); label.dataset.testContext = `${ctx.id}/${ctx.block}`; host.append(label);
-    return () => f.events.push({ type: 'cleanup', id: ctx.id, block: ctx.block });
-  };
+  // Each card now owns its read. Keep the real processor renderer to verify
+  // disabled pending surfaces and the cleanup of obsolete async continuations.
   return { ...f, requests, nextSession() { session++; for (const fn of [...listeners]) fn(); },
     pending(id, block, epoch = session) { return requests.find(request => request.type === 'processor' && request.id === id && request.block === block && request.session === epoch); } };
 }
 
-test('strip navigation keeps all six editor modules and builds only one final panel per channel', t => {
+test('legacy section navigation selects the corresponding Canale card and builds one final board per channel', t => {
   const f = fixture(t);
-  for (const tab of ['channel', 'processing', 'eq', 'dynamics', 'sends', 'groups']) {
+  for (const [tab, module] of [['channel', 'home'], ['processing', 'input'], ['eq', 'eq'], ['dynamics', 'dyn'], ['sends', 'sends'], ['groups', 'home']]) {
     assert.equal(f.E.openSection('ch-1', tab), true);
-    f.panel().scrollLeft = 137; f.panel().scrollTop = 41;
+    f.panel().scrollLeft = 137; f.panel().scrollTop = 41; f.board().scrollLeft = 173;
     f.resetCounts(); f.clickStrip('ch-2');
     assert.equal(f.editor().dataset.channelId, 'ch-2', tab);
-    assert.equal(f.selectedTab(), tab, 'strip selection preserves the current module');
+    assert.equal(f.selectedTab(), 'devices'); assert.equal(f.selectedModule(), module, 'strip selection preserves the active card');
+    assert.equal(f.card(module).dataset.expanded, 'true');
     assert.equal(f.renders(), 1, `${tab}: no selection-triggered intermediate render`);
-    assert.equal(f.panel().scrollLeft, 137); assert.equal(f.panel().scrollTop, 41);
+    assert.equal(f.panel().scrollLeft, 137); assert.equal(f.panel().scrollTop, 41); assert.equal(f.board().scrollLeft, 173);
     assert.equal(f.editor().dataset.dockRow, 'outputs', 'input editor remains opposite the source row');
     const built = f.events.filter(event => event.type === 'processor');
-    assert.equal(built.length, ['processing', 'eq', 'dynamics'].includes(tab) ? 1 : 0, tab);
+    assert.equal(new Set(built.map(event => event.block)).size, built.length, 'each expanded processor is mounted only once');
     assert.ok(built.every(event => event.id === 'ch-2'));
     const cleaned = f.events.findIndex(event => event.type === 'cleanup');
     const selected = f.events.findIndex(event => event.type === 'selection');
@@ -106,37 +123,37 @@ test('strip navigation keeps all six editor modules and builds only one final pa
 
 test('Gate and Dynamics follow strip clicks and arrows with a compatible fallback on AUX/output channels', t => {
   const f = fixture(t); f.E.openSection('ch-1', 'dynamics', { block: 'gate' });
-  f.clickStrip('ch-2'); assert.equal(f.named('Slot Gate').getAttribute('aria-pressed'), 'true');
+  f.clickStrip('ch-2'); assert.equal(f.selectedModule(), 'gate'); assert.equal(f.card('gate').dataset.expanded, 'true');
   f.named('Canale successivo').click();
-  assert.equal(f.editor().dataset.channelId, 'ch-3'); assert.equal(f.named('Slot Gate').getAttribute('aria-pressed'), 'true');
+  assert.equal(f.editor().dataset.channelId, 'ch-3'); assert.equal(f.selectedModule(), 'gate');
   f.named('Canale precedente').click();
-  assert.equal(f.editor().dataset.channelId, 'ch-2'); assert.equal(f.selectedTab(), 'dynamics');
+  assert.equal(f.editor().dataset.channelId, 'ch-2'); assert.equal(f.selectedTab(), 'devices');
   f.clickStrip('aux-1');
-  assert.equal(f.selectedTab(), 'dynamics'); assert.equal(f.named('Slot Gate'), undefined);
-  assert.equal(f.editor().querySelector('.editor-plugin-host').dataset.processorBlock, 'dyn');
-  f.E.open('bus-1'); assert.equal(f.selectedTab(), 'dynamics');
+  assert.equal(f.selectedTab(), 'devices'); assert.equal(f.card('gate').dataset.state, 'unavailable');
+  assert.equal(f.selectedModule(), 'dyn'); assert.equal(f.card('dyn').dataset.expanded, 'true');
+  f.E.open('bus-1'); assert.equal(f.selectedTab(), 'devices');
   assert.equal(f.editor().dataset.dockRow, 'inputs');
-  assert.equal(f.editor().querySelector('.editor-plugin-host').dataset.processorBlock, 'dyn');
+  assert.equal(f.selectedModule(), 'dyn'); assert.ok(f.card('dyn').querySelector('.editor-plugin-host'));
 });
 
 test('send family and direction survive compatible navigation and normalize before an incompatible family', t => {
   const f = fixture(t); f.E.openSection('ch-1', 'sends');
   for (const [group, target] of [['MTX', 'ch-2'], ['MAIN', 'ch-3'], ['BUS', 'ch-4']]) {
     f.named(`Mandate verso ${group}`).click(); f.clickStrip(target);
-    assert.equal(f.selectedTab(), 'sends'); assert.equal(f.selectedGroup(), group);
-    assert.equal(f.editor().querySelector('.editor-send-groups').getAttribute('aria-label'), 'Destinazioni delle mandate');
+    assert.equal(f.selectedTab(), 'devices'); assert.equal(f.selectedModule(), 'sends'); assert.equal(f.selectedGroup(), group);
+    assert.equal(f.card('sends').querySelector('.editor-send-groups').getAttribute('aria-label'), 'Destinazioni delle mandate');
   }
   f.E.open('bus-1');
-  [...f.editor().querySelectorAll('.editor-subtabs button')].find(node => node.textContent === 'Riceve da').click();
+  [...f.card('sends').querySelectorAll('.editor-subtabs button')].find(node => node.textContent === 'Riceve da').click();
   f.named('Riceve da CH').click();
   for (const id of ['bus-2', 'main-1', 'mtx-1']) {
     f.clickStrip(id);
     assert.equal(f.selectedGroup(), 'CH');
-    assert.equal(f.editor().querySelector('.editor-send-groups').getAttribute('aria-label'), 'Sorgenti delle mandate');
+    assert.equal(f.selectedModule(), 'sends'); assert.equal(f.card('sends').querySelector('.editor-send-groups').getAttribute('aria-label'), 'Sorgenti delle mandate');
   }
   f.E.open('ch-5');
-  assert.equal(f.selectedTab(), 'sends'); assert.equal(f.selectedGroup(), 'BUS');
-  assert.equal(f.editor().querySelector('.editor-send-groups').getAttribute('aria-label'), 'Destinazioni delle mandate');
+  assert.equal(f.selectedTab(), 'devices'); assert.equal(f.selectedGroup(), 'BUS');
+  assert.equal(f.card('sends').querySelector('.editor-send-groups').getAttribute('aria-label'), 'Destinazioni delle mandate');
   f.named('Mandate verso MAIN').click(); f.E.open('main-2');
   assert.equal(f.selectedGroup(), 'MTX', 'MAIN can send only to matrices');
 });
@@ -147,7 +164,7 @@ test('arrows follow the actual Custom Layer row and keep the editor in the oppos
   f.E.openSection('ch-7', 'eq');
   assert.equal(f.editor().dataset.sourceRow, 'outputs'); assert.equal(f.editor().dataset.dockRow, 'inputs');
   f.named('Canale successivo').click();
-  assert.equal(f.editor().dataset.channelId, 'bus-3'); assert.equal(f.selectedTab(), 'eq');
+  assert.equal(f.editor().dataset.channelId, 'bus-3'); assert.equal(f.selectedTab(), 'devices'); assert.equal(f.selectedModule(), 'eq');
   assert.equal(f.editor().dataset.sourceRow, 'outputs'); assert.equal(f.editor().dataset.dockRow, 'inputs');
   f.named('Canale successivo').click(); assert.equal(f.editor().dataset.channelId, 'ch-9');
   f.named('Canale precedente').click(); assert.equal(f.editor().dataset.channelId, 'bus-3');
@@ -176,14 +193,19 @@ test('ordinary parameter updates leave docking untouched, but moving the selecte
 test('explicit macro sections render their requested module once, including Gate and default Dynamics', t => {
   const f = fixture(t);
   assert.equal(f.E.openSection('ch-2', 'eq'), true);
-  assert.equal(f.selectedTab(), 'eq'); assert.equal(f.renders(), 1);
+  assert.equal(f.selectedTab(), 'devices'); assert.equal(f.selectedModule(), 'eq'); assert.equal(f.renders(), 1);
   assert.deepEqual(f.events.filter(event => event.type === 'processor'), [{ type: 'processor', id: 'ch-2', block: 'eq' }]);
   f.resetCounts();
   assert.equal(f.E.openSection('ch-3', 'dynamics', { block: 'gate' }), true);
   assert.equal(f.renders(), 1);
-  assert.deepEqual(f.events.filter(event => event.type === 'processor'), [{ type: 'processor', id: 'ch-3', block: 'gate' }]);
+  assert.equal(f.selectedModule(), 'gate');
+  assert.deepEqual(f.events.filter(event => event.type === 'processor' && event.block === 'gate'), [{ type: 'processor', id: 'ch-3', block: 'gate' }]);
+  assert.ok(f.events.filter(event => event.type === 'processor').every(event => event.id === 'ch-3'));
+  const board = f.board(), eq = f.card('eq'), gate = f.card('gate');
   f.resetCounts(); f.E.openSection('ch-3', 'dynamics');
-  assert.equal(f.renders(), 1); assert.equal(f.named('Slot Dynamics').getAttribute('aria-pressed'), 'true');
+  assert.equal(f.renders(), 0); assert.equal(f.selectedModule(), 'dyn'); assert.equal(f.card('dyn').dataset.expanded, 'true');
+  assert.equal(f.board(), board); assert.equal(f.card('eq'), eq); assert.equal(f.card('gate'), gate);
+  assert.deepEqual(f.events.filter(event => event.type === 'processor'), [{ type: 'processor', id: 'ch-3', block: 'dyn' }]);
   f.resetCounts(); f.E.openSection('ch-3', 'dynamics');
   assert.equal(f.renders(), 0, 'reopening the already selected section keeps its controls and subscriptions');
   assert.equal(f.E.openSection('bus-1', 'dynamics', { block: 'gate' }), false);
@@ -211,7 +233,7 @@ test('blur commits to the old channel/send and detached fields cannot write to t
 });
 
 test('channel navigation releases a captured gesture and rejects later events from the previous rotary', t => {
-  const f = fixture(t); f.E.openSection('ch-1', 'channel');
+  const f = fixture(t); f.E.openDevice('ch-1', 'master');
   const knob = f.named('Pan — manopola');
   f.pointer(knob, 'pointerdown', 200); f.pointer(f.w, 'pointermove', 182);
   const oldValue = f.C.getStrip('ch-1').pan;
@@ -225,15 +247,17 @@ test('channel navigation releases a captured gesture and rejects later events fr
 
 test('a late successful live read cannot render the old channel over the new editor', async t => {
   const f = liveFixture(t); f.E.openSection('ch-1', 'eq'); await tick();
-  assert.ok(f.pending('ch-1', 'eq')); assert.equal(f.editor().querySelector('.editor-live-read').dataset.state, 'loading');
+  assert.ok(f.pending('ch-1', 'eq')); assert.equal(f.card('eq').querySelector('.fx-connection-status').classList.contains('ready'), false);
   f.clickStrip('ch-2'); await tick();
-  assert.ok(f.pending('ch-2', 'eq')); assert.equal(f.selectedTab(), 'eq');
+  assert.ok(f.pending('ch-2', 'eq')); assert.equal(f.selectedTab(), 'devices'); assert.equal(f.selectedModule(), 'eq');
+  const current = f.card('eq'), plugin = current.querySelector('.fx-processor'), renders = f.renders();
   f.pending('ch-1', 'eq').resolve(); await tick();
-  assert.equal(f.editor().dataset.channelId, 'ch-2'); assert.equal(f.editor().querySelector('.editor-live-read').dataset.state, 'loading');
-  assert.equal(f.events.filter(event => event.type === 'processor').length, 0);
+  assert.equal(f.editor().dataset.channelId, 'ch-2'); assert.equal(f.card('eq'), current); assert.equal(current.querySelector('.fx-processor'), plugin);
+  assert.equal(current.querySelector('.fx-connection-status').classList.contains('ready'), false); assert.equal(f.renders(), renders);
   f.pending('ch-2', 'eq').resolve(); await tick();
-  assert.equal(f.editor().querySelector('[data-test-context]').dataset.testContext, 'ch-2/eq');
-  assert.deepEqual(f.events.filter(event => event.type === 'processor'), [{ type: 'processor', id: 'ch-2', block: 'eq' }]);
+  assert.equal(current.querySelector('.fx-connection-status').classList.contains('ready'), true);
+  assert.equal(current.querySelector('.fx-processor'), plugin); assert.equal(f.renders(), renders);
+  assert.ok(f.events.some(event => event.type === 'cleanup' && event.id === 'ch-1' && event.block === 'eq'));
 });
 
 test('live Gate fallback reads Dynamics on the output, and an obsolete failure stays invisible', async t => {
@@ -241,22 +265,27 @@ test('live Gate fallback reads Dynamics on the output, and an obsolete failure s
   f.E.open('bus-1'); await tick();
   assert.ok(f.pending('bus-1', 'dyn')); assert.equal(f.pending('bus-1', 'gate'), undefined);
   f.pending('bus-1', 'dyn').resolve(); await tick();
+  const current = f.card('dyn'), plugin = current.querySelector('.fx-processor');
   f.pending('ch-1', 'gate').reject(new Error('lettura obsoleta')); await tick();
-  assert.equal(f.editor().dataset.channelId, 'bus-1'); assert.equal(f.selectedTab(), 'dynamics');
-  assert.equal(f.editor().querySelector('[data-test-context]').dataset.testContext, 'bus-1/dyn');
-  assert.equal(f.editor().querySelector('.editor-live-read'), null);
-  assert.doesNotMatch(f.editor().textContent, /lettura obsoleta/);
+  assert.equal(f.editor().dataset.channelId, 'bus-1'); assert.equal(f.selectedTab(), 'devices'); assert.equal(f.selectedModule(), 'dyn');
+  assert.equal(f.card('dyn'), current); assert.equal(current.querySelector('.fx-processor'), plugin);
+  assert.equal(current.querySelector('.fx-connection-status').classList.contains('ready'), true);
+  assert.doesNotMatch(f.w.document.body.textContent, /lettura obsoleta/);
 });
 
 test('same-mode live session changes and closing invalidate pending reads before they can expose controls', async t => {
   const f = liveFixture(t); f.E.openSection('ch-1', 'eq'); await tick();
   const first = f.pending('ch-1', 'eq', 1); f.nextSession(); await tick();
   const second = f.pending('ch-1', 'eq', 2); assert.ok(second);
-  first.resolve(); await tick(); assert.equal(f.events.filter(event => event.type === 'processor').length, 0);
+  const current = f.card('eq');
+  first.resolve(); await tick(); assert.equal(f.card('eq'), current); assert.equal(current.querySelector('.fx-connection-status').classList.contains('ready'), false);
   second.resolve(); await tick();
-  assert.equal(f.editor().querySelector('[data-test-context]').dataset.testContext, 'ch-1/eq');
-  f.clickStrip('ch-2'); await tick(); f.E.close();
+  assert.equal(current.querySelector('.fx-connection-status').classList.contains('ready'), true);
+  f.clickStrip('ch-2'); await tick();
+  const old = f.card('eq').querySelector('.fx-processor'), count = f.events.filter(event => event.type === 'processor').length;
+  f.E.close();
   f.pending('ch-2', 'eq').resolve(); await tick();
   assert.equal(f.E.isOpen(), false);
-  assert.equal(f.events.filter(event => event.type === 'processor').length, 1);
+  assert.equal(f.events.filter(event => event.type === 'processor').length, count);
+  assert.equal(old.querySelector('.fx-connection-status').classList.contains('ready'), false, 'closing disposes the pending processor instead of exposing its controls later');
 });

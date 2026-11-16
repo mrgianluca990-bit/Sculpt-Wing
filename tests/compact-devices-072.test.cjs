@@ -88,7 +88,7 @@ test('all families retain nine identities and only WING-supported pages and move
     assert.equal(f.card('input').dataset.state,'active'); assert(f.card('input').querySelector('[aria-label="Trim in dB"]'));
     if (!id.startsWith('ch-')) for (const handle of f.editor().querySelectorAll('.editor-device-drag')) assert.equal(handle.disabled,true);
     if (id.startsWith('aux-')) assert.equal(f.card('post').dataset.state,'unavailable');
-    if (id.startsWith('mtx-')) assert.equal(f.card('sends').dataset.state,'unavailable');
+    if (id.startsWith('mtx-')) { assert.equal(f.card('sends').dataset.state,'active'); assert.equal(f.card('sends').querySelector('.editor-device-drag').disabled,true); }
   }
 });
 

@@ -19,8 +19,8 @@ class Element {
       add: name => this.classList.toggle(name, true), remove: name => this.classList.toggle(name, false)
     };
   }
-  append(...nodes) { for (const node of nodes) { assert(node instanceof Element, 'append must receive DOM nodes'); node.parentElement = this; this.children.push(node); } }
-  insertBefore(node, reference) { const index = this.children.indexOf(reference); if (index < 0) { this.append(node); return node; } node.parentElement = this; this.children.splice(index, 0, node); return node; }
+  append(...nodes) { for (const node of nodes) { assert(node instanceof Element, 'append must receive DOM nodes'); if (node.parentElement) node.parentElement.children = node.parentElement.children.filter(child => child !== node); node.parentElement = this; this.children.push(node); } }
+  insertBefore(node, reference) { if (node === reference) return node; if (node.parentElement) node.parentElement.children = node.parentElement.children.filter(child => child !== node); const index = this.children.indexOf(reference); if (index < 0) { this.append(node); return node; } node.parentElement = this; this.children.splice(index, 0, node); return node; }
   replaceChildren(...nodes) { for (const node of this.children) node.parentElement = null; this.children = []; this._text = ''; this.append(...nodes); }
   set textContent(value) { this.replaceChildren(); this._text = String(value); }
   get textContent() { return this._text + this.children.map(n => n.textContent).join(''); }
@@ -98,13 +98,13 @@ context.SculptUI = {
     return { dialog, body, close: () => dialog.close() };
   }
 };
-run('desk.js'); run('plugin-panels.js'); run('plugins.js'); run('editor.js');
+run('desk.js'); run('plugin-panels.js'); run('plugins.js'); run('wing-map.js'); run('channel-chain.js'); run('editor.js');
 const D = context.SculptDesk, E = context.SculptEditor;
 const baselineSubscriptions = [...subscriptions];
 const editor = () => document.querySelector('.editor-dialog');
 const named = (name, scope = editor()) => scope.querySelectorAll('[aria-label]').find(node => node.getAttribute('aria-label') === name);
 const textButton = value => editor().querySelectorAll('button').find(node => node.textContent === value);
-const tab = name => editor().querySelector(`[data-tab="${name}"]`).click();
+const tab = name => { assert(E.openSection(state.selected, name), `legacy section ${name} opens its channel card`); assert.equal(editor().querySelector('[data-tab="devices"]').getAttribute('aria-selected'), 'true'); };
 const change = (input, value) => { assert(input, 'input exists'); input.value = String(value); input.dispatchEvent({ type: 'change' }); };
 let rendered = 0;
 for (const strip of C.listStrips()) {
@@ -132,30 +132,32 @@ change(named('Gain preamp in dB'), 21.5); assert.equal(D.source(D.channel('ch-2'
 named('Alimentazione phantom 48 volt').click(); assert.equal(D.source('LCL:1').phantom, true);
 D.change(data => { data.io.globalAlt = true; });
 assert.equal(named('Gain preamp in dB'), undefined, 'digital ALT hides analog preamp');
-textButton('MAIN').click(); assert.equal(D.channel('ch-1').sourceAuto, false); assert(named('Gain preamp in dB'));
+E.openDevice('ch-1', 'input'); named('ALT').click(); assert.equal(D.channel('ch-1').sourceAuto, false); assert(named('Gain preamp in dB'));
 tab('eq'); change(named('Modello eq'), 'SOUL'); assert.equal(D.processor({ type: 'strip', id: 'ch-1', block: 'eq' }).model, 'SOUL');
 const eqParam = editor().querySelector('.fx-number'); assert(eqParam); change(eqParam, Number(eqParam.min));
 tab('sends');
+named('Mandate verso BUS').click();
 const sendFader = named('Livello → BUS 01 — cursore');
 assert.equal(sendFader.getAttribute('aria-orientation'), 'vertical');
-assert.equal(editor().querySelectorAll('[aria-orientation="vertical"]').length, 16, 'all bus send levels use vertical faders');
+assert.equal(editor().querySelector('[data-module="sends"]').querySelectorAll('[aria-orientation="vertical"]').length, 8, 'one bank of eight bus send levels uses vertical faders');
 sendFader.value = '-7.4'; sendFader.dispatchEvent({ type: 'input' });
 assert.equal(C.getSend('ch-1', 'bus-1').level, -7.4, 'vertical fader updates the existing send model');
 assert.equal(named('Livello → BUS 01 — cursore'), sendFader, 'send updates preserve the fader DOM and pointer gesture');
 change(named('Livello → BUS 01 in dB'), -18.2); assert.equal(C.getSend('ch-1', 'bus-1').level, -18.2);
-change(named('Punto → BUS 01'), 'GRP'); assert.equal(C.getSend('ch-1', 'bus-1').mode, 'GRP');
-change(named('Tap PRE di CH 01'), 'FILT'); assert.equal(D.channel('ch-1').tap, 'FILT');
+assert(!named('Punto → BUS 01').querySelectorAll('option').some(option => option.value === 'GRP'), 'GRP requires the live firmware enum, covered by sends-073');
+change(named('Punto → BUS 01'), 'POST'); assert.equal(C.getSend('ch-1', 'bus-1').mode, 'POST');
+change(named('TAP mandate PRE'), 'FILT'); assert.equal(D.channel('ch-1').tap, 'FILT');
 named('Rinomina canale').click();
-assert.equal(editor().querySelector('[data-tab="channel"]').getAttribute('aria-selected'), 'true');
+assert.equal(editor().querySelector('[data-tab="devices"]').getAttribute('aria-selected'), 'true');
 assert.equal(document.activeElement, named('Nome'), 'rename shortcut focuses the existing identity field');
 change(named('Nome'), 'Voce Sophia');
 assert.equal(C.getStrip('ch-1').name, 'Voce Sophia');
 assert.equal(editor().querySelector('#editor-title').textContent, 'Voce Sophia');
-tab('processing'); change(named('Insert 2 · post fader'), '7'); assert.equal(D.channel('ch-1').postFx, 7);
+E.openDevice('ch-1', 'post'); change(named('Assegna Insert 2'), '7'); assert.equal(D.channel('ch-1').postFx, 7);
 tab('groups'); change(named('Gruppo automix'), 'x'); assert(D.get().automix.x.channels.includes('ch-1')); assert.equal(D.channel('ch-1').postFx, null);
 D.change(data => { data.automix.x.channels = Array.from({ length: 16 }, (_, i) => `ch-${i + 1}`); data.automix.y.channels = []; });
 E.open('ch-17'); tab('groups'); change(named('Gruppo automix'), 'y'); assert(!D.get().automix.y.channels.includes('ch-17')); assert(lastToast.includes('16'));
-E.open('aux-1'); tab('processing'); assert.equal(named('Insert 2 · post fader'), undefined); assert.equal(named('Low cut attivo'), undefined);
+E.open('aux-1'); tab('processing'); assert.equal(named('Assegna Insert 2'), undefined); assert.equal(named('LOW CUT'), undefined);
 tab('dynamics'); assert.equal(named('Slot Gate'), undefined); assert.equal(named('Tipo crossover'), undefined);
 E.open('ch-1'); tab('channel');
 const trim = named('Trim in dB'); trim.focus(); trim.value = '6.2';
@@ -173,7 +175,7 @@ E.close(); assert.deepEqual([...subscriptions], baselineSubscriptions);
   const liveSubscriptions = new Set(), tick = () => new Promise(resolve => setImmediate(resolve));
   const renameDialog = () => document.querySelector('.desk-modal');
   const liveName = () => named('Nome canale', renameDialog());
-  context.SculptWingMap = { stripPath: id => '/' + id.replace('-', '/'), sourcePath: id => '/io/in/' + String(id).replace(':', '/') };
+  context.SculptWingMap = { ...context.SculptWingMap, stripPath: id => '/' + id.replace('-', '/'), sourcePath: id => '/io/in/' + String(id).replace(':', '/') };
   context.SculptLive = {
     isLive: () => true, isConnected: () => true, isWritable: () => writable,
     snapshot: () => ({ mode: 'live', writable, pending: 0, failureVersion: 0 }), hasStripValue: () => true,
@@ -184,17 +186,17 @@ E.close(); assert.deepEqual([...subscriptions], baselineSubscriptions);
     readNode: async path => { if (path === '/ch/1' && firstNameRead) { firstNameRead = false; await heldNameRead; } },
     subscribe: listener => { liveSubscriptions.add(listener); return () => liveSubscriptions.delete(listener); },
   };
-  E.openSection('ch-1', 'channel');
+  E.openSection('ch-1', 'fx');
   const editorSubscriptions = [...subscriptions];
   named('Rinomina canale').click();
   assert.ok(renameDialog(), 'live rename opens its dedicated dialog');
   assert.equal(liveName().disabled, true, 'name stays disabled until its own asynchronous read completes');
-  assert.equal(named('Nome'), undefined, 'the unrelated channel panel is still loading');
+  assert.equal(named('Nome'), undefined, 'the unrelated FX workspace is still loading');
   assert.equal(liveSubscriptions.size, 2, 'editor and rename each subscribe to live state');
   unblockNameRead(); await tick();
   assert.equal(liveName().disabled, false);
   assert.equal(document.activeElement, liveName(), 'the dedicated name input receives focus after its read');
-  assert.equal(named('Nome'), undefined, 'renaming does not wait for the entire channel/processor read');
+  assert.equal(named('Nome'), undefined, 'renaming does not wait for the FX scope and processor read');
   liveName().value = 'Voce live'; renameDialog().querySelector('form').dispatchEvent({ type: 'submit' }); await tick();
   assert.equal(C.getStrip('ch-1').name, 'Voce live');
   assert.equal(renameDialog(), null, 'confirmed rename closes the dedicated dialog');
@@ -208,16 +210,20 @@ E.close(); assert.deepEqual([...subscriptions], baselineSubscriptions);
   liveName().value = 'Disallowed'; renameDialog().querySelector('form').dispatchEvent({ type: 'submit' }); await tick();
   assert.equal(C.getStrip('ch-1').name, priorName, 'programmatic stale changes cannot commit after controls are disabled');
   writable = true; readOnlyName = true; emit();
-  unblockRead(); await tick();
-  assert.ok(named('Nome'), 'the ordinary channel identity still finishes its independent read');
-  assert.equal(named('Nome').disabled, true, 'firmware read-only metadata disables the field');
   renameDialog().close();
   assert.deepEqual([...subscriptions], editorSubscriptions, 'cancelled rename disposes its controller subscription');
   assert.equal(liveSubscriptions.size, 1);
+  unblockRead(); await tick();
+  E.openSection('ch-1', 'channel'); await tick();
+  const homeSubscriptions = [...subscriptions], homeLiveSubscriptions = liveSubscriptions.size;
+  assert.ok(named('Nome'), 'Home retains its independent channel identity field');
+  assert.equal(named('Nome').disabled, true, 'firmware read-only metadata disables the field');
   named('Rinomina canale').click(); await tick();
   assert.equal(liveName().disabled, true, 'firmware read-only metadata also prevents the dedicated rename');
   assert(renameDialog().textContent.includes('non dichiara modificabile'), 'the dedicated dialog explains firmware restrictions');
   renameDialog().close();
+  assert.deepEqual([...subscriptions], homeSubscriptions, 'Home subscriptions survive closing the rename dialog');
+  assert.equal(liveSubscriptions.size, homeLiveSubscriptions);
   E.close(); delete context.SculptLive; delete context.SculptWingMap;
   assert.deepEqual([...subscriptions], baselineSubscriptions);
   assert.equal(liveSubscriptions.size, 0, 'all editor and rename live subscriptions are disposed');

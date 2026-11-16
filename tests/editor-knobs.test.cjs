@@ -21,13 +21,14 @@ function fixture(t) {
   w.HTMLElement.prototype.releasePointerCapture = function (id) { if (captures.get(id) === this) captures.delete(id); };
   w.HTMLDialogElement.prototype.show = function () { this.open = true; };
   w.HTMLDialogElement.prototype.close = function () { this.open = false; };
-  const files = ['plugin-data.js', 'model.js', 'app.js', 'desk.js', 'shell.js', 'plugin-panels.js', ...['layouts', 'dynamics', 'eq', 'fx', 'channel', 'native', 'dynamics-extra', 'filters'].map(part => `plugin-original-${part}.js`), 'plugins.js', 'editor.js'];
+  const files = ['plugin-data.js', 'model.js', 'app.js', 'desk.js', 'shell.js', 'plugin-panels.js', ...['layouts', 'dynamics', 'eq', 'fx', 'channel', 'native', 'dynamics-extra', 'filters'].map(part => `plugin-original-${part}.js`), 'plugins.js', 'wing-map.js', 'channel-chain.js', 'editor.js'];
   for (const file of files) vm.runInContext(fs.readFileSync(path.join(base, file), 'utf8'), dom.getInternalVMContext(), { filename: file });
   const E = w.SculptEditor, C = w.SculptController, D = w.SculptDesk;
-  E.openSection('ch-1', 'channel');
+  E.openDevice('ch-1', 'home');
   const editor = () => w.document.querySelector('.editor-dialog');
+  const card = key => editor().querySelector(`.editor-device-panel[data-module="${key}"]`);
   const named = name => [...editor().querySelectorAll('[aria-label]')].find(node => node.getAttribute('aria-label') === name);
-  const tab = name => editor().querySelector(`[data-tab="${name}"]`).click();
+  const device = key => { E.openDevice(editor().dataset.channelId, key); return card(key); };
   const key = (node, key, options = {}) => node.dispatchEvent(new w.KeyboardEvent('keydown', { bubbles: true, cancelable: true, key, ...options }));
   const change = (node, value) => { node.value = String(value); node.dispatchEvent(new w.Event('change', { bubbles: true })); };
   const pointer = (target, type, y, options = {}) => {
@@ -38,18 +39,22 @@ function fixture(t) {
     target.dispatchEvent(event);
     return event;
   };
-  return { w, E, C, D, editor, named, tab, key, change, pointer, captures };
+  return { w, E, C, D, editor, card, device, named, key, change, pointer, captures };
 }
 
 test('macro navigation opens the requested editor section without changing audio values', t => {
   const f = fixture(t), before = JSON.stringify(f.C.capture());
   assert.equal(f.E.openSection('ch-2', 'eq'), true);
-  assert.equal(f.editor().querySelector('[role="tab"][aria-selected="true"]').dataset.tab, 'eq');
+  assert.equal(f.editor().querySelector('[role="tab"][aria-selected="true"]').dataset.tab, 'devices');
+  assert.equal(f.card('eq').classList.contains('is-selected'), true);
   assert.equal(f.E.openSection('ch-2', 'dynamics', { block: 'gate' }), true);
-  assert.equal(f.editor().querySelector('[role="tab"][aria-selected="true"]').dataset.tab, 'dynamics');
+  assert.equal(f.editor().querySelector('[role="tab"][aria-selected="true"]').dataset.tab, 'devices');
+  assert.equal(f.card('gate').classList.contains('is-selected'), true);
   assert.equal(f.E.openSection('bus-1', 'dynamics', { block: 'gate' }), false);
   assert.equal(f.E.openSection('ch-2', 'missing'), false);
-  assert.equal(f.editor().querySelector('[role="tab"][aria-selected="true"]').dataset.tab, 'dynamics');
+  assert.equal(f.editor().querySelector('[role="tab"][aria-selected="true"]').dataset.tab, 'devices');
+  assert.equal(f.card('gate').classList.contains('is-selected'), true);
+  assert.deepEqual([...f.editor().querySelectorAll('.editor-tabs [role="tab"]')].map(node => node.textContent), ['Canale', 'VST3', 'FX']);
   const previous = JSON.parse(before), after = JSON.parse(JSON.stringify(f.C.capture()));
   assert.deepEqual(after.values, previous.values);
   assert.deepEqual(after.sends, previous.sends);
@@ -58,9 +63,9 @@ test('macro navigation opens the requested editor section without changing audio
 
 test('numeric channel parameters have a rotary, while send levels retain a single fader', t => {
   const f = fixture(t);
-  for (const tab of ['channel', 'processing', 'sends', 'groups']) {
-    f.tab(tab);
-    for (const input of f.editor().querySelectorAll('.editor-number')) {
+  for (const key of ['home', 'input', 'sends', 'master']) {
+    f.device(key);
+    for (const input of f.card(key).querySelectorAll('.editor-number')) {
       const parameter = input.closest('.editor-parameter'), knob = parameter.querySelector('.editor-knob');
       if (parameter.classList.contains('editor-parameter-vertical')) {
         assert.equal(knob, null, 'a send level must not have a duplicate rotary');
@@ -72,7 +77,7 @@ test('numeric channel parameters have a rotary, while send levels retain a singl
       assert.equal(Number(knob.getAttribute('aria-valuenow')), Number(input.value));
     }
   }
-  f.tab('channel');
+  f.device('input');
   const knob = f.named('Trim — manopola');
   f.key(knob, 'ArrowUp'); assert.equal(f.C.getStrip('ch-1').trim, .1);
   f.key(knob, 'PageUp'); assert.equal(f.C.getStrip('ch-1').trim, 1.1);
@@ -83,7 +88,7 @@ test('numeric channel parameters have a rotary, while send levels retain a singl
 });
 
 test('rotary drag keeps continuity when switching fine mode and stops on cancel or editor close', t => {
-  const f = fixture(t), knob = f.named('Pan — manopola');
+  const f = fixture(t); f.device('master'); const knob = f.named('Pan — manopola');
   f.pointer(knob, 'pointerdown', 200);
   f.pointer(f.w, 'pointermove', 182); assert.equal(f.C.getStrip('ch-1').pan, 20);
   f.pointer(f.w, 'pointermove', 164, { shiftKey: true }); assert.equal(f.C.getStrip('ch-1').pan, 23);
@@ -96,10 +101,10 @@ test('rotary drag keeps continuity when switching fine mode and stops on cancel 
 
 test('logarithmic filter rotary and preamp controls preserve units, source sharing and limits', t => {
   const f = fixture(t);
+  f.device('input');
   f.D.patchChannel('ch-2', { source: 'LCL:1' });
   f.key(f.named('Gain preamp — manopola'), 'End'); assert.equal(f.D.source('LCL:1').gain, 45.5);
   assert.equal(f.D.source(f.D.channel('ch-2').source).gain, 45.5);
-  f.tab('processing');
   const knob = f.named('Low cut — manopola');
   f.change(f.named('Low cut in Hz'), 200);
   f.pointer(knob, 'pointerdown', 200); f.pointer(f.w, 'pointermove', 155); f.pointer(f.w, 'pointerup', 155);
@@ -112,7 +117,7 @@ test('logarithmic filter rotary and preamp controls preserve units, source shari
 });
 
 test('compact vertical sends retain cap-only drag, typed entry and zero-dB double click without a second level knob', t => {
-  const f = fixture(t); f.tab('sends');
+  const f = fixture(t); f.device('sends');
   const slider = f.named('Livello → BUS 01 — cursore'), input = f.named('Livello → BUS 01 in dB');
   assert.equal(f.named('Livello → BUS 01 — manopola'), undefined);
   const rail = slider.closest('.editor-parameter').querySelector('.editor-fader-rail'), cap = rail.querySelector('.editor-fader-cap');
@@ -129,7 +134,7 @@ test('compact vertical sends retain cap-only drag, typed entry and zero-dB doubl
 });
 
 test('disabling a linked pan or live writes rejects stale gestures and restores typed values', t => {
-  const f = fixture(t); f.tab('sends');
+  const f = fixture(t); f.device('sends');
   const knob = f.named('Pan → BUS 01 — manopola'), input = f.named('Pan → BUS 01');
   f.C.setSend('ch-1', 'bus-1', { panLink: true, pan: 0 });
   assert.equal(knob.getAttribute('aria-disabled'), 'true');
@@ -144,9 +149,9 @@ test('disabling a linked pan or live writes rejects stale gestures and restores 
 });
 
 test('WING dynamics uses one compact surface with its original state and switches other models intact', t => {
-  const f = fixture(t); f.tab('dynamics');
+  const f = fixture(t); f.device('dyn');
   const ctx = { type: 'strip', id: 'ch-1', block: 'dyn' };
-  const surface = f.editor().querySelector('.fx-wing-editor'); assert.ok(surface);
+  const surface = f.card('dyn').querySelector('.fx-wing-editor'); assert.ok(surface);
   assert.equal(surface.querySelector('.fx-supplemental-knobs'), null);
   assert.equal(surface.querySelector('.fx-original-stage'), null);
   const control = surface.querySelector('[data-parameter="thr"]'), knob = control.querySelector('.fx-knob'), input = control.querySelector('.fx-number');
@@ -155,14 +160,14 @@ test('WING dynamics uses one compact surface with its original state and switche
   assert.equal(Number(input.value), f.D.processor(ctx).params.thr);
   f.change(input, Number(input.min)); assert.equal(Number(knob.getAttribute('aria-valuenow')), Number(input.min));
   f.change(f.named('Modello dyn'), '76LA');
-  assert.equal(f.editor().querySelectorAll('.fx-supplemental-knobs').length, 0, 'an original rotary model does not duplicate its knobs');
-  assert.ok(f.editor().querySelector('.fx-original-stage'));
+  assert.equal(f.card('dyn').querySelectorAll('.fx-supplemental-knobs').length, 0, 'an original rotary model does not duplicate its knobs');
+  assert.ok(f.card('dyn').querySelector('.fx-original-stage'));
 });
 
 test('numeric ratio choices expose a stepped rotary without changing the stored enum type', t => {
-  const f = fixture(t); f.tab('dynamics');
+  const f = fixture(t); f.device('dyn');
   const ctx = { type: 'strip', id: 'ch-1', block: 'dyn' };
-  const bank = f.editor().querySelector('.fx-wing-editor');
+  const bank = f.card('dyn').querySelector('.fx-wing-editor');
   const ratio = bank.querySelector('[data-parameter="ratio"] .fx-rotary-choice');
   assert.ok(ratio, 'numeric ratio options receive an accessible stepped knob');
   const original = bank.querySelector('[data-parameter="ratio"] select');
@@ -172,4 +177,65 @@ test('numeric ratio choices expose a stepped rotary without changing the stored 
   f.key(ratio, 'Home'); assert.equal(String(f.D.processor(ctx).params.ratio), options[0]);
   f.change(original, options[1]); assert.equal(Number(ratio.getAttribute('aria-valuenow')), 1);
   assert.equal(bank.querySelector('[data-parameter="det"] .fx-knob'), null, 'non-numeric detector choice stays a normal selector');
+});
+
+test('PRE VST3 keeps gain and phantom on the original headamp while trim stays on the USB-return channel', t => {
+  const f = fixture(t);
+  f.D.patchSource('LCL:1', { gain: 6.5, phantom: false });
+  f.D.patchChannel('ch-1', { source: 'USB:1', useAlt: false, sourceAuto: false });
+  f.w.SculptVstRouting = { sourceFor: id => id === 'ch-1' ? { sourceId: 'LCL:1' } : null };
+  f.device('input');
+  const gain = f.named('Gain preamp in dB'), phantom = f.named('Alimentazione phantom 48 volt');
+  const usbBefore = JSON.stringify(f.D.source('USB:1'));
+  assert.ok(gain); assert.ok(phantom); assert.equal(Number(gain.value), 6.5);
+  assert.equal(phantom.getAttribute('aria-checked'), 'false');
+  assert.match(f.card('input').textContent, /Preamp originale: Local 1/);
+  assert.match(f.card('input').textContent, /ritorno VST3 via USB/);
+  f.change(gain, 11.5); phantom.click();
+  assert.equal(f.D.source('LCL:1').gain, 11.5); assert.equal(f.D.source('LCL:1').phantom, true);
+  f.change(f.named('Trim in dB'), 2.7);
+  assert.equal(f.C.getStrip('ch-1').trim, 2.7); assert.equal(f.D.source('LCL:1').gain, 11.5);
+  assert.equal(f.D.channel('ch-1').source, 'USB:1'); assert.equal(f.D.channel('ch-1').useAlt, false);
+  assert.equal(JSON.stringify(f.D.source('USB:1')), usbBefore, 'headamp writes never target the USB return source');
+});
+
+test('PRE VST3 route updates rebind the original headamp and reject detached controls', t => {
+  const f = fixture(t); let sourceId = 'LCL:1';
+  f.D.patchSource('LCL:1', { gain: 4, phantom: false }); f.D.patchSource('LCL:2', { gain: 9, phantom: false });
+  f.D.patchChannel('ch-1', { source: 'USB:1', useAlt: false, sourceAuto: false });
+  f.w.SculptVstRouting = { sourceFor: id => id === 'ch-1' && sourceId ? { sourceId } : null };
+  f.device('input');
+  const oldGain = f.named('Gain preamp in dB'), oldPhantom = f.named('Alimentazione phantom 48 volt');
+  sourceId = 'LCL:2'; f.w.dispatchEvent(new f.w.CustomEvent('sculpt-vst-route-state', { detail: { rackId: 'ch-1' } }));
+  const gain = f.named('Gain preamp in dB');
+  assert.notEqual(gain, oldGain); assert.equal(Number(gain.value), 9);
+  f.change(oldGain, 30); oldPhantom.click();
+  assert.equal(f.D.source('LCL:1').gain, 4); assert.equal(f.D.source('LCL:1').phantom, false);
+  assert.equal(f.D.source('LCL:2').gain, 9); assert.equal(f.D.source('LCL:2').phantom, false);
+  f.change(gain, 12); assert.equal(f.D.source('LCL:2').gain, 12);
+  sourceId = null; f.w.dispatchEvent(new f.w.CustomEvent('sculpt-vst-route-state', { detail: { rackId: 'ch-1' } }));
+  assert.equal(f.named('Gain preamp in dB'), undefined, 'an unverified physical source does not turn USB into a headamp');
+  f.change(gain, 25); assert.equal(f.D.source('LCL:2').gain, 12);
+});
+
+test('PRE VST3 live hydration includes the original headamp source even before the USB source is read', async t => {
+  const f = fixture(t), reads = [];
+  f.D.patchSource('LCL:1', { gain: 7.5, phantom: false });
+  f.D.patchChannel('ch-1', { source: 'USB:1', useAlt: false, sourceAuto: false });
+  f.w.SculptVstRouting = { sourceFor: id => id === 'ch-1' ? { sourceId: 'LCL:1' } : null };
+  const gainPath = '/io/in/LCL/1/g', phantomPath = '/io/in/LCL/1/vph';
+  f.w.SculptLive = {
+    isLive: () => true, isConnected: () => true, isWritable: () => false, applying: () => false,
+    canPersist: () => false, sessionToken: () => 1, snapshot: () => ({ mode: 'live', writable: false, pending: 0 }),
+    hasStripValue: () => true, hasValue: path => [gainPath, phantomPath].includes(path), value: () => undefined,
+    metadata: path => path === gainPath ? { path, type: 4, min: -3, max: 45.5, step: .5, readOnly: true } : path === phantomPath ? { path, type: 2, min: 0, max: 1, readOnly: true } : undefined,
+    subscribe: () => () => {}, readNode: async path => { reads.push(path); },
+    ensureProcessor: async () => {}, processorState: () => ({ ready: false })
+  };
+  f.device('input');
+  await new Promise(resolve => setImmediate(resolve));
+  assert(reads.includes('/io/in/LCL/1'), 'the PRE card hydrates its physical source instead of only the channel/USB return');
+  assert.equal(Number(f.named('Gain preamp in dB').value), 7.5);
+  assert.equal(f.named('Gain preamp in dB').disabled, true, 'headamp readback does not grant write access');
+  assert.equal(f.D.channel('ch-1').source, 'USB:1');
 });

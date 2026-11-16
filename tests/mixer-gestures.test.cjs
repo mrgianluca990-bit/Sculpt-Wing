@@ -159,9 +159,12 @@ test('cancelled pan and window blur release the gesture; a fresh click remains u
 test('vertical send editor rails are inert while their head and numeric control share the send state', t => {
   const f = fixture(t, true);
   f.C.setSend('ch-1', 'bus-1', { level: -20 });
-  f.w.SculptEditor.open('ch-1');
-  f.w.document.querySelector('[data-tab="sends"]').click();
-  const slider = f.w.document.querySelector('[aria-label="Livello → BUS 01 — cursore"]');
+  assert.equal(f.w.SculptEditor.openDevice('ch-1', 'sends'), true);
+  const send = f.w.document.querySelector('.editor-device-panel[data-module="sends"]');
+  assert.equal(send.dataset.expanded, 'true');
+  assert.equal(f.w.document.querySelector('.editor-tabs [aria-selected="true"]').dataset.tab, 'devices');
+  assert.equal(send.querySelectorAll('.editor-parameter-vertical').length, 8, 'the Send card exposes one bank of eight faders');
+  const slider = send.querySelector('[aria-label="Livello → BUS 01 — cursore"]');
   const parameter = slider.closest('.editor-parameter'), rail = parameter.querySelector('.editor-fader-rail'), cap = parameter.querySelector('.editor-fader-cap');
   rail.getBoundingClientRect = () => ({ height: 222 }); cap.getBoundingClientRect = () => ({ height: 22 });
   f.pointer(rail, 'pointerdown'); f.pointer(rail, 'pointermove', { y: 100 }); f.pointer(rail, 'pointerup', { y: 100 });

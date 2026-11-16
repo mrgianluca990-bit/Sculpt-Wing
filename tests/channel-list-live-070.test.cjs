@@ -85,7 +85,7 @@ async function fixture(t, options) {
   const arm=()=>control(true),disarm=()=>control(false);
   const draft=text=>S.prepareDraft(w.SculptChannelList.parseText(text),C.getState());
   const env={controller:C,model:w.SculptModel,map:w.SculptWingMap,live:L};
-  return {w,C,L,U,S,driver,arm,disarm,draft,env};
+  return {w,C,L,U,S,driver,arm,disarm,draft,env,run};
 }
 
 test('live PDF scene applies only its previewed fields through the real Session and reports readback',async t=>{
@@ -194,10 +194,16 @@ test('actual PDF preview follows automatic Controllo and explicit readonly / man
 
 test('Rinomina reads a linked name even if an unrelated editor processor cannot load',async t=>{
   const f=await fixture(t,{links:{'ch-1':'LCL:1','ch-2':'LCL:1'}});f.arm();const w=f.w;
+  f.run('plugin-panels.js');f.run('plugins.js');
   w.SculptEditor.openSection('ch-1','eq');
-  await until(()=>w.document.querySelector('.editor-live-read')?.dataset.state==='error','unavailable processor blocks full editor');
-  assert.equal(w.document.getElementById('editor-channel-name'),null,'the original whole-strip gate cannot show the name');
-  w.document.querySelector('[aria-label="Rinomina canale"]').click();
+  const eq=()=>w.document.querySelector('.editor-device-panel[data-module="eq"]');
+  await until(()=>f.L.processorState({type:'strip',id:'ch-1',block:'eq'}).error,'unavailable EQ remains confined to its card');
+  assert.match(eq().querySelector('.fx-connection-status').textContent,/Unknown node \/ch\/1\/eq/);
+  assert.equal(eq().querySelector('.fx-power').disabled,true,'unread processor power cannot write');
+  assert.equal(eq().querySelector('.fx-model-select').disabled,true,'unread processor model cannot write');
+  assert(w.document.querySelector('.editor-device-panel[data-module="home"]'),'an unrelated processor error does not replace the device board');
+  const rename=w.document.querySelector('[aria-label="Rinomina canale"]');assert.equal(rename.disabled,false);assert.equal(f.driver.writes.length,0);
+  rename.click();
   await until(()=>w.document.querySelector('#editor-live-name')?.disabled===false,'focused linked name read');
   const input=w.document.querySelector('#editor-live-name');assert.equal(input.value,'Mic condiviso');
   input.value='Voce palco';input.closest('form').dispatchEvent(new w.Event('submit',{bubbles:true,cancelable:true}));

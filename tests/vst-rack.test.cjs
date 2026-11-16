@@ -136,3 +136,126 @@ test('new rack creation reserves a free USB return and never changes WING mixer 
   assert.ok(f.calls.some(c => c.method === 'saveSession'));
   assert.ok(!f.calls.some(c => ['startAudio', 'sendTCP', 'sendUDP'].includes(c.method)));
 });
+
+test('placement metadata migrates older racks without assuming a WING insert', () => {
+  assert.equal(M.metadata({ racks: [rack()] }).racks[0].placement, null);
+  for (const placement of ['pre', 'insert1', 'insert2']) {
+    const value = { ...rack(), placement };
+    assert.equal(M.validateRouting(value), true);
+    assert.equal(M.metadata({ racks: [value] }).racks[0].placement, placement);
+  }
+  assert.throws(() => M.validateRouting({ ...rack(), placement: 'post' }), /Pre, Insert 1 o Insert 2/);
+  assert.throws(() => M.validateRouting({ ...rack('bus-1'), placement: 'pre' }), /famiglia/);
+  assert.throws(() => M.validateRouting({ ...rack('aux-1'), placement: 'insert2' }), /famiglia/);
+});
+
+test('per-channel placement persists through the host while leaving other racks and WING untouched', async t => {
+  const f = fixture(t, [rack(), { ...rack('ch-2', 1), placement: 'insert2' }]);
+  await f.w.SculptVst.openAudio(); f.calls.length = 0;
+  assert.equal(await f.w.SculptVst.setPlacement('ch-1', 'pre'), true);
+  assert.equal(f.session.racks[0].placement, 'pre');
+  assert.equal(f.session.racks[1].placement, 'insert2');
+  assert.equal(f.session.racks[0].slots[0].state, 'native-preset');
+  assert.ok(f.calls.some(call => call.method === 'saveSession'));
+  assert.ok(!f.calls.some(call => ['startAudio', 'sendTCP', 'sendUDP'].includes(call.method)));
+  assert.equal(f.w.SculptVst.routingStatus('ch-1').state, 'planned');
+});
+
+test('placement is blocked during audio and until an applied WING route has been restored', async t => {
+  const f = fixture(t, [{ ...rack(), placement: 'pre' }]);
+  await f.w.SculptVst.openAudio(); f.calls.length = 0;
+  f.session.running = true; f.listeners.get('audioState')({ ...f.session, telemetry: true });
+  assert.equal(await f.w.SculptVst.setPlacement('ch-1', 'insert1'), false);
+  assert.ok(!f.calls.some(call => call.method === 'setRack'));
+  f.session.running = false; f.listeners.get('audioState')({ ...f.session, telemetry: true });
+  f.w.SculptVstRouting = { status: () => ({ managed: true, active: true, state: 'active' }) };
+  assert.equal(await f.w.SculptVst.setPlacement('ch-1', 'insert1'), false);
+  assert.equal(f.session.racks[0].placement, 'pre');
+  assert.match(f.w.SculptVst.snapshot().error, /Ripristina prima/);
+  assert.ok(!f.calls.some(call => call.method === 'setRack'));
+});
+
+test('embedded VST3 view has eight channel slots and disposes cleanly on navigation', async t => {
+  const f = fixture(t, [rack()]);
+  const host = f.w.document.createElement('section'); f.w.document.body.append(host);
+  const dispose = f.w.SculptVst.renderChannel(host, 'ch-1');
+  await f.tick(); await f.tick();
+  assert.equal(host.querySelectorAll('.vst-channel-slot').length, 8);
+  assert.deepEqual([...host.querySelectorAll('[aria-label="Posizione VST3 nel canale"] option')].map(option => option.value), ['', 'pre', 'insert1', 'insert2']);
+  host.querySelector('[aria-label="Apri VST3 1 · CH 1 · Channel 1"]').click(); await f.tick();
+  assert.deepEqual(f.calls.at(-1), { method: 'openEditor', params: { rackId: 'ch-1', slot: 0 } });
+  const before = host.innerHTML; dispose();
+  await f.w.SculptVst.setPlacement('ch-1', 'insert1');
+  assert.equal(host.innerHTML, before, 'a disposed channel cannot be rebuilt by later host events');
+  assert.equal(host.classList.contains('vst-channel-panel'), false);
+});
+
+test('WING preview does not apply routing until its separate Apply action', async t => {
+  const f = fixture(t, [{ ...rack(), placement: 'pre' }]);
+  const routeCalls = []; let applied = false;
+  f.w.SculptLive = { isConnected: () => true, isWritable: () => true, sessionToken: () => 1 };
+  const plan = { rackId: 'ch-1', placement: 'pre', summary: ['Local 1 → USB 1 → VST3 → USB 1 → CH 1'] };
+  f.w.SculptVstRouting = {
+    status: () => ({ managed: applied, active: applied, state: applied ? 'active' : 'idle' }),
+    prepare: async value => { routeCalls.push(['prepare', value.id]); return plan; },
+    apply: async value => { assert.equal(value, plan); routeCalls.push(['apply', value.rackId]); applied = true; }
+  };
+  await f.w.SculptVst.openAudio();
+  const host = f.w.document.createElement('section'); f.w.document.body.append(host);
+  const dispose = f.w.SculptVst.renderChannel(host, 'ch-1'); t.after(dispose);
+  const find = text => [...host.querySelectorAll('button')].find(button => button.textContent === text);
+  find('Leggi percorso WING').click(); await f.tick(); await f.tick();
+  assert.deepEqual(routeCalls, [['prepare', 'ch-1']]);
+  assert.match(host.textContent, /Local 1 → USB 1/);
+  assert.ok(find('Applica percorso WING'));
+  find('Applica percorso WING').click(); await f.tick(); await f.tick();
+  assert.deepEqual(routeCalls, [['prepare', 'ch-1'], ['apply', 'ch-1']]);
+  assert.equal(f.w.SculptVst.routingStatus('ch-1').state, 'applied');
+  assert.match(host.textContent, /Ripristina ingresso diretto/);
+});
+
+test('delayed native edits retain their original channel and slot after navigation', async t => {
+  const second = { ...rack('ch-2', 1), slots: [{ pluginId, name: 'Second rack', bypass: false, state: 'second-preset' }] };
+  const f = fixture(t, [rack(), second]); await f.w.SculptVst.openRack('ch-1');
+  const nativeRequest = f.w.SculptDesktop.audioRequest; let release, waiting = false;
+  f.w.SculptDesktop.audioRequest = async request => {
+    if (!waiting && request.method === 'getState') { waiting = true; await new Promise(resolve => { release = resolve; }); }
+    return nativeRequest(request);
+  };
+  f.find('Svuota slot').click(); await f.tick();
+  assert.equal(waiting, true);
+  await f.w.SculptVst.openRack('ch-2');
+  release(); await f.tick(); await f.tick();
+  assert.equal(f.session.racks[0].slots[0].pluginId, null);
+  assert.equal(f.session.racks[1].slots[0].state, 'second-preset');
+  assert.equal(f.session.racks[1].slots[0].pluginId, pluginId);
+});
+
+test('ordinary WING state updates do not replace a focused plugin search', async t => {
+  const f = fixture(t, [rack()]);
+  f.w.SculptLive = { isConnected: () => true, isWritable: () => true, sessionToken: () => 4 };
+  f.w.dispatchEvent(new f.w.CustomEvent('sculpt-live-state'));
+  await f.w.SculptVst.openRack('ch-1');
+  const search = f.w.document.querySelector('.vst-search'); search.focus(); search.value = 'comp';
+  for (let i = 0; i < 20; i++) f.w.dispatchEvent(new f.w.CustomEvent('sculpt-live-state'));
+  assert.equal(f.w.document.querySelector('.vst-search'), search);
+  assert.equal(f.w.document.activeElement, search);
+});
+
+test('an applied WING route locks device changes while allowing a stopped buffer change', async t => {
+  const f = fixture(t, [{ ...rack(), placement: 'pre' }]);
+  f.w.SculptVstRouting = { status: id => ({ managed: id === 'ch-1', active: id === 'ch-1', state: id === 'ch-1' ? 'active' : 'idle' }) };
+  await f.w.SculptVst.openAudio();
+  const device = f.w.document.querySelector('[aria-label="Interfaccia USB"]');
+  assert.equal(device.disabled, true);
+  const other = f.w.document.createElement('option'); other.value = other.textContent = 'Other interface'; device.append(other); device.value = other.value;
+  device.dispatchEvent(new f.w.Event('change'));
+  f.find('Applica dispositivo').click(); await f.tick(); await f.tick();
+  assert.ok(!f.calls.some(call => call.method === 'configureAudio'));
+  assert.match(f.w.SculptVst.snapshot().error, /Ripristina prima i percorsi WING/);
+  const same = f.w.document.querySelector('[aria-label="Interfaccia USB"]'); same.value = 'WING'; same.dispatchEvent(new f.w.Event('change'));
+  const buffer = f.w.document.querySelector('[aria-label="Buffer"]'); assert.equal(buffer.disabled, false);
+  buffer.value = '256'; buffer.dispatchEvent(new f.w.Event('change'));
+  f.find('Applica dispositivo').click(); await f.tick(); await f.tick();
+  assert.equal(f.calls.findLast(call => call.method === 'configureAudio').params.bufferSize, 256);
+});

@@ -27,7 +27,7 @@ function fixture(t, { saved, desktop = false, realVst = false } = {}) {
   w.HTMLDialogElement.prototype.close = function () { this.open = false; this.dispatchEvent(new w.Event('close')); };
   if (saved) w.localStorage.setItem('sculpt-wing-mixer-view-v1', JSON.stringify(saved));
   if (desktop) w.SculptDesktop = { available: true, addListener: (name, fn) => { listeners.set(name, fn); return { remove() {} }; } };
-  if (!realVst) w.SculptVst = { getRack: id => racks.get(id), openSlot: (id, index) => vstOpened.push({ id, index }), openRack: id => vstOpened.push({ id, rack: true }) };
+  if (!realVst) w.SculptVst = { getRack: id => racks.get(id), snapshot: () => ({ connected: true, running: true }), routingStatus: () => ({ state: 'applied' }), openSlot: (id, index) => vstOpened.push({ id, index }), openRack: id => vstOpened.push({ id, rack: true }) };
   const files = ['plugin-data.js', 'model.js', 'history.js', 'app.js', 'desk.js', 'channel-chain.js', 'shell.js', 'systems.js', 'plugin-panels.js',
     ...['layouts', 'dynamics', 'eq', 'fx', 'channel', 'native', 'dynamics-extra', 'filters'].map(part => `plugin-original-${part}.js`),
     'plugins.js', 'editor.js', 'wing-map.js', 'dca-bank.js', 'row-layout.js', 'strip-pins.js',
@@ -109,8 +109,8 @@ test('Electron accelerator owns Cmd+= while its mixerView event performs a singl
 test('all nine WING slots open the same channel device cards while retaining family capabilities', t => {
   const f = fixture(t); f.V.setMode('extended');
   const modules = ['home', 'input', 'gate', 'eq', 'dyn', 'pre', 'post', 'sends', 'master'];
-  assert.equal(f.strip('ch-2').querySelectorAll('.extended-wing .extended-slot').length, 9);
-  assert.deepEqual(modules.map(key => f.slot('ch-2', key).querySelector('.extended-slot-label').textContent), ['Home', 'Pre', 'Gate', 'EQ', 'Comp', 'Insert', 'Insert', 'Send', 'Master']);
+  assert.equal(f.strip('ch-2').querySelectorAll('.extended-device > .extended-slot').length, 9);
+  assert.deepEqual(modules.map(key => f.slot('ch-2', key).querySelector('.extended-slot-label').textContent), ['Home', 'Pre', 'Gate', 'EQ', 'Comp', 'Insert 1', 'Insert 2', 'Send', 'Master']);
   for (const key of modules) {
     f.slot('ch-2', key).click(); assert.equal(f.selectedTab(), 'devices');
     const card = f.editor().querySelector(`.editor-device-panel[data-module="${key}"]`);
@@ -119,7 +119,7 @@ test('all nine WING slots open the same channel device cards while retaining fam
   f.D.assignFx(1, 'ch-2', 'pre'); f.slot('ch-2', 'pre').click();
   assert.equal(f.editor().querySelector('.editor-device-panel[data-module="pre"] .fx-processor').dataset.model, f.D.processor({ type: 'fx', slot: 1 }).model);
   assert.deepEqual(f.fxOpened, [], 'the assigned insert opens inline in the common board');
-  assert.equal(f.slot('bus-1', 'gate').disabled, true); assert.equal(f.slot('aux-1', 'input').disabled, false); assert.equal(f.slot('aux-1', 'post').disabled, true); assert.equal(f.slot('mtx-1', 'sends').disabled, true);
+  assert.equal(f.slot('bus-1', 'gate').disabled, true); assert.equal(f.slot('aux-1', 'input').disabled, false); assert.equal(f.slot('aux-1', 'post').disabled, true); assert.equal(f.slot('mtx-1', 'sends').disabled, false, 'a matrix can inspect its received sends');
   f.slot('bus-1', 'dyn').click(); assert.equal(f.V.bank(), 'outputs'); assert.equal(f.editor().dataset.dockRow, 'extended');
 });
 
@@ -129,7 +129,7 @@ test('open editors redock above the faders and back without replacing controls, 
   field.focus(); field.value = 'Voce da finire'; field.setSelectionRange(3, 8); panel.scrollLeft = 83;
   f.key({}, field);
   assert.equal(f.editor(), editor); assert.equal(f.editor().dataset.dockRow, 'extended'); assert.equal(f.editor().parentElement, f.V.editorHost());
-  assert.equal(f.editor().querySelector('.editor-panel'), panel); assert.equal(panel.scrollLeft, 83); assert.equal(f.selectedTab(), 'channel');
+  assert.equal(f.editor().querySelector('.editor-panel'), panel); assert.equal(panel.scrollLeft, 83); assert.equal(f.selectedTab(), 'devices');
   assert.equal(f.w.document.activeElement, field); assert.equal(field.value, 'Voce da finire'); assert.equal(field.selectionStart, 3); assert.equal(field.selectionEnd, 8);
   assert.equal(f.w.document.querySelector('.inputs .strip-pin-body').inert, undefined, 'source faders remain available');
   f.key({}, field); await tick();
@@ -168,17 +168,18 @@ test('live slots show unknown state until the relevant model, enable and insert 
   received.clear(); f.w.dispatchEvent(new f.w.CustomEvent('sculpt-live-state')); assert.equal(f.slot('ch-1', 'eq').dataset.state, 'unknown');
 });
 
-test('VST3 slots reflect host state, invoke exact slot/rack IDs and never fabricate loaded plugins', t => {
+test('VST3 shows one rack action before association, then real plugins and their exact slot IDs', t => {
   const f = fixture(t); f.V.setMode('extended');
-  for (let i = 0; i < 4; i++) assert.equal(f.slot('ch-3', `vst-${i}`).dataset.state, 'empty');
-  f.slot('ch-3', 'vst-2').click(); assert.deepEqual(f.vstOpened, [{ id: 'ch-3', index: 2 }]);
+  assert.equal(f.strip('ch-3').querySelectorAll('.extended-vst-slot:not([hidden])').length, 0);
+  f.strip('ch-3').querySelector('.extended-rack-button').click(); assert.deepEqual(f.vstOpened, [{ id: 'ch-3', rack: true }]);
   const slots = [{ name: '<img src=x> EQ', bypass: false }, { name: 'Compressor', bypass: true }, { name: 'Delay', missing: true }, null, { name: 'Limiter' }];
-  f.racks.set('ch-3', { slots, enabled: true, inputChannels: [1, 2], outputChannels: [1, 2] });
+  f.racks.set('ch-3', { slots, placement: 'insert1', enabled: true, inputChannels: [1, 2], outputChannels: [1, 2] });
   f.w.dispatchEvent(new f.w.CustomEvent('sculpt-vst-state'));
   assert.equal(f.slot('ch-3', 'vst-0').querySelector('.extended-slot-name').textContent, '<img src=x> EQ'); assert.equal(f.strip('ch-3').querySelector('.extended-rack img'), null);
   assert.equal(f.slot('ch-3', 'vst-0').dataset.state, 'active'); assert.equal(f.slot('ch-3', 'vst-1').dataset.state, 'bypass'); assert.equal(f.slot('ch-3', 'vst-2').dataset.state, 'missing');
-  const rackButton = f.strip('ch-3').querySelector('.extended-rack-button'); assert.equal(rackButton.textContent, 'Rack 5'); rackButton.click();
-  assert.deepEqual(f.vstOpened[1], { id: 'ch-3', rack: true });
+  f.slot('ch-3', 'vst-2').click(); assert.deepEqual(f.vstOpened[1], { id: 'ch-3', index: 2 });
+  const rackButton = f.strip('ch-3').querySelector('.extended-rack-button'); assert.equal(rackButton.textContent, 'Rack · 4'); rackButton.click();
+  assert.deepEqual(f.vstOpened[2], { id: 'ch-3', rack: true });
   assert.equal(f.strip('dca-1').querySelectorAll('.extended-slot').length, 0, 'DCA has neither invented WING processing nor an audio VST3 insert');
   f.strip('dca-1').querySelector('.extended-group-button').click(); assert(f.w.document.querySelector('.dca-member'));
 });
@@ -212,7 +213,7 @@ test('view preference restores safely and remains independent of channel persist
 
 test('the real browser VST3 panel reports app Mac availability and never simulates devices or audio', async t => {
   const f = fixture(t, { realVst: true }); f.V.setMode('extended');
-  const before = plain(f.C.capture()); f.slot('ch-1', 'vst-0').click(); await tick();
+  const before = plain(f.C.capture()); f.strip('ch-1').querySelector('.extended-rack-button').click(); await tick();
   const dialog = f.w.document.getElementById('vst-rack-dialog'); assert.equal(dialog.open, true);
   assert.match(dialog.querySelector('.vst-statusbar').textContent, /VST3 · app Mac/);
   assert.equal(f.w.SculptVst.available(), false); assert.equal(f.w.SculptVst.snapshot().running, false); assert.equal(f.w.SculptVst.snapshot().connected, false);
@@ -226,7 +227,7 @@ test('the real browser VST3 panel reports app Mac availability and never simulat
 test('saved VST3 labels stay distinct from a connected and running native host', t => {
   const f = fixture(t), engine = { connected: false, running: false };
   f.w.SculptVst.snapshot = () => engine;
-  f.racks.set('ch-1', { enabled: true, slots: [{ name: 'EQ salvato', bypass: false }] });
+  f.racks.set('ch-1', { placement: 'pre', enabled: true, slots: [{ name: 'EQ salvato', bypass: false }] });
   f.V.setMode('extended'); assert.equal(f.slot('ch-1', 'vst-0').dataset.state, 'unknown');
   engine.connected = true; f.w.dispatchEvent(new f.w.CustomEvent('sculpt-vst-state')); assert.equal(f.slot('ch-1', 'vst-0').dataset.state, 'ready');
   engine.running = true; f.w.dispatchEvent(new f.w.CustomEvent('sculpt-vst-state')); assert.equal(f.slot('ch-1', 'vst-0').dataset.state, 'active');
