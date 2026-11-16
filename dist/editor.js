@@ -1,11 +1,8 @@
 (() => {
   'use strict';
 
-  const TABS = [
-    ['devices', 'Dispositivi'],
-    ['channel', 'Canale'], ['processing', 'Processo'], ['eq', 'EQ'],
-    ['dynamics', 'Dinamica'], ['sends', 'Mandate'], ['groups', 'Gruppi']
-  ];
+  const TABS = [['devices', 'Canale'], ['vst3', 'VST3'], ['fx', 'FX']];
+  const LEGACY_SECTIONS = new Set(['channel', 'processing', 'eq', 'dynamics', 'sends', 'groups']);
   // Use the channel-list/WING palette without rewriting existing project RGBs.
   // The fallback keeps the editor usable when loaded without the importer.
   const PALETTE = (window.SculptChannelList?.palette || [
@@ -36,14 +33,14 @@
   let dialog, currentId = null, activeTab = 'devices', dynamicsBlock = 'dyn', processingDevice = '';
   let sendDirection = 'out', sendGroup = 'BUS', sendFilter = '';
   let panel, tabList, deviceChain, headerName, headerKind, headerDot, headerSof, headerSolo, headerRename;
-  let deviceChainKey = '';
+  let deviceChainKey = '', deviceScrollLeft = 0, homeGroupsExpanded = false;
   const deviceNodes = new Map();
   const expandedDevices = new Set(['eq']);
   let activeDevice = 'eq', refreshingDevices = false;
   let deviceControlScope = null, deviceDrag = null, deviceTapPalette = null, deviceDragHelp = null;
   const DEVICE_IDS = ['home', 'input', 'gate', 'eq', 'dyn', 'pre', 'post', 'sends', 'master'];
   const DEVICE_LABELS = { home: 'Home', input: 'Pre', gate: 'Gate', eq: 'EQ', dyn: 'Comp', pre: 'Insert', post: 'Insert', sends: 'Send', master: 'Master' };
-  let deviceSendId = '', deviceReadSerial = 0;
+  let deviceSendId = '', deviceReadSerial = 0, selectedFxSlot = 1, fxScrollTop = 0, fxFocusPending = false;
   const delayReads = new Map();
   const compactEditor = () => window.SculptMixerView?.mode?.() !== 'extended';
   let renameFocusId = null, liveNameDialog = null;
@@ -307,6 +304,12 @@
   function activeSource() {
     const ch = channel(); return ch ? D().source(usesAlt() ? ch.altSource : ch.source) : null;
   }
+  function headampSource() {
+    // PRE USB returns still use the original physical headamp. The routing
+    // manager exposes it only while the applied patch is verified on this WING.
+    const original = window.SculptVstRouting?.sourceFor?.(currentId);
+    return original?.sourceId ? D().source(original.sourceId) : activeSourceKnown() ? activeSource() : null;
+  }
   function sourceName(value) {
     return value ? `${GROUP_NAMES[value.group] || value.group} ${value.index || ''}${value.name ? ` · ${value.name}` : ''}`.trim() : 'Non assegnata';
   }
@@ -361,7 +364,7 @@
       message: !enabled ? 'Il nome non è modificabile nei parametri letti dalla WING.' : linked ? `Nome collegato alla sorgente: si aggiorna anche sui canali che usano questa sorgente. Vuoto → ${window.SculptModel.defaultName(sourceStrip())}.` : `Conferma con Invio o tocca fuori dal campo. Vuoto → ${window.SculptModel.defaultName(sourceStrip())}.` };
   }
   function focusName() {
-    if (renameFocusId !== currentId || activeTab !== 'channel') return;
+    if (renameFocusId !== currentId || !['channel', 'devices'].includes(activeTab)) return;
     const input = panel?.querySelector('#editor-channel-name');
     if (!input) return;
     renameFocusId = null;
@@ -373,7 +376,8 @@
     if (live?.isLive?.() && (!live.isConnected?.() || !live.isWritable?.())) return;
     if (live?.isLive?.()) { renameLiveChannel(live, currentId); return; }
     renameFocusId = currentId;
-    switchTab('channel');
+    activeDevice = 'home'; expandedDevices.add('home');
+    switchTab('devices'); refreshDeviceChain();
     focusName();
   }
   function renameLiveChannel(live, id) {
@@ -465,6 +469,15 @@
     load();
   }
   function renderIdentity() {
+    const base = window.SculptWingMap?.stripPath(currentId), tagsPath = base + '/tags';
+    const colorPath = () => {
+      const live = window.SculptLive;
+      if (!live?.isLive?.()) return base + '/col';
+      if (isInput() && !wireKnown(base + '/clink')) return null;
+      const linked = isInput() && !!Number(live.value?.(base + '/clink'));
+      if (linked && !activeSourceKnown()) return null;
+      return (linked ? window.SculptWingMap?.sourcePath(activeSource()?.id) : base) + '/col';
+    };
     const identity = module('Identità', textField('Nome', () => sourceStrip().name, value => { if (nameAccess().enabled && value !== sourceStrip().name) patch({ name: value }); }, { id: 'editor-channel-name', maxLength: 16, allowEmpty: true, disabled: () => !nameAccess().enabled, limit: () => nameAccess().maxLength }));
     identity.classList.add('editor-module-identity');
     const help = note(''); help.id = 'editor-name-help';
@@ -472,8 +485,8 @@
     bind(() => { help.textContent = nameAccess().message; }); identity.append(help);
     const colors = el('div', 'editor-colors'); colors.setAttribute('role', 'group'); colors.setAttribute('aria-label', 'Colore canale');
     PALETTE.forEach(([name, color]) => {
-      const choice = button('', () => patch({ color }), 'editor-color', `Colore ${name}`);
-      choice.style.setProperty('--swatch', color); bind(() => choice.setAttribute('aria-pressed', String(sourceStrip().color.toLowerCase() === color.toLowerCase()))); colors.append(choice);
+      const choice = button('', () => { if (wireEditable(colorPath())) patch({ color }); }, 'editor-color', `Colore ${name}`);
+      choice.style.setProperty('--swatch', color); bind(() => { choice.setAttribute('aria-pressed', String(sourceStrip().color.toLowerCase() === color.toLowerCase())); choice.disabled = !wireEditable(colorPath()); }); colors.append(choice);
     });
     const currentColor = button('', null, 'editor-color', 'Colore attuale del progetto');
     bind(() => {
@@ -491,7 +504,7 @@
         ['none', '● Nessuna'], ['voice', 'Voce'], ['guitar', 'Chitarra'], ['bass', 'Basso'], ['drums', 'Batteria'],
         ['keys', 'Tastiere'], ['strings', 'Archi'], ['brass', 'Fiati'], ['playback', 'Playback'], ['monitor', 'Monitor'], ['fx', 'FX']
       ].map(([value, label]) => ({ value, label })), value => patchChannel({ icon: value }), { disabled: () => !!window.SculptLive?.isLive?.() }),
-      textField('Tag', () => Array.isArray(channel().tags) ? channel().tags.join(', ') : channel().tags || '', value => patchChannel({ tags: value.split(',').map(item => item.trim()).filter(Boolean).slice(0, 8).join(', ') }), { allowEmpty: true }),
+      textField('Tag', () => groupKnown(tagsPath) ? Array.isArray(channel().tags) ? channel().tags.join(', ') : channel().tags || '' : '', value => { if (groupEditable(tagsPath)) patchChannel({ tags: value.split(',').map(item => item.trim()).filter(Boolean).slice(0, 8).join(', ') }); }, { allowEmpty: true, disabled: () => !groupEditable(tagsPath), limit: () => window.SculptLive?.isLive?.() ? Math.min(80, window.SculptLive.metadata?.(tagsPath)?.maxLength || 80) : 80 }),
     ));
     if (window.SculptLive?.isLive?.()) identity.append(note('La scelta delle icone è disponibile in Demo.'));
     identity.append(note('Fino a 8 tag, separati da virgole.'));
@@ -729,17 +742,23 @@
     destination.append(box);
   }
   function deviceSnapshot() {
-    if (window.SculptChannelChain) return window.SculptChannelChain.snapshot(currentId);
+    if (window.SculptChannelChain) {
+      const snapshot = window.SculptChannelChain.snapshot(currentId);
+      return { ...snapshot, items: snapshot.items.map(item => item.id === 'sends' && item.available === false && C().listStrips().some(peer => C().canSend(peer.id, currentId)) ? { ...item, available: true, movable: false, badge: 'Ricezioni' } : item) };
+    }
     // A missing optional script may expose the pages, but never enables a move.
     const family = sourceStrip()?.kind;
-    return { order: DEVICE_IDS, items: DEVICE_IDS.map(id => ({ id, label: DEVICE_LABELS[id], available: !(id === 'gate' && family !== 'CH' || id === 'post' && family === 'AUX' || id === 'sends' && family === 'MTX'), movable: false, reason: 'Ordine WING non disponibile', badge: '' })) };
+    return { order: DEVICE_IDS, items: DEVICE_IDS.map(id => ({ id, label: DEVICE_LABELS[id], available: !(id === 'gate' && family !== 'CH' || id === 'post' && family === 'AUX'), movable: false, reason: 'Ordine WING non disponibile', badge: '' })) };
   }
   function devicePeers(mainOnly = false) {
     return C().listStrips().filter(peer => C().canSend(currentId, peer.id) && (mainOnly ? peer.kind === 'MAIN' : peer.kind !== 'MAIN'));
   }
   function selectedDeviceSend() {
-    const peers = devicePeers(), sof = C().getSof?.();
-    if (!peers.some(peer => peer.id === deviceSendId)) deviceSendId = peers.find(peer => peer.id === sof)?.id || peers[0]?.id || '';
+    const all = C().listStrips(), outgoing = all.filter(peer => C().canSend(currentId, peer.id)), incoming = all.filter(peer => C().canSend(peer.id, currentId));
+    if (!outgoing.length) sendDirection = 'in';
+    else if (!incoming.length) sendDirection = 'out';
+    const peers = sendDirection === 'out' ? outgoing : incoming, sof = C().getSof?.();
+    if (!peers.some(peer => peer.id === deviceSendId)) deviceSendId = (sendDirection === 'out' ? peers.find(peer => peer.id === sof) : peers.find(peer => peer.kind === 'CH'))?.id || peers[0]?.id || '';
     return deviceSendId;
   }
   function activeSourceKnown() {
@@ -756,7 +775,7 @@
     destination.append(summary, button('Rinomina', renameChannel, 'editor-small-button', 'Rinomina canale da Home'));
     const source = el('p', 'editor-note');
     bind(() => { source.textContent = isInput() ? activeSourceKnown() ? sourceName(activeSource()) : 'Sorgente in lettura…' : 'Somma ' + sourceStrip().kind; });
-    destination.append(source);
+    destination.append(source, button(isInput() ? 'Sorgente / ingresso' : 'Formato / ingresso', () => openDevicePage(currentId, 'input'), 'editor-link-button', 'Apri ingresso del canale'));
     if (!expanded) {
       const actions = el('div', 'editor-button-row');
       actions.append(wireToggle('SOLO', () => channel().solo, value => D().setSolo(currentId, value), base + '/$solo', { className: 'editor-solo' }),
@@ -764,25 +783,29 @@
       destination.append(actions); return;
     }
     destination.append(renderIdentity());
-    const monitor = module('Ascolto', wireSelect('Monitor solo', () => channel().monitor || 'A', ['A', 'B', 'A+B'], value => patchChannel({ monitor: value }), base + '/mon'));
+    const monitor = module('Ascolto', wireToggle('SOLO', () => channel().solo, value => D().setSolo(currentId, value), base + '/$solo', { className: 'editor-solo', ariaLabel: 'Solo del canale' }), wireSelect('Monitor solo', () => channel().monitor || 'A', ['A', 'B', 'A+B'], value => patchChannel({ monitor: value }), base + '/mon'));
     if (isInput()) monitor.append(wireToggle('Solo safe', () => !!channel().soloSafe, value => patchChannel({ soloSafe: value }), base + '/solosafe'));
-    destination.append(monitor, button('DCA / gruppi', () => switchTab('groups'), 'editor-link-button'),
-      button('Preset del canale', () => { close(); window.SculptUI?.open('scenes', { tab: 'presets', target: strip.id }); }, 'editor-link-button'));
+    const groups = disclosure('DCA / mute groups / automix'); groups.classList.add('editor-home-groups'); groups.open = homeGroupsExpanded;
+    const active = controlActive(); groups.addEventListener('toggle', () => { if (active()) homeGroupsExpanded = groups.open; });
+    renderGroups(groups);
+    destination.append(monitor, groups, button('Preset del canale', () => { close(); window.SculptUI?.open('scenes', { tab: 'presets', target: strip.id }); }, 'editor-link-button'));
   }
   function renderDevicePre(destination, expanded) {
     const base = window.SculptWingMap?.stripPath(currentId), values = el('div', 'editor-device-main-parameters');
     if (isInput()) {
       const src = activeSourceKnown() ? activeSource() : null, sourcePath = src && window.SculptWingMap?.sourcePath(src.id);
-      const hasHeadamp = src && src.group !== 'OFF' && src.preamp !== false && (src.preamp === true || ['LCL', 'A', 'B', 'C', 'SC'].includes(src.group));
+      const headamp = headampSource(), headampPath = headamp && window.SculptWingMap?.sourcePath(headamp.id);
+      const hasHeadamp = headamp && headamp.group !== 'OFF' && headamp.preamp !== false && (headamp.preamp === true || ['LCL', 'A', 'B', 'C', 'SC'].includes(headamp.group));
       if (hasHeadamp) {
-        values.append(wireParameter({ caption: 'Gain preamp', get: () => activeSource()?.gain, set: value => D().patchSource(src.id, { gain: value }), min: src.gainMin ?? -3, max: src.gainMax ?? 45.5, step: src.gainStep ?? .5, unit: 'dB', compact: true }, sourcePath + '/g'));
+        values.append(wireParameter({ caption: 'Gain preamp', get: () => D().source(headamp.id)?.gain, set: value => D().patchSource(headamp.id, { gain: value }), min: headamp.gainMin ?? -3, max: headamp.gainMax ?? 45.5, step: headamp.gainStep ?? .5, unit: 'dB', compact: true }, headampPath + '/g'));
       }
       values.append(wireParameter({ caption: 'Trim', get: () => sourceStrip().trim, set: value => patch({ trim: value }), min: -18, max: 18, step: .1, unit: 'dB', compact: true }, base + '/in/set/trim'));
       destination.append(values);
       const actions = el('div', 'editor-button-row');
       actions.append(wireToggle('Ø', () => sourceStrip().polarity, value => patch({ polarity: value }), base + '/in/set/inv', { ariaLabel: 'Inverti polarità del canale' }));
-      if (hasHeadamp && sourcePath) actions.append(wireToggle('+48 V', () => !!activeSource()?.phantom, value => D().patchSource(src.id, { phantom: value }), sourcePath + '/vph', { className: 'editor-phantom', ariaLabel: 'Alimentazione phantom 48 volt' }));
+      if (hasHeadamp && headampPath) actions.append(wireToggle('+48 V', () => !!D().source(headamp.id)?.phantom, value => D().patchSource(headamp.id, { phantom: value }), headampPath + '/vph', { className: 'editor-phantom', ariaLabel: 'Alimentazione phantom 48 volt' }));
       destination.append(actions);
+      if (hasHeadamp && headamp.id !== src?.id) destination.append(note('Preamp originale: ' + sourceName(headamp) + ' · ritorno VST3 via USB'));
       if (isChannel()) renderDeviceCuts(destination, expanded);
       if (expanded) {
         const routing = module('Sorgente di ingresso');
@@ -818,23 +841,39 @@
     destination.append(box);
   }
   function renderDeviceSend(destination, expanded) {
-    const peers = devicePeers(), selected = selectedDeviceSend();
+    const selected = selectedDeviceSend(), direction = sendDirection, peers = C().listStrips().filter(peer => direction === 'out' ? C().canSend(currentId, peer.id) : C().canSend(peer.id, currentId));
     if (!peers.length) { destination.append(note('Nessuna mandata disponibile per questa famiglia.')); return; }
-    destination.append(selectField('Destinazione', () => selectedDeviceSend(), peers.map(peer => ({ value: peer.id, label: fullLabel(peer) })), value => { deviceSendId = value; refreshDeviceChain(); }));
-    renderDeviceSendControls(destination, selected, !expanded);
-    if (isChannel()) {
-      const chain = window.SculptChannelChain;
-      const selector = selectField('TAP mandate PRE', () => chain?.snapshot(currentId).tap || '', TAP_INPUT, value => moveDeviceTap(value), { disabled: () => !chain?.snapshot(currentId).items.find(item => item.id === 'sends')?.movable });
-      destination.append(selector, note('Il TAP è comune alle mandate PRE del canale.'));
-      if (expanded) renderDevicePreSendEQ(destination);
+    if (allowedGroups('out').length && allowedGroups('in').length) {
+      const nav = el('div', 'editor-subtabs editor-send-direction'); nav.setAttribute('aria-label', 'Direzione delle mandate');
+      for (const [value, label] of [['out', 'Invia a'], ['in', 'Riceve da']]) {
+        const choice = button(label, () => { sendDirection = value; deviceSendId = ''; refreshDeviceChain(); }, 'editor-segment'); choice.setAttribute('aria-pressed', String(direction === value)); nav.append(choice);
+      }
+      destination.append(nav);
     }
     if (expanded) {
-      const destinations = el('div', 'editor-device-send-overview');
-      for (const peer of peers) {
-        const buttonNode = button(label(peer), () => { deviceSendId = peer.id; refreshDeviceChain(); }, 'editor-small-button', 'Seleziona mandata ' + fullLabel(peer));
-        bind(() => buttonNode.setAttribute('aria-pressed', String(selectedDeviceSend() === peer.id))); destinations.append(buttonNode);
-      }
-      destination.append(destinations);
+      const group = C().getStrip(selected).kind, family = peers.filter(peer => peer.kind === group), page = Math.floor(family.findIndex(peer => peer.id === selected) / SEND_PAGE_SIZE);
+      sendBanks.set('device:' + direction + ':' + group, page);
+      renderSendMixer(destination, { strip: sourceStrip(), direction, groups: [...new Set(peers.map(peer => peer.kind))], group, page,
+        change(group, page) {
+          const next = peers.filter(peer => peer.kind === group), bank = clamp(page ?? sendBanks.get('device:' + direction + ':' + group) ?? 0, 0, Math.max(0, Math.ceil(next.length / SEND_PAGE_SIZE) - 1));
+          deviceSendId = next[bank * SEND_PAGE_SIZE]?.id || '';
+          const scrollLeft = deviceChain?.scrollLeft, scrollTop = destination.scrollTop;
+          refreshDeviceChain();
+          if (deviceChain) deviceChain.scrollLeft = scrollLeft;
+          destination.scrollTop = scrollTop;
+        } });
+    } else {
+      destination.append(selectField(direction === 'out' ? 'Destinazione' : 'Sorgente mandata', () => selectedDeviceSend(), peers.map(peer => ({ value: peer.id, label: fullLabel(peer) })), value => { deviceSendId = value; refreshDeviceChain(); }));
+      renderSendSummary(destination, selected, direction);
+      destination.append(button('Apri mixer · 8 mandate', () => openDevice('sends'), 'editor-link-button editor-send-open', 'Apri otto mandate'));
+    }
+    if (isChannel() && direction === 'out') {
+      const chain = window.SculptChannelChain;
+      const selector = selectField('TAP mandate PRE', () => chain?.snapshot(currentId).tap || '', TAP_INPUT, value => moveDeviceTap(value), { disabled: () => !chain?.snapshot(currentId).items.find(item => item.id === 'sends')?.movable });
+      if (expanded) {
+        const common = disclosure('TAP / EQ delle mandate PRE', selector, note('Il TAP è comune alle mandate PRE del canale.'));
+        common.classList.add('editor-send-common'); renderDevicePreSendEQ(common); destination.append(common);
+      } else destination.append(selector, note('Il TAP è comune alle mandate PRE del canale.'));
     }
   }
   function renderDevicePreSendEQ(destination) {
@@ -869,15 +908,24 @@
   }
   function deviceReadPaths(key, expanded) {
     const base = window.SculptWingMap?.stripPath(currentId); if (!base) return [];
-    if (key === 'home') return [base];
+    if (key === 'home') return [base, ...(expanded ? [...Array.from({ length: 16 }, (_, index) => '/dca/' + (index + 1)), ...Array.from({ length: 8 }, (_, index) => '/mgrp/' + (index + 1)), '/cfg/amix', ...(isChannel() ? [base + '/postins'] : [])] : [])];
     if (key === 'input') {
       const paths = isInput() ? [base + '/in/conn', base + '/in/set', ...(channel()?.sourceAuto ? ['/io/altsw'] : [])] : [base, base + '/in/set', base + '/dly'];
       if (isChannel()) paths.push(base + '/flt');
       const source = isInput() && activeSourceKnown() && activeSource(), sourcePath = source && window.SculptWingMap?.sourcePath(source.id);
-      if (sourcePath) paths.push(sourcePath); return paths;
+      if (sourcePath) paths.push(sourcePath);
+      const headamp = isInput() && headampSource(), headampPath = headamp && window.SculptWingMap?.sourcePath(headamp.id);
+      if (headampPath && headampPath !== sourcePath) paths.push(headampPath);
+      return paths;
     }
     if (key === 'master') return [base, ...(expanded ? devicePeers(true).map(peer => window.SculptWingMap?.sendBasePath(currentId, peer.id)) : [])];
-    if (key === 'sends') return [window.SculptWingMap?.sendBasePath(currentId, selectedDeviceSend()), ...(isChannel() ? [base + '/ptap', ...(expanded ? [base + '/peq', base + '/tapwid'] : [])] : [])].filter(Boolean);
+    if (key === 'sends') {
+      const selected = selectedDeviceSend(), direction = sendDirection, peers = sendPeers(sourceStrip(), direction, C().getStrip(selected)?.kind);
+      const first = Math.floor(peers.findIndex(peer => peer.id === selected) / SEND_PAGE_SIZE) * SEND_PAGE_SIZE;
+      const visible = expanded ? peers.slice(first, first + SEND_PAGE_SIZE).map(peer => peer.id) : [selected];
+      return [...visible.map(peerId => window.SculptWingMap?.sendBasePath(direction === 'out' ? currentId : peerId, direction === 'out' ? peerId : currentId)),
+        ...(direction === 'in' ? visible.filter(peerId => C().getStrip(peerId)?.kind === 'CH').map(peerId => window.SculptWingMap?.stripPath(peerId) + '/ptap') : isChannel() ? [base + '/ptap', ...(expanded ? [base + '/peq', base + '/tapwid'] : [])] : [])].filter(Boolean);
+    }
     if (key === 'pre' || key === 'post') return [base + '/' + key + 'ins'];
     if (expanded && (key === 'gate' || key === 'dyn')) return [base + '/' + (key === 'gate' ? 'gatesc' : 'dynsc'), ...(key === 'dyn' && sourceStrip().kind !== 'AUX' ? [base + '/dynxo'] : [])];
     return [];
@@ -907,9 +955,10 @@
   }
   function openDevice(key) {
     if (deviceSnapshot().items.find(item => item.id === key)?.available === false) return;
-    activeDevice = key;
-    if (expandedDevices.has(key)) expandedDevices.delete(key); else expandedDevices.add(key);
+    activeDevice = key; const opening = !expandedDevices.has(key);
+    if (!opening) expandedDevices.delete(key); else expandedDevices.add(key);
     refreshDeviceChain();
+    if (opening && deviceNodes.get(key)) deviceNodes.get(key).content.scrollTop = 0;
     deviceNodes.get(key)?.item.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
   }
   function deviceState(key, descriptor) {
@@ -945,7 +994,7 @@
     for (const [name, key, wire] of [['Low cut', 'low', 'lc'], ['High cut', 'high', 'hc']]) {
       const group = el('div', 'editor-device-cut'), fieldKey = key + 'Cut', meta = live?.metadata?.(base + '/' + wire + 'f');
       group.append(toggle(name.toUpperCase(), () => known(wire) && !!channel()[fieldKey + 'On'], value => patchChannel({ [fieldKey + 'On']: value }), { disabled: () => !editable(wire) }));
-      const value = parameter({ caption: name, get: () => channel()[fieldKey], set: next => patchChannel({ [fieldKey]: next }), min: meta?.min ?? 20, max: meta?.max ?? 20000, step: 1, log: true, unit: 'Hz', compact: true, disabled: () => !editable(wire + 'f') });
+      const value = parameter({ caption: name, get: () => channel()[fieldKey], set: next => patchChannel({ [fieldKey]: next }), min: meta?.min ?? (key === 'low' ? 20 : 50), max: meta?.max ?? (key === 'low' ? 2000 : 20000), step: 1, log: true, unit: 'Hz', compact: true, disabled: () => !editable(wire + 'f') });
       bind(() => { if (!known(wire + 'f')) { const input = value.querySelector('input'); if (input) { input.value = ''; input.placeholder = '—'; } const output = value.querySelector('output'); if (output) output.textContent = '—'; } });
       group.append(value);
       if (expanded) {
@@ -1025,9 +1074,12 @@
       const old = channel()?.[key + 'Fx'];
       if (value) D().assignFx(Number(value), current, key); else if (old) D().assignFx(old, null, key);
     }, base + '/' + key + 'ins/ins'));
-    if (key === 'post' && isChannel()) destination.append(button('Automix / gruppi', () => switchTab('groups'), 'editor-link-button'));
+    if (key === 'post' && isChannel()) destination.append(button('Automix / gruppi', revealHomeGroups, 'editor-link-button'));
   }
   function renderDeviceContents(entry, key, data, expanded) {
+    // Finish a typed edit against its captured source before replacing a card
+    // after a routing/schema change. Its detached controls are invalidated next.
+    if (entry.content.contains(document.activeElement) && document.activeElement.matches('input,select')) document.activeElement.blur();
     entry.cleanup?.(); entry.cleanup = null; entry.content.replaceChildren(); entry.updates = [];
     const scope = { active: true }, localCleanups = [], previousBindings = bindings, previousCleanups = cleanups, previousScope = deviceControlScope, wasRendering = rendering;
     bindings = entry.updates; cleanups = localCleanups; deviceControlScope = scope; rendering = true;
@@ -1123,10 +1175,10 @@
         }
         if (data.available !== false) ensureDeviceRead(entry, key, expanded);
         if (key === 'input' && (expanded || !isInput())) ensureDelayRead();
-        const sourceKey = key === 'input' || key === 'home' ? [channel()?.source, channel()?.altSource, channel()?.useAlt, channel()?.sourceAuto, D().get().io?.globalAlt, activeSource()?.preamp, isInput() ? activeSourceKnown() : true].join(',') : '';
+        const sourceKey = key === 'input' || key === 'home' ? [channel()?.source, channel()?.altSource, channel()?.useAlt, channel()?.sourceAuto, D().get().io?.globalAlt, activeSource()?.preamp, isInput() ? activeSourceKnown() : true, key === 'input' ? headampSource()?.id : '', key === 'input' ? headampSource()?.preamp : ''].join(',') : '';
         const readPaths = deviceReadPaths(key, expanded), live = window.SculptLive;
         const schema = live?.isLive?.() ? readPaths.map(path => live.metadata?.(path)?.revision || '').join(',') + ':' + entry.readPhase : '';
-        const contentKey = [id, key, expanded, data.available, sourceKey, key === 'input' ? delayDisplayKey() : '', key === 'sends' ? selectedDeviceSend() : '', key === 'pre' || key === 'post' ? channel()?.[key + 'Fx'] || '' : '', live?.sessionToken?.() || '', schema].join('|');
+        const contentKey = [id, key, expanded, data.available, sourceKey, key === 'home' ? homeContentKey() : '', key === 'input' ? delayDisplayKey() : '', key === 'sends' ? selectedDeviceSend() + ':' + sendDirection + ':' + deviceSendSchema(expanded) : '', key === 'pre' || key === 'post' ? channel()?.[key + 'Fx'] || '' : '', live?.sessionToken?.() || '', schema].join('|');
         if (contentKey !== entry.contentKey) { entry.contentKey = contentKey; renderDeviceContents(entry, key, data, expanded); }
         for (const update of entry.updates || []) update();
         if (entry.readStatus) { entry.readStatus.textContent = entry.readPhase === 'error' ? entry.readError : entry.readPhase === 'loading' ? 'Lettura WING…' : ''; entry.readStatus.hidden = !entry.readStatus.textContent; }
@@ -1140,7 +1192,8 @@
     panel.append(deviceChain, deviceDragHelp);
     const cancel = event => { if (event.key === 'Escape' && deviceDrag) { event.preventDefault(); event.stopPropagation(); clearDeviceMove(); } };
     panel.addEventListener('keydown', cancel);
-    cleanups.push(() => { clearDeviceMove(); panel.removeEventListener('keydown', cancel); for (const entry of deviceNodes.values()) entry.cleanup?.(); deviceNodes.clear(); deviceChainKey = ''; });
+    const board = deviceChain;
+    cleanups.push(() => { deviceScrollLeft = board.scrollLeft; clearDeviceMove(); panel.removeEventListener('keydown', cancel); for (const entry of deviceNodes.values()) entry.cleanup?.(); deviceNodes.clear(); deviceChainKey = ''; });
     const chain = window.SculptChannelChain, id = currentId;
     if (chain) {
       const unsubscribe = chain.bind(id, () => { if (currentId === id && activeTab === 'devices') refreshDeviceChain(); });
@@ -1148,6 +1201,7 @@
       Promise.resolve(chain.prepare(id)).catch(error => { if (dialog?.open && currentId === id) setDeviceStatus(error?.message || String(error)); });
     }
     refreshDeviceChain();
+    deviceChain.scrollLeft = deviceScrollLeft;
   }
   function renderOrder() {
     const order = orderValue();
@@ -1303,117 +1357,326 @@
     if (!groups.includes(sendGroup)) sendGroup = groups[0] || '';
     return { strip, outGroups, inGroups, groups };
   }
+  const SEND_PAGE_SIZE = 8;
+  const sendBanks = new Map();
+  function sendPeers(strip, direction, group) {
+    return C().listStrips().filter(peer => peer.kind === group && (direction === 'out' ? C().canSend(strip.id, peer.id) : C().canSend(peer.id, strip.id)));
+  }
+  function sendSchemaKey(strip, direction, group, page = 0, selected = '') {
+    const live = window.SculptLive;
+    if (!live?.isLive?.()) return '';
+    const peers = sendPeers(strip, direction, group), visible = selected ? peers.filter(peer => peer.id === selected) : peers.slice(page * SEND_PAGE_SIZE, (page + 1) * SEND_PAGE_SIZE);
+    return JSON.stringify(visible.map(peer => ['level', 'on', 'mode', 'pan', 'panLink', 'followMute'].map(key => {
+      const path = window.SculptWingMap?.sendPath(direction === 'out' ? strip.id : peer.id, direction === 'out' ? peer.id : strip.id, key), meta = live.metadata?.(path);
+      return meta ? [meta.revision, meta.type, meta.min, meta.max, meta.step, meta.readOnly, meta.items] : null;
+    })));
+  }
+  function deviceSendSchema(expanded) {
+    const selected = selectedDeviceSend(), group = C().getStrip(selected)?.kind, peers = sendPeers(sourceStrip(), sendDirection, group);
+    return sendSchemaKey(sourceStrip(), sendDirection, group, Math.floor(peers.findIndex(peer => peer.id === selected) / SEND_PAGE_SIZE), expanded ? '' : selected);
+  }
+  function sendKnown(path, type = 'number') {
+    const live = window.SculptLive;
+    if (!live?.isLive?.()) return true;
+    if (!wireKnown(path)) return false;
+    const meta = live.metadata(path);
+    return type === 'mode' ? meta.type === 5 && Array.isArray(meta.items) && meta.items.length > 0 : [1, 2, 3, 4, 6].includes(meta.type);
+  }
+  function sendEditable(path, type = 'number') {
+    return sendKnown(path, type) && wireEditable(path);
+  }
+  function sendNumeric(options, path) {
+    const active = controlActive(), live = window.SculptLive, meta = live?.isLive?.() ? live.metadata?.(path) : null;
+    // UI limits also respect the model's representable range (−90 dB is −∞).
+    const min = Math.max(options.min, Number.isFinite(meta?.min) ? meta.min : options.min), max = Math.min(options.max, Number.isFinite(meta?.max) ? meta.max : options.max);
+    const disabled = () => !sendEditable(path) || !!options.disabled?.();
+    const commit = value => {
+      if (!active() || disabled() || !Number.isFinite(value)) return;
+      const definition = window.SculptLive?.isLive?.() ? window.SculptLive.metadata?.(path) : null;
+      const low = Math.max(options.min, Number.isFinite(definition?.min) ? definition.min : options.min), high = Math.min(options.max, Number.isFinite(definition?.max) ? definition.max : options.max);
+      const next = clamp(value, low, high);
+      if (definition?.type === 6 && !definition.items?.some(item => item.value === next)) return;
+      options.set(next);
+    };
+    const node = parameter({ ...options, min, max, set: commit, disabled });
+    bind(() => {
+      const known = sendKnown(path); node.dataset.known = String(known);
+      if (known) return;
+      const input = node.querySelector('.editor-number'), display = node.querySelector('output'), control = node.querySelector('.editor-range, .editor-knob');
+      input.value = ''; input.placeholder = '—'; display.textContent = '—';
+      control?.removeAttribute('aria-valuenow'); control?.setAttribute('aria-valuetext', 'Valore da leggere dalla WING');
+    });
+    if (options.pan) node.querySelector('.editor-knob').addEventListener('dblclick', () => commit(0));
+    return node;
+  }
+  function sendModeChoices(path, full) {
+    if (!full || !window.SculptLive?.isLive?.()) return ['PRE', 'POST'];
+    // GRP is offered only when this exact destination's firmware enum includes it.
+    return (window.SculptLive.metadata?.(path)?.items || []).map(item => String(item.value)).filter(value => ['PRE', 'POST', 'GRP'].includes(value));
+  }
+  function sendModeControl(peer, get, set, path, full) {
+    const active = controlActive(), select = el('select', 'editor-select'), caption = 'Punto → ' + label(peer);
+    select.setAttribute('aria-label', caption);
+    let schema = '';
+    select.addEventListener('change', () => {
+      if (!active() || !sendEditable(path, full ? 'mode' : 'number')) return;
+      const value = select.value;
+      if (sendModeChoices(path, full).includes(value)) set({ mode: value, pre: value === 'PRE' });
+    });
+    bind(() => {
+      const choices = sendModeChoices(path, full), key = choices.join('|'), known = sendKnown(path, full ? 'mode' : 'number');
+      if (schema !== key || !select.childElementCount) {
+        schema = key; select.replaceChildren();
+        for (const value of choices) { const choice = el('option', '', value); choice.value = value; select.append(choice); }
+      }
+      select.value = known ? get().mode || (get().pre ? 'PRE' : 'POST') : '';
+      select.disabled = !sendEditable(path, full ? 'mode' : 'number') || !choices.length;
+      select.dataset.known = String(known);
+    });
+    return field(caption, select);
+  }
+  function renderSendSummary(destination, peerId, direction = 'out') {
+    const sourceId = direction === 'out' ? currentId : peerId, targetId = direction === 'out' ? peerId : currentId, target = C().getStrip(targetId), full = ['CH', 'AUX'].includes(C().getStrip(sourceId)?.kind) && target.kind !== 'MAIN';
+    const get = () => C().getSend(sourceId, targetId), set = changes => C().setSend(sourceId, targetId, changes), path = key => window.SculptWingMap?.sendPath(sourceId, targetId, key);
+    const box = el('div', 'editor-device-send-controls');
+    box.append(toggle('ON', () => sendKnown(path('on')) && get().on, value => { if (sendEditable(path('on'))) set({ on: value }); }, { ariaLabel: 'Mandata a ' + label(target) + ' attiva', disabled: () => !sendEditable(path('on')) }),
+      sendNumeric({ caption: 'Livello → ' + label(target), get: () => get().level, set: value => set({ level: value }), min: -90, max: 10, step: .1, unit: 'dB', compact: true, format: value => db(value) + ' dB' }, path('level')),
+      sendModeControl(target, get, set, path('mode'), full));
+    destination.append(box);
+  }
+  function renderSendStrip(peer, sourceId, targetId, direction) {
+    const source = C().getStrip(sourceId), target = C().getStrip(targetId), full = ['CH', 'AUX'].includes(source.kind) && target.kind !== 'MAIN';
+    const get = () => C().getSend(sourceId, targetId), set = changes => C().setSend(sourceId, targetId, changes);
+    const path = key => window.SculptWingMap?.sendPath(sourceId, targetId, key);
+    const row = el('article', 'editor-send-row'); row.dataset.sourceId = sourceId; row.dataset.targetId = targetId; row.dataset.pan = String(full); row.dataset.sof = String(['BUS', 'MTX'].includes(target.kind));
+    const head = el('div', 'editor-send-header'), name = el('div', 'editor-send-name'), code = el('span', '', label(peer)), title = el('strong');
+    name.append(code, title); head.append(name); row.append(head);
+    const on = button('ON', () => { if (sendEditable(path('on'))) set({ on: !get().on }); }, 'editor-send-on', `Mandata ${fullLabel(source)} a ${fullLabel(target)} attiva`);
+    on.setAttribute('role', 'switch');
+    bind(() => {
+      const current = C().getStrip(peer.id), known = sendKnown(path('on')), enabled = known && !!get().on;
+      title.textContent = current.name; name.title = fullLabel(current); row.style.setProperty('--send-color', current.color);
+      row.setAttribute('aria-label', (direction === 'in' ? 'Da ' : 'A ') + fullLabel(current));
+      on.disabled = !sendEditable(path('on')); on.dataset.known = String(known);
+      on.setAttribute('aria-checked', String(enabled)); on.setAttribute('aria-pressed', String(enabled));
+      row.classList.toggle('editor-send-enabled', enabled); on.textContent = known ? enabled ? 'ON' : 'OFF' : '—';
+    });
+    row.append(on);
+    if (full) {
+      const pan = sendNumeric({ caption: 'Pan → ' + label(peer), get: () => get().pan ?? 0, set: value => set({ pan: value }), min: -100, max: 100, step: 1, compact: true, pan: true,
+        disabled: () => !sendKnown(path('panLink')) || !!get().panLink, format: value => value === 0 ? 'C' : `${Math.abs(value)} ${value < 0 ? 'L' : 'R'}` }, path('pan'));
+      pan.classList.add('editor-send-pan'); row.append(pan);
+    }
+    row.append(sendNumeric({ caption: 'Livello → ' + label(peer), get: () => get().level, set: value => set({ level: value }), min: -90, max: 10, step: .1, unit: 'dB', compact: true, vertical: true, format: value => db(value) + ' dB' }, path('level')),
+      sendModeControl(peer, get, set, path('mode'), full));
+    if (full) {
+      const controls = el('div', 'editor-send-switches');
+      for (const [caption, key, ariaLabel] of [['Pan link', 'panLink', 'Pan link → ' + label(peer)], ['Segue mute', 'followMute', 'Mandata segue mute → ' + label(peer)]]) {
+        controls.append(toggle(caption, () => sendKnown(path(key)) && (key === 'followMute' ? get()[key] !== false : !!get()[key]), value => { if (sendEditable(path(key))) set({ [key]: value }); }, { ariaLabel, disabled: () => !sendEditable(path(key)) }));
+      }
+      row.append(controls);
+    }
+    if (direction === 'in' && source.kind === 'CH') {
+      row.append(disclosure('TAP PRE', wireSelect('Tap PRE di ' + label(source), () => inputTap(sourceId), TAP_INPUT, value => D().patchChannel(sourceId, { tap: value }), window.SculptWingMap?.stripPath(sourceId) + '/ptap'), note('Condiviso dalle mandate PRE di questa sorgente.')));
+    }
+    if (['BUS', 'MTX'].includes(target.kind)) row.append(button('SOF', () => { C().setSof(targetId); close(); }, 'editor-send-sof', 'Apri SOF ' + fullLabel(target)));
+    return row;
+  }
+  function renderSendMixer(destination, { strip, direction, groups, group, page = 0, change }) {
+    const active = controlActive();
+    const peers = sendPeers(strip, direction, group), pageCount = Math.ceil(peers.length / SEND_PAGE_SIZE), bank = clamp(page, 0, Math.max(0, pageCount - 1));
+    const mixer = el('section', 'editor-send-mixer'); mixer.dataset.sendPage = String(bank + 1); mixer.dataset.sendGroup = group;
+    const toolbar = el('div', 'editor-send-toolbar'), groupBar = el('div', 'editor-send-groups');
+    groupBar.setAttribute('role', 'group'); groupBar.setAttribute('aria-label', direction === 'out' ? 'Destinazioni delle mandate' : 'Sorgenti delle mandate');
+    const choose = (nextGroup, nextBank, focus) => {
+      if (!active()) return;
+      change(nextGroup, nextBank);
+      destination.querySelector(focus)?.focus({ preventScroll: true });
+    };
+    for (const family of groups) {
+      const choice = button(family, () => choose(family, undefined, `[data-send-family="${family}"]`), '', `${direction === 'out' ? 'Mandate verso' : 'Riceve da'} ${family}`);
+      choice.dataset.sendFamily = family; choice.setAttribute('aria-pressed', String(group === family)); groupBar.append(choice);
+    }
+    const pager = el('nav', 'editor-send-banks'); pager.setAttribute('aria-label', 'Banchi delle mandate');
+    const previous = button('‹', () => choose(group, bank - 1, `[data-send-bank="${bank - 1}"]`), 'editor-send-bank-previous', 'Banco mandate precedente'); previous.disabled = bank === 0;
+    const next = button('›', () => choose(group, bank + 1, `[data-send-bank="${bank + 1}"]`), 'editor-send-bank-next', 'Banco mandate successivo'); next.disabled = bank + 1 >= pageCount;
+    pager.append(previous);
+    for (let index = 0; index < pageCount; index++) {
+      const first = index * SEND_PAGE_SIZE, last = Math.min(first + SEND_PAGE_SIZE, peers.length) - 1;
+      const range = `${peers[first].number}–${peers[last].number}`;
+      const choice = button(range, () => choose(group, index, `[data-send-bank="${index}"]`), 'editor-send-bank', `Banco ${group} ${range}`);
+      choice.dataset.sendBank = String(index); choice.setAttribute('aria-pressed', String(bank === index)); choice.tabIndex = bank === index ? 0 : -1;
+      choice.addEventListener('keydown', event => {
+        const offset = { ArrowRight: 1, ArrowLeft: -1 }[event.key];
+        const target = offset !== undefined ? clamp(index + offset, 0, pageCount - 1) : event.key === 'Home' ? 0 : event.key === 'End' ? pageCount - 1 : null;
+        if (target === null) return;
+        event.preventDefault(); choose(group, target, `[data-send-bank="${target}"]`);
+      });
+      pager.append(choice);
+    }
+    pager.append(next); toolbar.append(groupBar, pager); mixer.append(toolbar);
+    const list = el('div', 'editor-send-list'); list.setAttribute('aria-label', 'Fader delle mandate'); list.style.setProperty('--send-count', String(Math.min(SEND_PAGE_SIZE, peers.length)));
+    for (const peer of peers.slice(bank * SEND_PAGE_SIZE, (bank + 1) * SEND_PAGE_SIZE)) list.append(renderSendStrip(peer, direction === 'out' ? strip.id : peer.id, direction === 'out' ? peer.id : strip.id, direction));
+    mixer.append(list); destination.append(mixer);
+  }
   function renderSends({ strip, outGroups, inGroups, groups }) {
     if (outGroups.length && inGroups.length) {
       const direction = el('div', 'editor-subtabs');
       [['out', 'Invia a'], ['in', 'Riceve da']].forEach(([value, text]) => {
-        const choice = button(text, () => { sendDirection = value; sendGroup = ''; sendFilter = ''; renderPanel(); }, 'editor-segment');
+        const choice = button(text, () => { sendDirection = value; sendGroup = ''; sendFilter = ''; renderPanel(false); }, 'editor-segment');
         choice.setAttribute('aria-pressed', String(value === sendDirection)); direction.append(choice);
       }); panel.append(direction);
     }
     if (!sendGroup) { panel.append(module('Mandate', note('Nessun percorso disponibile per questa famiglia.'))); return; }
-    const groupBar = el('div', 'editor-send-groups'); groupBar.setAttribute('aria-label', sendDirection === 'out' ? 'Destinazioni delle mandate' : 'Sorgenti delle mandate');
-    groups.forEach(group => {
-      const choice = button(group, () => { sendGroup = group; renderPanel(); }, '', `${sendDirection === 'out' ? 'Mandate verso' : 'Riceve da'} ${group}`);
-      choice.setAttribute('aria-pressed', String(sendGroup === group)); groupBar.append(choice);
-    });
-    panel.append(groupBar);
-    const list = el('div', 'editor-send-list'); list.setAttribute('aria-label', 'Fader delle mandate');
-    const peers = C().listStrips().filter(other => other.kind === sendGroup && (sendDirection === 'out' ? C().canSend(strip.id, other.id) : C().canSend(other.id, strip.id)));
-    peers.forEach(peer => {
-      const sourceId = sendDirection === 'out' ? currentId : peer.id;
-      const targetId = sendDirection === 'out' ? peer.id : currentId;
-      const target = C().getStrip(targetId);
-      const get = () => C().getSend(sourceId, targetId);
-      const set = patch => C().setSend(sourceId, targetId, patch);
-      const row = el('article', 'editor-send-row');
-      const head = el('div', 'editor-send-header'), name = el('div', 'editor-send-name');
-      name.append(el('span', '', label(peer)), el('strong', '', peer.name));
-      const on = button('ON', () => set({ on: !get().on }), 'editor-send-on', `Mandata ${fullLabel(C().getStrip(sourceId))} a ${fullLabel(target)} attiva`);
-      on.setAttribute('role', 'switch');
-      bind(() => { on.setAttribute('aria-checked', String(!!get().on)); on.setAttribute('aria-pressed', String(!!get().on)); row.classList.toggle('editor-send-enabled', !!get().on); on.textContent = get().on ? 'ON' : 'OFF'; });
-      head.append(name, on); row.append(head);
-      row.append(parameter({ caption: `Livello → ${label(peer)}`, get: () => get().level, set: value => set({ level: value }), min: -90, max: 10, step: .1, unit: 'dB', compact: true, vertical: true, format: value => `${db(value)} dB` }));
-      row.append(selectField(`Punto → ${label(peer)}`, () => get().mode || (get().pre ? 'PRE' : 'POST'), target.kind === 'MAIN' ? ['PRE', 'POST'] : ['PRE', 'POST', 'GRP'], value => set({ mode: value, pre: value === 'PRE' })));
-      const extra = disclosure('Pan / dettagli');
-      if (C().getStrip(sourceId).kind === 'CH') extra.append(selectField(`Tap PRE di ${label(C().getStrip(sourceId))}`, () => inputTap(sourceId), TAP_INPUT, value => D().patchChannel(sourceId, { tap: value })), note('Il tap PRE è condiviso dalle mandate PRE di questo canale.'));
-      if (target.kind !== 'MAIN') {
-        extra.append(grid(
-          toggle('Pan link', () => !!get().panLink, value => set({ panLink: value }), { ariaLabel: `Pan link → ${label(peer)}` }),
-          toggle('Segue mute', () => get().followMute !== false, value => set({ followMute: value }), { ariaLabel: `Mandata segue mute → ${label(peer)}` })
-        ), parameter({ caption: `Pan → ${label(peer)}`, get: () => get().pan ?? 0, set: value => set({ pan: value }), min: -100, max: 100, step: 1, compact: true, disabled: () => !!get().panLink, format: value => value === 0 ? 'C' : `${Math.abs(value)} ${value < 0 ? 'L' : 'R'}` }));
-      }
-      row.append(extra);
-      if (target.kind === 'BUS' || target.kind === 'MTX') row.append(button(`SOF ${label(target)}`, () => { C().setSof(targetId); close(); }, 'editor-send-sof', `Apri SOF ${fullLabel(target)}`));
-      list.append(row);
-    });
-    panel.append(list);
+    const key = 'page:' + sendDirection + ':' + sendGroup;
+    renderSendMixer(panel, { strip, direction: sendDirection, groups, group: sendGroup, page: sendBanks.get(key) || 0,
+      change(group, bank) {
+        sendGroup = group;
+        if (bank !== undefined) sendBanks.set('page:' + sendDirection + ':' + group, bank);
+        renderPanel(false);
+      } });
+    if (sendDirection === 'out' && strip.kind === 'CH') {
+      const common = disclosure('TAP delle mandate PRE', wireSelect('Tap PRE di ' + label(strip), () => inputTap(strip.id), TAP_INPUT, value => D().patchChannel(strip.id, { tap: value }), window.SculptWingMap?.stripPath(strip.id) + '/ptap'), note('Il TAP è comune alle mandate PRE del canale.'));
+      common.classList.add('editor-send-common'); panel.append(common);
+    }
   }
 
+  function homeContentKey() {
+    const live = window.SculptLive, base = window.SculptWingMap?.stripPath(currentId), mode = ['x', 'y'].find(key => D().get().automix[key]?.channels?.includes(currentId)) || 'off';
+    const definitions = live?.isLive?.() ? [base + '/tags', base + '/postins/mode', base + '/postins/w', '/cfg/amix/x', '/cfg/amix/y'].map(path => {
+      const meta = live.metadata?.(path); return meta ? [meta.type, meta.revision, meta.readOnly, meta.min, meta.max, meta.items] : null;
+    }) : null;
+    return JSON.stringify([homeGroupsExpanded, mode, definitions]);
+  }
+  function homeGroupsReady() {
+    return !window.SculptLive?.isLive?.() || deviceNodes.get('home')?.readPhase === 'ready';
+  }
+  function groupKnown(path) { return homeGroupsReady() && wireKnown(path); }
+  function groupEditable(path) { return homeGroupsReady() && wireEditable(path); }
+  function revealHomeGroups() {
+    homeGroupsExpanded = true; openDevicePage(currentId, 'home');
+    const groups = deviceNodes.get('home')?.content.querySelector('.editor-home-groups');
+    if (groups) { groups.open = true; groups.scrollIntoView?.({ block: 'nearest', inline: 'nearest' }); }
+  }
   function renderMembership(title, key, stateKey) {
-    const box = module(title), list = el('div', 'editor-membership-grid');
+    const box = module(title), list = el('div', 'editor-membership-grid'), id = currentId, tags = window.SculptWingMap?.stripPath(id) + '/tags';
+    const known = () => key !== 'dca' || groupKnown(tags), editable = () => key !== 'dca' ? !window.SculptLive?.isLive?.() : groupEditable(tags) && (!window.SculptLive?.isLive?.() || window.SculptLive.metadata?.(tags)?.type === 7);
     (D().get()[key] || []).forEach((group, index) => {
       const getGroup = () => D().get()[key][index];
       const choice = button('', () => {
+        if (!editable()) return;
         D().change(state => {
           const item = state[key][index];
-          item.members = item.members.includes(currentId) ? item.members.filter(id => id !== currentId) : [...item.members, currentId];
+          item.members = item.members.includes(id) ? item.members.filter(member => member !== id) : [...item.members, id];
         }, 'groups');
       }, 'editor-membership');
-      const code = el('span', 'editor-membership-code', `${key === 'dca' ? 'DCA' : 'MUTE'} ${index + 1}`);
-      const name = el('strong', '', group.name);
-      const state = el('small'); choice.append(code, name, state);
+      const code = el('span', 'editor-membership-code', `${key === 'dca' ? 'DCA' : 'MUTE'} ${index + 1}`), name = el('strong'), state = el('small'); choice.append(code, name, state);
       bind(() => {
-        const item = getGroup(), assigned = item.members.includes(currentId);
-        choice.setAttribute('aria-label', `${assigned ? 'Rimuovi da' : 'Assegna a'} ${key === 'dca' ? 'DCA' : 'Mute group'} ${index + 1} · ${item.name}`);
-        choice.setAttribute('aria-pressed', String(assigned));
-        choice.classList.toggle('editor-active', assigned);
-        name.textContent = item.name;
-        state.textContent = item[stateKey] ? 'MUTE' : key === 'dca' ? `${db(item.level)} dB` : assigned ? 'Assegnato' : '—';
+        const item = getGroup(), assigned = known() && item.members.includes(id), base = '/dca/' + item.id;
+        const nameKnown = key !== 'dca' || groupKnown(base + '/name'), valueKnown = key !== 'dca' || groupKnown(base + '/mute') && groupKnown(base + '/fdr');
+        choice.setAttribute('aria-label', `${assigned ? 'Rimuovi da' : 'Assegna a'} ${key === 'dca' ? 'DCA' : 'Mute group'} ${index + 1} · ${nameKnown ? item.name : 'Da leggere'}`);
+        choice.disabled = !editable(); choice.dataset.known = String(known());
+        choice.setAttribute('aria-pressed', String(assigned)); choice.classList.toggle('editor-active', assigned);
+        name.textContent = nameKnown ? item.name : '—'; state.textContent = !valueKnown ? '—' : item[stateKey] ? 'MUTE' : key === 'dca' ? `${db(item.level)} dB` : assigned ? 'Assegnato' : '—';
       }); list.append(choice);
     }); box.append(list); return box;
   }
-
-  function renderGroups() {
-    panel.append(renderMembership('DCA', 'dca', 'mute'));
-    if (window.SculptLive?.isLive?.()) panel.append(module('Mute groups', note('Le assegnazioni ai mute group non sono disponibili in questo editor live.'), button('Apri parametri WING', () => { close(); window.SculptLive.openExplorer?.('/mgrp'); }, 'editor-link-button')));
-    else panel.append(renderMembership('Mute groups', 'muteGroups', 'on'));
+  function renderGroups(destination = panel) {
+    const id = currentId, base = window.SculptWingMap?.stripPath(id), live = window.SculptLive, online = !!live?.isLive?.();
+    destination.append(renderMembership('DCA', 'dca', 'mute'));
+    if (online) destination.append(module('Mute groups', note('Le assegnazioni ai mute group non sono esposte dalla mappa WING disponibile.'), button('Apri parametri WING', () => { close(); live.openExplorer?.('/mgrp'); }, 'editor-link-button')));
+    else destination.append(renderMembership('Mute groups', 'muteGroups', 'on'));
     if (isChannel()) {
-      const selected = () => ['x', 'y'].find(key => D().get().automix[key]?.channels?.includes(currentId)) || 'off';
-      const box = module('Automix', selectField('Gruppo automix', selected, [{ value: 'off', label: 'Off' }, { value: 'x', label: 'Automix X' }, { value: 'y', label: 'Automix Y' }], value => {
+      const selected = () => ['x', 'y'].find(key => D().get().automix[key]?.channels?.includes(id)) || 'off', modePath = base + '/postins/mode';
+      const choices = [['off', 'Off', 'FX'], ['x', 'Automix X', 'AUTO_X'], ['y', 'Automix Y', 'AUTO_Y']].filter(([, , wire]) => !online || live.metadata?.(modePath)?.items?.some(item => item.value === wire)).map(([value, label]) => ({ value, label }));
+      const editable = () => groupEditable(modePath) && (!online || live.metadata?.(modePath)?.type === 5) && (!channel().postFx || groupEditable(base + '/postins/ins'));
+      const box = module('Automix', selectField('Gruppo automix', () => groupKnown(modePath) ? selected() : '', choices, value => {
+        if (!editable() || !choices.some(choice => choice.value === value)) return;
         const members = new Set(['x', 'y'].flatMap(key => D().get().automix[key]?.channels || []));
-        if (value !== 'off' && !members.has(currentId) && members.size >= 16) { toast('Automix: massimo 16 canali complessivi nei gruppi X e Y.'); renderPanel(false); return; }
-        if (value !== 'off' && channel().postFx) D().assignFx(channel().postFx, null, 'post');
+        if (!online && value !== 'off' && !members.has(id) && members.size >= 16) { toast('Automix: massimo 16 canali complessivi nei gruppi X e Y.'); return; }
         D().change(state => {
-          for (const key of ['x', 'y']) state.automix[key].channels = state.automix[key].channels.filter(id => id !== currentId);
-          if (value !== 'off') state.automix[value].channels.push(currentId);
-        }, 'groups'); renderPanel(false);
-      }));
-      if (selected() !== 'off') {
+          if (value !== 'off' && state.channels[id].postFx) {
+            const slot = state.channels[id].postFx; state.channels[id].postFx = null;
+            if (state.fx[slot - 1]?.stripId === id) state.fx[slot - 1].stripId = null;
+          }
+          for (const key of ['x', 'y']) state.automix[key].channels = state.automix[key].channels.filter(member => member !== id);
+          if (value !== 'off') state.automix[value].channels.push(id);
+        }, 'groups');
+      }, { disabled: () => !editable() }));
+      if (selected() !== 'off' && groupKnown(modePath)) {
         const key = selected();
-        box.append(parameter({ caption: 'Peso automix', get: () => D().get().automix[key].weights[currentId] ?? 0, set: value => D().change(state => { state.automix[key].weights[currentId] = value; }, 'groups'), min: -12, max: 12, step: .5, unit: 'dB' }));
-        box.append(toggle(`AUTOMIX ${key.toUpperCase()} ON`, () => !!D().get().automix[key].enabled, value => D().change(state => { state.automix[key].enabled = value; }, 'groups')));
+        box.append(wireParameter({ caption: 'Peso automix', get: () => D().get().automix[key].weights[id] ?? 0, set: value => D().change(state => { state.automix[key].weights[id] = value; }, 'groups'), min: -12, max: 12, step: .5, unit: 'dB', disabled: () => !homeGroupsReady() }, base + '/postins/w'),
+          wireToggle(`AUTOMIX ${key.toUpperCase()} ON`, () => !!D().get().automix[key].enabled, value => D().change(state => { state.automix[key].enabled = value; }, 'groups'), '/cfg/amix/' + key, { disabled: () => !homeGroupsReady() }));
       }
-      box.append(note('Automix usa lo slot post insert del canale. Se lo attivi, l’eventuale insert FX post viene rilasciato.'));
-      panel.append(box);
+      box.append(note('Automix usa lo slot Insert 2 del canale. L’eventuale FX di quello slot viene rilasciato.')); destination.append(box);
     }
-    const safe = module('Richiamo scene', toggle('Recall safe', () => (D().get().safes || []).includes(currentId), value => D().change(state => {
-      state.safes = value ? [...new Set([...(state.safes || []), currentId])] : (state.safes || []).filter(id => id !== currentId);
-    }), { ariaLabel: 'Proteggi canale dal richiamo scene' }), note('Mantiene questo canale quando richiami una scena con i safes attivi.'));
-    if (!window.SculptLive?.isLive?.()) panel.append(safe);
-    panel.append(button('Apri gestione gruppi', () => { close(); window.SculptUI?.open('groups'); }, 'editor-primary'));
+    if (!online) destination.append(module('Richiamo scene', toggle('Recall safe', () => (D().get().safes || []).includes(id), value => D().change(state => {
+      state.safes = value ? [...new Set([...(state.safes || []), id])] : (state.safes || []).filter(member => member !== id);
+    }), { ariaLabel: 'Proteggi canale dal richiamo scene' }), note('Mantiene questo canale quando richiami una scena con i safes attivi.')));
+    destination.append(button('Apri gestione gruppi', () => { close(); window.SculptUI?.open('groups'); }, 'editor-primary'));
+  }
+
+  function renderVstChannel() {
+    const host = el('div', 'editor-vst-channel'); host.dataset.channelId = currentId; panel.append(host);
+    if (typeof window.SculptVst?.renderChannel === 'function') {
+      const dispose = window.SculptVst.renderChannel(host, currentId);
+      if (typeof dispose === 'function') cleanups.push(dispose);
+    } else {
+      const open = button('Apri rack VST3', () => window.SculptVst?.openRack?.(currentId), 'editor-primary'); open.disabled = !window.SculptVst?.openRack;
+      host.append(module('VST3 del canale', note('Gestisci i plugin e il collegamento audio USB nel rack VST3.'), open));
+    }
+  }
+  function renderFxChannel() {
+    const active = controlActive(), layout = el('div', 'editor-fx-page'), nav = el('nav', 'editor-fx-slots'), main = el('div', 'editor-fx-main'), slot = selectedFxSlot, id = currentId;
+    nav.setAttribute('aria-label', 'Slot FX interni WING');
+    const selectSlot = value => {
+      if (!active() || selectedFxSlot === value) return;
+      fxScrollTop = nav.scrollTop; selectedFxSlot = value; fxFocusPending = true;
+      renderPanel(false);
+    };
+    for (let number = 1; number <= 16; number++) {
+      const choice = button('', () => selectSlot(number), 'editor-fx-slot', 'Apri FX ' + number);
+      choice.dataset.fxSlot = String(number); choice.setAttribute('aria-pressed', String(number === slot)); choice.tabIndex = number === slot ? 0 : -1;
+      const code = el('strong', '', 'FX ' + String(number).padStart(2, '0')), name = el('span', 'editor-fx-slot-name'), state = el('span', 'editor-fx-slot-state'); choice.append(code, name, state);
+      bind(() => {
+        const proc = D().processor({ type: 'fx', slot: number }), known = wireKnown('/fx/' + number + '/mdl'), spec = window.SculptWingMap?.processorSpec?.({ type: 'fx', slot: number }, proc?.model), powerKnown = wireKnown(spec?.enabledPath);
+        name.textContent = known ? window.SculptCatalog?.get({ type: 'fx', slot: number }, proc?.model)?.name || proc?.model || 'Nessuno' : 'Da leggere';
+        state.textContent = !powerKnown ? '—' : proc?.model === 'NONE' ? 'VUOTO' : proc?.enabled === false ? 'BYP' : 'IN';
+        choice.dataset.state = !known || !powerKnown ? 'unknown' : proc?.model === 'NONE' ? 'empty' : proc?.enabled === false ? 'bypass' : 'active';
+        const assigned = ['pre', 'post'].filter(position => wireKnown(window.SculptWingMap?.stripPath(id) + '/' + position + 'ins/ins') && channel()?.[position + 'Fx'] === number);
+        choice.classList.toggle('is-channel-insert', !!assigned.length); choice.title = 'FX ' + number + ' · ' + name.textContent + (assigned.length ? ' · Insert ' + assigned.map(position => position === 'pre' ? '1' : '2').join(' / ') + ' del canale' : '');
+      });
+      choice.addEventListener('keydown', event => {
+        const direction = { ArrowDown: 2, ArrowUp: -2, ArrowRight: 1, ArrowLeft: -1 }[event.key];
+        const next = direction !== undefined ? clamp(number + direction, 1, 16) : event.key === 'Home' ? 1 : event.key === 'End' ? 16 : null;
+        if (next === null) return; event.preventDefault(); selectSlot(next);
+      });
+      nav.append(choice);
+    }
+    const assignments = el('div', 'editor-fx-assignments'), base = window.SculptWingMap?.stripPath(id);
+    for (const position of sourceStrip().kind === 'AUX' ? ['pre'] : ['pre', 'post']) {
+      const index = position === 'pre' ? 1 : 2, box = module('Insert ' + index + (position === 'post' ? ' · post-fader' : ''));
+      renderDeviceInsertAssignment(box, position);
+      box.append(wireToggle('INSERT ' + index + ' ON', () => channel()[position + 'FxOn'] !== false, value => patchChannel({ [position + 'FxOn']: value }), base + '/' + position + 'ins/on', { disabled: () => !channel()[position + 'Fx'] }));
+      const open = button('Apri FX assegnato', () => { const assigned = channel()[position + 'Fx']; if (assigned) selectSlot(assigned); }, 'editor-link-button', 'Apri FX di Insert ' + index);
+      bind(() => { open.disabled = !wireKnown(base + '/' + position + 'ins/ins') || !channel()[position + 'Fx']; }); box.append(open); assignments.append(box);
+    }
+    const host = el('div', 'editor-fx-processor'); host.dataset.fxSlot = String(slot); main.append(assignments, host); layout.append(nav, main); panel.append(layout);
+    const dispose = window.SculptFX?.renderProcessor(host, { type: 'fx', slot }, { rotaryBank: true });
+    if (typeof dispose === 'function') cleanups.push(dispose);
+    if (!window.SculptFX) host.append(note('Caricamento del processore FX…'));
+    nav.scrollTop = fxScrollTop;
+    if (fxFocusPending) { nav.querySelector('[data-fx-slot="' + slot + '"]')?.focus({ preventScroll: true }); fxFocusPending = false; }
   }
 
   function livePanelKey() {
     const live = window.SculptLive;
-    if (!live?.isLive?.()) return '';
-    const ch = channel();
-    return JSON.stringify([live.sessionToken?.() ?? null, currentId, activeTab, activeTab === 'dynamics' ? dynamicsBlock : '', activeTab === 'sends' ? sendDirection : '',
-      activeTab === 'channel' ? [ch?.source, ch?.altSource, ch?.useAlt, D()?.get().io?.globalAlt] : null]);
+    if (!live?.isLive?.() || activeTab === 'vst3') return '';
+    return JSON.stringify([live.sessionToken?.() ?? null, currentId, activeTab, activeTab === 'fx' ? selectedFxSlot : '']);
   }
   function resetLiveGate() { liveGate = { key: '', phase: 'idle', error: '', token: liveGate.token + 1 }; }
   function beginLiveRead(key) {
-    const live = window.SculptLive, id = currentId, tab = activeTab, block = dynamicsBlock, direction = sendDirection;
+    const live = window.SculptLive, id = currentId, tab = activeTab, slot = selectedFxSlot;
     const session = live.sessionToken?.();
     const token = liveGate.token + 1;
     liveGate = { key, phase: 'loading', error: '', token };
@@ -1421,23 +1684,15 @@
       session === live.sessionToken?.() && live?.isConnected?.();
     Promise.resolve().then(async () => {
       if (!valid()) return;
-      if (tab === 'eq') await live.ensureProcessor({ type: 'strip', id, block: 'eq' });
-      else if (tab === 'sends') await live.loadScope('sends', direction === 'out' ? { fromId: id } : { targetId: id });
-      else if (tab === 'groups') await live.loadScope('groups', { id });
-      else {
-        await live.loadScope('strip', { id });
+      if (tab === 'fx') {
+        await live.loadScope('fx');
         if (!valid()) return;
-        if (tab === 'dynamics') await live.ensureProcessor({ type: 'strip', id, block });
-        if (tab === 'processing') await live.loadScope('fx');
-        if (tab === 'channel' && ['CH', 'AUX'].includes(C().getStrip(id)?.kind)) {
-          if (live.readNode) await live.readNode('/io/altsw');
+        const base = window.SculptWingMap?.stripPath(id);
+        for (const position of C().getStrip(id).kind === 'AUX' ? ['pre'] : ['pre', 'post']) {
+          if (live.readNode && base) await live.readNode(base + '/' + position + 'ins');
           if (!valid()) return;
-          const ch = D().channel(id);
-          for (const sourceId of [...new Set([ch?.source, ch?.altSource].filter(value => value && value !== 'OFF'))]) {
-            await live.loadScope('source', { id: sourceId });
-            if (!valid()) return;
-          }
         }
+        await live.ensureProcessor?.({ type: 'fx', slot });
       }
       if (valid()) { liveGate.phase = 'ready'; liveGate.error = ''; renderPanel(false); }
     }).catch(error => {
@@ -1447,7 +1702,7 @@
   }
   function readyLivePanel() {
     const live = window.SculptLive;
-    if (!live?.isLive?.()) return true;
+    if (!live?.isLive?.() || activeTab === 'vst3') return true;
     if (!live.isConnected?.()) {
       panel.append(module('WING non collegata', note('Collega il banco per leggere i valori reali di questa sezione.'),
         button('Apri connessione', () => { close(); live.open?.(); }, 'editor-primary')));
@@ -1476,11 +1731,7 @@
 
   function structuralKey() {
     const ch = channel();
-    return JSON.stringify([currentId, activeTab, activeTab === 'channel' ? [ch?.source, ch?.altSource, ch?.useAlt, ch?.sourceAuto, D()?.get().io?.globalAlt] : null,
-      activeTab === 'processing' ? [ch?.preFx, ch?.postFx, ch?.delayUnit, ch?.order, delayDisplayKey()] : null,
-      activeTab === 'groups' ? ['x', 'y'].map(key => D()?.get().automix[key]?.channels?.includes(currentId)) : null,
-      activeTab === 'dynamics' ? [dynamicsBlock, D()?.processor({ type: 'strip', id: currentId, block: dynamicsBlock })?.model === 'CMB'] : null,
-      activeTab === 'sends' ? [sendDirection, sendGroup] : null]);
+    return JSON.stringify([currentId, activeTab, activeTab === 'fx' ? [selectedFxSlot, ch?.preFx, ch?.postFx, D()?.get().fx.map(fx => fx.model)] : null]);
   }
 
   function sync() {
@@ -1499,7 +1750,7 @@
     headerSof.setAttribute('aria-pressed', String(C().getSof() === currentId));
     headerSof.classList.toggle('editor-active', C().getSof() === currentId);
     headerSof.setAttribute('aria-label', `${C().getSof() === currentId ? 'Disattiva' : 'Attiva'} SOF per ${label(strip)}`);
-    if (structure !== structuralKey() || window.SculptLive?.isConnected?.() && liveGate.key !== livePanelKey()) { renderPanel(false); return; }
+    if (structure !== structuralKey() || activeTab !== 'vst3' && window.SculptLive?.isConnected?.() && liveGate.key !== livePanelKey()) { renderPanel(false); return; }
     refreshDeviceChain();
     for (const update of bindings) update();
     const effective = D()?.effective(currentId);
@@ -1519,30 +1770,23 @@
     const scrollTop = resetScroll ? 0 : panel.scrollTop, scrollLeft = resetScroll ? 0 : panel.scrollLeft;
     if (panel.contains(document.activeElement) && document.activeElement.matches('input,select')) document.activeElement.blur();
     disposePanel(); bindings = []; panel.replaceChildren();
-    // Resolve family-specific fallbacks before live hydration. Otherwise a Gate
-    // carried from CH to BUS would request a processor that cannot exist.
-    if (activeTab === 'dynamics' && !isChannel()) dynamicsBlock = 'dyn';
-    const sends = activeTab === 'sends' ? sendView() : null;
     panel.id = `editor-panel-${activeTab}`; panel.setAttribute('aria-labelledby', `editor-tab-${activeTab}`);
     tabList.querySelectorAll('[role="tab"]').forEach(tab => { const on = tab.dataset.tab === activeTab; tab.setAttribute('aria-selected', String(on)); tab.tabIndex = on ? 0 : -1; });
     const ready = readyLivePanel();
     if (!ready) { panel.scrollTop = scrollTop; panel.scrollLeft = scrollLeft; structure = structuralKey(); rendering = false; sync(); return; }
     if (activeTab === 'devices') renderDevices();
-    else if (activeTab === 'channel') renderChannel();
-    else if (activeTab === 'processing') renderProcessing();
-    else if (activeTab === 'eq') renderProcessor('eq');
-    else if (activeTab === 'dynamics') renderDynamics();
-    else if (activeTab === 'sends') renderSends(sends);
-    else if (activeTab === 'groups') renderGroups();
+    else if (activeTab === 'vst3') renderVstChannel();
+    else if (activeTab === 'fx') renderFxChannel();
     panel.scrollTop = scrollTop; panel.scrollLeft = scrollLeft; structure = structuralKey(); rendering = false; sync(); focusName();
   }
   function switchTab(id, device = '') {
+    if (LEGACY_SECTIONS.has(id)) { openSection(currentId, id, { device, block: id === 'dynamics' ? dynamicsBlock : undefined }); return; }
     if (!TABS.some(([key]) => key === id)) return;
-    if (id !== 'channel') renameFocusId = null;
+    if (id !== 'devices') renameFocusId = null;
     const changed = activeTab !== id || processingDevice !== device;
     processingDevice = device;
     activeTab = id;
-    if (changed || structure !== structuralKey()) renderPanel();
+    if (changed || structure !== structuralKey()) { resetLiveGate(); renderPanel(); }
     else { sync(); focusName(); }
     tabList.querySelector(`[data-tab="${id}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
@@ -1643,8 +1887,7 @@
     const previousView = [activeTab, dynamicsBlock, sendDirection, sendGroup];
     const nextView = changedId && !keepTab ? ['devices', 'dyn', 'out', 'BUS'] : [...previousView];
     if (tab !== undefined) nextView[0] = tab;
-    if (tab === 'dynamics') nextView[1] = block || 'dyn';
-    if (nextView[0] === 'dynamics' && C().getStrip(id).kind !== 'CH') nextView[1] = 'dyn';
+    if (C().getStrip(id).kind !== 'CH' && activeDevice === 'gate') { activeDevice = 'dyn'; expandedDevices.add('dyn'); nextView[1] = 'dyn'; }
     const changedView = previousView.some((value, index) => value !== nextView[index]);
     const rebuild = !wasOpen || changedId || changedView;
     navigating = true;
@@ -1657,7 +1900,7 @@
       sourceControl = clicked?.querySelector('.strip-label') || null;
       if (sourceControl) previousFocus = sourceControl;
       else if (!wasOpen) previousFocus = document.activeElement;
-      if (changedId || nextView[0] !== 'channel') renameFocusId = null;
+      if (changedId || nextView[0] !== 'devices') renameFocusId = null;
       currentId = id;
       [activeTab, dynamicsBlock, sendDirection, sendGroup] = nextView;
       ensureExtras(); C().selectStrip(id);
@@ -1691,24 +1934,40 @@
     if (previousFocus?.isConnected && !previousFocus.closest?.('[hidden]')) previousFocus.focus({ preventScroll: true });
   }
   function openSection(id, tab = 'channel', options = {}) {
-    if (!TABS.some(([key]) => key === tab) || !C()?.getStrip(id) || !D()) return false;
+    if ((!TABS.some(([key]) => key === tab) && !LEGACY_SECTIONS.has(tab)) || !C()?.getStrip(id) || !D()) return false;
     const block = options?.block;
     if (tab === 'dynamics' && block !== undefined && (!['gate', 'dyn'].includes(block) || !D().processor({ type: 'strip', id, block }))) return false;
+    if (LEGACY_SECTIONS.has(tab)) {
+      const requested = options?.device || options?.position || block;
+      const device = tab === 'channel' || tab === 'groups' ? 'home' : tab === 'eq' ? 'eq' : tab === 'dynamics' ? block || 'dyn' : tab === 'sends' ? 'sends' : ['pre', 'post'].includes(requested) ? requested : 'input';
+      if (tab === 'groups') homeGroupsExpanded = true;
+      if (tab === 'dynamics') dynamicsBlock = device;
+      return openDevicePage(id, device, options);
+    }
+    if (tab === 'fx' && options.slot !== undefined) {
+      if (!Number.isInteger(Number(options.slot)) || Number(options.slot) < 1 || Number(options.slot) > 16) return false;
+      selectedFxSlot = Number(options.slot);
+    }
     window.SculptUI?.close();
     return showChannel(id, { keepTab: !!dialog?.open, origin: options?.origin, tab, block });
   }
-  function openDevicePage(id, key) {
+  function openDevicePage(id, key, options = {}) {
     if (!DEVICE_IDS.includes(key) || !C()?.getStrip(id) || !D()) return false;
+    if (key === 'gate' && C().getStrip(id).kind !== 'CH' || key === 'post' && C().getStrip(id).kind === 'AUX') return false;
     window.SculptUI?.close?.();
-    activeDevice = key; expandedDevices.add(key);
-    const result = showChannel(id, { keepTab: true, tab: 'devices' });
-    refreshDeviceChain(); deviceNodes.get(key)?.item.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+    const opening = !expandedDevices.has(key); activeDevice = key; expandedDevices.add(key);
+    const result = showChannel(id, { keepTab: true, tab: 'devices', origin: options.origin });
+    refreshDeviceChain(); if (opening && deviceNodes.get(key)) deviceNodes.get(key).content.scrollTop = 0;
+    deviceNodes.get(key)?.item.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
     return result;
   }
   window.addEventListener('sculpt-mixer-view', () => {
     if (!dialog?.open) return;
     clearDeviceMove();
     dockEditor(); sync();
+  });
+  window.addEventListener('sculpt-vst-route-state', event => {
+    if (dialog?.open && event.detail?.rackId === currentId && activeTab === 'devices') refreshDeviceChain();
   });
   window.SculptEditor = Object.freeze({ open, openSection, openDevice: openDevicePage, close, sections: () => TABS.map(([id, name]) => ({ id, name })), isOpen: () => !!dialog?.open });
 })();

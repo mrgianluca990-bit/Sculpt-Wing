@@ -6,8 +6,10 @@
   if (!C || !D || !rows.inputs || !rows.outputs || window.SculptMixerView) return;
 
   const STORAGE_KEY = 'sculpt-wing-mixer-view-v1';
-  const WING_SLOTS = [['home', 'Home'], ['input', 'Pre'], ['gate', 'Gate'], ['eq', 'EQ'], ['dyn', 'Comp'], ['pre', 'Insert'], ['post', 'Insert'], ['sends', 'Send'], ['master', 'Master']];
+  const WING_SLOTS = [['home', 'Home'], ['input', 'Pre'], ['gate', 'Gate'], ['eq', 'EQ'], ['dyn', 'Comp'], ['pre', 'Insert 1'], ['post', 'Insert 2'], ['sends', 'Send'], ['master', 'Master']];
   const DEVICE_ROLES = { home: 'home', input: 'pre', gate: 'gate', eq: 'eq', dyn: 'comp', pre: 'insert', post: 'insert', sends: 'send', master: 'master' };
+  const VST_PLACEMENTS = [['', 'Da associare'], ['pre', 'PRE'], ['insert1', 'Insert 1'], ['insert2', 'Insert 2']];
+  const VST_ANCHORS = { pre: 'input', insert1: 'pre', insert2: 'post' };
   const strips = new Map(), scrollPositions = new Map();
   const preparations = new Map();
   let mode = 'compact', bank = 'inputs', savedMode = 'compact';
@@ -41,6 +43,9 @@
     return strip ? `${strip.kind} ${String(strip.number).padStart(2, '0')} · ${strip.name}` : `DCA ${id.slice(4)}`;
   }
   function processorName(ctx, model) { return window.SculptCatalog?.get?.(ctx, model)?.name || model || '—'; }
+  function receivesOnly(id) {
+    return C.getStrip(id)?.kind === 'MTX' && !!C.listStrips?.().some(peer => C.canSend?.(peer.id, id));
+  }
 
   // This control moves between existing headers; Compact keeps its original row
   // heights and fader geometry. Only the new rack nodes are hidden in Compact.
@@ -130,15 +135,17 @@
     const node = button('', 'extended-slot', action); node.dataset.slot = key;
     const label = el('span', 'extended-slot-label', caption);
     const value = el('span', 'extended-slot-name', '—');
+    const badge = el('span', 'extended-slot-state'); badge.setAttribute('aria-hidden', 'true');
     const lamp = el('i', 'extended-slot-lamp'); lamp.setAttribute('aria-hidden', 'true');
-    node.append(label, value, lamp);
-    return { node, value, label, signature: '' };
+    node.append(label, value, badge, lamp);
+    return { node, value, label, badge, signature: '' };
   }
   function updateSlot(slot, state) {
     const signature = JSON.stringify(state);
     if (slot.signature === signature) return;
     slot.signature = signature;
     slot.value.textContent = state.text;
+    slot.badge.textContent = state.state === 'bypass' ? 'BYP' : state.state === 'missing' ? '!' : state.state === 'unknown' ? '?' : state.state === 'ready' ? 'STOP' : '';
     slot.node.dataset.state = state.state;
     slot.node.disabled = state.disabled === true;
     slot.node.title = state.title;
@@ -169,6 +176,29 @@
   function openRack(id) {
     if (window.SculptVst?.openRack) return window.SculptVst.openRack(id);
     return openVst(id, 0);
+  }
+  async function chooseVstPlacement(record) {
+    if (record.placementPending) return;
+    const value = record.placement.value || null;
+    if (!window.SculptVst?.setPlacement) {
+      refreshVst(record);
+      return openRack(record.id);
+    }
+    record.placementPending = true; refreshVst(record);
+    try {
+      // The VST API owns host preparation and WING association. This view never
+      // writes routing paths or stops/starts USB audio as a side effect.
+      const result = await window.SculptVst.setPlacement(record.id, value);
+      if (result?.error) throw new Error(result.error);
+    } catch (error) { C.toast?.(error.message || 'Associazione VST3 non applicata.'); }
+    finally { record.placementPending = false; refreshVst(record); }
+  }
+  function placeVst(record, placement) {
+    const anchor = placement ? record.wingSlots.get(VST_ANCHORS[placement])?.item : record.wingHeading;
+    if (!anchor || record.vst.previousElementSibling === anchor && record.vst.parentElement === record.wing) return;
+    const focused = record.vst.contains(document.activeElement) ? document.activeElement : null;
+    anchor.after(record.vst);
+    if (focused?.isConnected) focused.focus({ preventScroll: true });
   }
   function chainSnapshot(record) {
     return !record?.dca ? window.SculptChannelChain?.snapshot?.(record.id) : null;
@@ -355,7 +385,7 @@
       if (slot.handle.draggable !== movable) slot.handle.draggable = movable;
       if (slot.handle.title !== title) slot.handle.title = title;
       const state = wingState(record.id, item.id);
-      if (item.available === false) { state.disabled = true; state.state = 'unavailable'; state.text = '—'; state.title = `${item.label} · ${stripLabel(record.id)} · ${item.reason || 'Non disponibile su questa famiglia'}`; }
+      if (item.available === false && !(item.id === 'sends' && receivesOnly(record.id))) { state.disabled = true; state.state = 'unavailable'; state.text = '—'; state.title = `${item.label} · ${stripLabel(record.id)} · ${item.reason || 'Non disponibile su questa famiglia'}`; }
       else {
         if (item.id === 'sends' && snapshot?.family === 'CH') { state.text = snapshot.tapKnown ? 'TAP ' + snapshot.tap : '—'; state.state = snapshot.tapKnown ? 'utility' : 'unknown'; }
         if (item.badge) state.title += ' · ' + item.badge;
@@ -371,7 +401,7 @@
     const wingHeading = el('div', 'extended-rack-heading'), orderStatus = el('span', 'extended-order-status');
     wingHeading.append(el('span', '', dca ? 'GRUPPO' : 'WING'), orderStatus);
     wing.append(wingHeading); rack.append(wing);
-    const record = { id, article, rack, wing, orderStatus, wingSlots: new Map(), vstSlots: [], rackButton: null, dca, group: null };
+    const record = { id, article, rack, wing, wingHeading, orderStatus, wingSlots: new Map(), vstSlots: [], rackButton: null, dca, group: null, placementPending: false };
     if (dca) {
       const group = button('Membri', 'extended-group-button', () => article.querySelector('.dca-members-button')?.click());
       group.setAttribute('aria-label', `Modifica i membri di ${stripLabel(id)}`);
@@ -381,22 +411,28 @@
     } else {
       for (const [block, caption] of WING_SLOTS) {
         const slot = slotNode(block, caption, event => openWing(id, block, event.currentTarget));
-        if (block === 'pre' || block === 'post') slot.label.dataset.index = block === 'pre' ? '1' : '2';
         const item = el('div', 'extended-device'); item.dataset.module = block; item.dataset.deviceRole = DEVICE_ROLES[block];
         slot.item = item; item.append(slot.node);
         record.wingSlots.set(block, slot); wing.append(item); attachReorder(record, block, slot);
       }
       const vst = el('section', 'extended-vst');
+      vst.setAttribute('aria-label', `Rack VST3 · ${stripLabel(id)}`);
       const vstHeading = el('div', 'extended-rack-heading');
-      const rackButton = button('Rack', 'extended-rack-button', () => openRack(id));
+      const rackButton = button('Apri', 'extended-rack-button', () => openRack(id));
       rackButton.setAttribute('aria-label', `Apri rack VST3 di ${stripLabel(id)}`);
       vstHeading.append(el('span', '', 'VST3'), rackButton); vst.append(vstHeading);
-      for (let index = 0; index < 4; index++) {
-        const slot = slotNode(`vst-${index}`, String(index + 1), () => openVst(id, index));
-        slot.node.classList.add('extended-vst-slot'); slot.node.dataset.vstSlot = String(index);
-        record.vstSlots.push(slot); vst.append(slot.node);
+      const placement = el('select', 'extended-vst-placement');
+      placement.setAttribute('aria-label', `Punto VST3 · ${stripLabel(id)}`);
+      for (const [value, caption] of VST_PLACEMENTS) {
+        const option = el('option', '', caption); option.value = value; placement.append(option);
       }
-      record.rackButton = rackButton; rack.append(vst);
+      placement.addEventListener('change', () => chooseVstPlacement(record));
+      const vstStatus = el('span', 'extended-vst-status'), routeStatus = el('span', 'extended-vst-route-status'), vstSlots = el('div', 'extended-vst-slots');
+      vstStatus.id = `extended-vst-host-${id}`; routeStatus.id = `extended-vst-route-${id}`;
+      placement.setAttribute('aria-describedby', `${routeStatus.id} ${vstStatus.id}`);
+      const positionRow = el('div', 'extended-vst-position'); positionRow.append(placement);
+      vst.append(positionRow, routeStatus, vstStatus, vstSlots); wingHeading.after(vst);
+      Object.assign(record, { vst, vstStatus, routeStatus, vstList: vstSlots, placement, rackButton });
     }
     const label = article.querySelector('.strip-label');
     if (label) label.after(rack); else article.prepend(rack);
@@ -409,11 +445,11 @@
   function wingState(id, block) {
     const strip = C.getStrip(id), ch = D.channel(id), label = stripLabel(id);
     const path = window.SculptWingMap?.stripPath(id), caption = WING_SLOTS.find(([key]) => key === block)?.[1];
-    const supported = strip && (block !== 'gate' || strip.kind === 'CH') && (block !== 'post' || strip.kind !== 'AUX') && (block !== 'sends' || strip.kind !== 'MTX');
+    const supported = strip && (block !== 'gate' || strip.kind === 'CH') && (block !== 'post' || strip.kind !== 'AUX') && (block !== 'sends' || strip.kind !== 'MTX' || receivesOnly(id));
     if (!supported) return { text: '—', state: 'unavailable', disabled: true, title: `${caption} non previsto su ${strip?.kind || 'questo canale'}` };
     if (block === 'home') return { text: 'Canale', state: 'utility', title: `Home · ${label} · identità e assegnazioni` };
     if (block === 'input') return { text: strip.kind === 'CH' ? 'In · filtri' : ['CH', 'AUX'].includes(strip.kind) ? 'Ingresso' : 'Trim · delay', state: 'utility', title: `Pre · ${label} · ingresso e pre-elaborazione` };
-    if (block === 'sends') return { text: 'Mandate', state: 'utility', title: `Send · ${label} · mandate e destinazioni` };
+    if (block === 'sends') return { text: receivesOnly(id) ? 'Riceve da' : 'Mandate', state: 'utility', title: `Send · ${label} · ${receivesOnly(id) ? 'mandate ricevute dalle sorgenti' : 'mandate e destinazioni'}` };
     if (block === 'master') return { text: 'Livello · pan', state: 'utility', title: `Master · ${label} · fader, pan e mute` };
     if (block === 'pre' || block === 'post') {
       const insertName = `Insert ${block === 'pre' ? 1 : 2}`;
@@ -433,19 +469,67 @@
   }
   function refreshVst(record) {
     if (record.dca) return;
-    const rack = window.SculptVst?.getRack?.(record.id), slots = rack?.slots || [], engine = window.SculptVst?.snapshot?.();
-    const caption = slots.length > 4 ? `Rack ${slots.length}` : 'Rack';
+    const rack = window.SculptVst?.getRack?.(record.id), slots = Array.isArray(rack?.slots) ? rack.slots : [], engine = window.SculptVst?.snapshot?.();
+    const placement = Object.hasOwn(VST_ANCHORS, rack?.placement) ? rack.placement : null;
+    const routing = window.SculptVst?.routingStatus?.(record.id);
+    const routeState = !placement ? 'unconfigured' : ['unconfigured', 'planned', 'applied', 'stale', 'conflict'].includes(routing?.state) ? routing.state : 'planned';
+    const routeText = { unconfigured: 'Da applicare WING', planned: 'Da applicare WING', applied: 'WING associata', stale: 'Da verificare', conflict: 'Conflitto WING' }[routeState];
+    if (record.routeStatus.textContent !== routeText) record.routeStatus.textContent = routeText;
+    const routeTitle = routing?.reason || routing?.message || routeText;
+    if (record.routeStatus.title !== routeTitle) record.routeStatus.title = routeTitle;
+    if (record.routeStatus.hidden === !!placement) record.routeStatus.hidden = !placement;
+    if (record.vst.dataset.routeState !== routeState) record.vst.dataset.routeState = routeState;
+    const maxSlots = window.SculptVstModel?.MAX_SLOTS || 8;
+    const nameOf = slot => slot?.name || slot?.plugin?.name || (slot?.pluginId ? 'VST3' : '');
+    const loaded = slots.slice(0, maxSlots).filter(nameOf);
+    let freeSlot = -1;
+    for (let index = 0; index < maxSlots; index++) if (!nameOf(slots[index])) { freeSlot = index; break; }
+    const caption = loaded.length ? `Rack · ${loaded.length}` : 'Apri';
     if (record.rackButton.textContent !== caption) record.rackButton.textContent = caption;
+    if (record.placement.value !== (placement || '')) record.placement.value = placement || '';
+    if (record.placement.disabled !== record.placementPending) record.placement.disabled = record.placementPending;
+    const placementTitle = `Punto VST3 · ${stripLabel(record.id)} · ${placement ? VST_PLACEMENTS.find(([value]) => value === placement)[1] : 'Da associare al percorso WING'} · Apri il rack per configurare i collegamenti USB`;
+    if (record.placement.title !== placementTitle) record.placement.title = placementTitle;
+    const hostUnknown = engine?.connected !== true || typeof engine?.running !== 'boolean';
+    const hostState = !loaded.length ? 'empty' : loaded.some(slot => slot.missing) ? 'missing' : hostUnknown ? 'unknown' : rack?.enabled === false ? 'bypass' : engine.running === false ? 'ready' : 'active';
+    const state = record.placementPending ? 'pending' : !placement || routeState !== 'applied' ? 'unassigned' : hostState;
+    const statusText = record.placementPending ? 'Associazione…' : { empty: 'Rack vuoto', missing: 'Plugin mancante', unknown: engine?.connected === false ? 'Host scollegato' : 'Stato host da leggere', bypass: 'Rack in bypass', ready: 'Audio USB fermo', active: 'Audio USB attivo' }[hostState];
+    if (record.vstStatus.textContent !== statusText) record.vstStatus.textContent = statusText;
+    const showStatus = record.placementPending || loaded.length > 0;
+    if (record.vstStatus.hidden === showStatus) record.vstStatus.hidden = !showStatus;
+    if (record.vst.dataset.state !== state) record.vst.dataset.state = state;
+    if (record.vst.dataset.placement !== (placement || 'unassigned')) record.vst.dataset.placement = placement || 'unassigned';
+    const busy = String(record.placementPending);
+    if (record.vst.getAttribute('aria-busy') !== busy) record.vst.setAttribute('aria-busy', busy);
+    placeVst(record, placement);
+    const count = Math.min(maxSlots, Math.max(slots.length, freeSlot + 1, 1));
+    while (record.vstSlots.length < count) {
+      const index = record.vstSlots.length;
+      const slot = slotNode(`vst-${index}`, String(index + 1), () => openVst(record.id, index));
+      slot.node.classList.add('extended-vst-slot'); slot.node.dataset.vstSlot = String(index);
+      record.vstSlots.push(slot); record.vstList.append(slot.node);
+    }
     for (let index = 0; index < record.vstSlots.length; index++) {
-      const slot = slots[index], name = slot?.name || slot?.plugin?.name;
-      const state = !name ? 'empty' : slot.missing ? 'missing' : engine?.connected === false ? 'unknown' : slot.bypass || rack?.enabled === false ? 'bypass' : engine?.running === false ? 'ready' : 'active';
-      const status = state === 'missing' ? 'plugin non disponibile' : state === 'bypass' ? 'bypass' : state === 'unknown' ? 'configurazione salvata · motore non collegato' : state === 'ready' ? 'caricato · audio USB fermo' : '';
-      updateSlot(record.vstSlots[index], { text: name || '+ VST3', state,
+      const slot = slots[index], name = nameOf(slot), control = record.vstSlots[index];
+      const visible = !!name || loaded.length > 0 && index === freeSlot;
+      if (control.node.hidden === visible) control.node.hidden = !visible;
+      if (!visible) continue;
+      const state = !name ? 'empty' : slot.missing ? 'missing' : !placement || routeState !== 'applied' ? 'unassigned' : hostUnknown ? 'unknown' : slot.bypass || rack?.enabled === false ? 'bypass' : engine.running === false ? 'ready' : 'active';
+      const status = state === 'missing' ? 'plugin non disponibile' : state === 'bypass' ? 'bypass' : state === 'unassigned' ? placement ? routeText : 'Da associare al percorso WING' : state === 'unknown' ? 'configurazione salvata · stato host da verificare' : state === 'ready' ? 'caricato · audio USB fermo' : '';
+      updateSlot(control, { text: name || '+ Plugin', state,
         title: `VST3 ${index + 1} · ${stripLabel(record.id)} · ${name || 'Scegli un plugin'}${status ? ' · ' + status : ''}` });
+    }
+    // Keep real plugin order, with one add action after the occupied slots.
+    const visibleSlots = record.vstSlots.filter(slot => !slot.node.hidden && slot.node.dataset.state !== 'empty');
+    if (freeSlot >= 0 && loaded.length) visibleSlots.push(record.vstSlots[freeSlot]);
+    let cursor = record.vstList.firstElementChild;
+    for (const slot of visibleSlots) {
+      if (slot.node !== cursor) record.vstList.insertBefore(slot.node, cursor);
+      cursor = slot.node.nextElementSibling;
     }
   }
   function refresh(id) {
-    const records = id && strips.has(id) ? [strips.get(id)] : [...strips.values()];
+    const records = id ? strips.has(id) ? [strips.get(id)] : [] : [...strips.values()];
     for (const record of records) {
       if (record.dca) continue;
       syncChain(record, chainSnapshot(record));
@@ -484,7 +568,14 @@
     // processing, routing, identity and live readbacks can change slot labels.
     if (mode === 'extended' && !['selection', 'send', 'sof', 'parameter', 'history', 'macros'].includes(event.type)) refresh(event.id);
   });
-  window.addEventListener('sculpt-vst-state', () => { for (const record of strips.values()) refreshVst(record); });
+  function refreshVstEvent(event) {
+    if (mode !== 'extended') return;
+    const id = event.detail?.id || event.detail?.rackId;
+    if (id) { const record = strips.get(id); if (record) refreshVst(record); }
+    else for (const record of strips.values()) refreshVst(record);
+  }
+  window.addEventListener('sculpt-vst-state', refreshVstEvent);
+  window.addEventListener('sculpt-vst-route-state', refreshVstEvent);
   window.addEventListener('sculpt-live-state', () => { if (mode === 'extended') refresh(); if (reorder && !reorder.pending && !validReorder()) cancelReorder('Spostamento annullato: sessione WING cambiata.'); });
   window.addEventListener('sculpt-strip-pins', syncEditorGeometry);
   window.addEventListener('sculpt-dca-bank', event => { if (mode === 'extended' && event.detail?.open) setBank('outputs'); });
