@@ -47,7 +47,7 @@ function fixture(t, { saved, desktop = false, realVst = false } = {}) {
   return { w, C, E, V, P, D, strip, slot, editor, selectedTab, key, listeners, racks, vstOpened, fxOpened };
 }
 
-test('Compact and Extended reuse every strip, fader, pin and SOF state without changing the audio model', t => {
+test('Compact and Extended reuse every strip, fader and pin while SOF is suspended in Extended', t => {
   const f = fixture(t), root = f.w.document.querySelector('.console');
   f.P.pin('ch-1', 'left'); f.P.pin('aux-2', 'right'); f.P.pin('bus-3', 'left'); f.P.pin('dca-2', 'right');
   f.C.setSof('bus-3'); f.C.selectStrip('ch-4');
@@ -55,6 +55,8 @@ test('Compact and Extended reuse every strip, fader, pin and SOF state without c
   const nodes = new Map([...root.querySelectorAll('.strip')].map(node => [node.dataset.id, { node, fader: node.querySelector('.fader'), cap: node.querySelector('.fader-cap'), pan: node.querySelector('.strip-pan'), mute: node.querySelector('.mute-button'), parent: node.parentElement }]));
   const rowRatio = root.style.getPropertyValue('--sculpt-upper-row');
   assert.equal(f.V.mode(), 'compact'); assert.equal(f.V.setMode('extended'), true);
+  assert.equal(f.C.getSof(), null, 'Extended faders expose channel levels');
+  assert.equal(f.w.document.querySelector('.mixer-view-switch'), null);
   assert.equal(f.V.mode(), 'extended'); assert.equal(root.querySelector('.mixer-row.outputs').classList.contains('extended-row-hidden'), true);
   assert.equal(f.w.document.querySelectorAll('.strip[data-id]').length, 92);
   for (const [id, item] of nodes) {
@@ -94,7 +96,8 @@ test('Cmd+= and Ctrl+= toggle once, suppress browser zoom and leave ordinary inp
   f.key({ key: '+', shiftKey: true }); assert.equal(f.V.mode(), 'extended');
   assert.equal(f.key({ metaKey: false }, field).defaultPrevented, false); assert.equal(f.V.mode(), 'extended');
   assert.equal(f.key({ metaKey: false, ctrlKey: true }).defaultPrevented, true); assert.equal(f.V.mode(), 'compact');
-  f.w.document.querySelector('.mixer-view-switch button:last-child').click(); assert.equal(f.V.mode(), 'extended');
+  assert.equal(f.w.document.querySelector('.mixer-view-switch'), null, 'view switches are absent from the mixer headers');
+  f.V.setMode('extended'); assert.equal(f.V.mode(), 'extended');
 });
 
 test('Electron accelerator owns Cmd+= while its mixerView event performs a single toggle', t => {
@@ -106,7 +109,7 @@ test('Electron accelerator owns Cmd+= while its mixerView event performs a singl
   f.listeners.get('mixerView')('toggle'); assert.equal(f.V.mode(), 'compact');
 });
 
-test('all nine WING slots open the same channel device cards while retaining family capabilities', t => {
+test('all nine WING slots open one full-control floating window while retaining family capabilities', t => {
   const f = fixture(t); f.V.setMode('extended');
   const modules = ['home', 'input', 'gate', 'eq', 'dyn', 'pre', 'post', 'sends', 'master'];
   assert.equal(f.strip('ch-2').querySelectorAll('.extended-device > .extended-slot').length, 9);
@@ -115,26 +118,39 @@ test('all nine WING slots open the same channel device cards while retaining fam
     f.slot('ch-2', key).click(); assert.equal(f.selectedTab(), 'devices');
     const card = f.editor().querySelector(`.editor-device-panel[data-module="${key}"]`);
     assert.ok(card); assert.equal(card.dataset.expanded, 'true'); assert.equal(card.classList.contains('is-selected'), true);
+    assert.equal(f.editor().parentElement, f.w.document.body); assert.equal(f.editor().dataset.dockRow, 'window');
+    assert(f.editor().classList.contains('editor-slot-window')); assert.equal(f.editor().querySelectorAll('.editor-device-panel').length, 1);
+    assert.equal(f.editor().querySelector('.editor-tabs').hidden, true);
+    if (key === 'eq') {
+      assert.equal(card.querySelectorAll('.fx-wing-band-pane:not([hidden])').length, 6);
+      const gain = card.querySelector('[data-parameter="2g"] input[type=number]'); gain.value = '3'; gain.dispatchEvent(new f.w.Event('change', { bubbles: true }));
+      assert.equal(f.D.processor({ type: 'strip', id: 'ch-2', block: 'eq' }).params['2g'], 3, 'a nonselected EQ band is visible and writable');
+    }
   }
   f.D.assignFx(1, 'ch-2', 'pre'); f.slot('ch-2', 'pre').click();
   assert.equal(f.editor().querySelector('.editor-device-panel[data-module="pre"] .fx-processor').dataset.model, f.D.processor({ type: 'fx', slot: 1 }).model);
-  assert.deepEqual(f.fxOpened, [], 'the assigned insert opens inline in the common board');
+  assert.deepEqual(f.fxOpened, [], 'the assigned insert uses the selected slot window, without a duplicate modal');
   assert.equal(f.slot('bus-1', 'gate').disabled, true); assert.equal(f.slot('aux-1', 'input').disabled, false); assert.equal(f.slot('aux-1', 'post').disabled, true); assert.equal(f.slot('mtx-1', 'sends').disabled, false, 'a matrix can inspect its received sends');
-  f.slot('bus-1', 'dyn').click(); assert.equal(f.V.bank(), 'outputs'); assert.equal(f.editor().dataset.dockRow, 'extended');
+  f.slot('bus-1', 'dyn').click(); assert.equal(f.V.bank(), 'outputs'); assert.equal(f.editor().dataset.dockRow, 'window');
+  assert.equal(f.editor().querySelector('.editor-sof').hidden, true);
 });
 
-test('open editors redock above the faders and back without replacing controls, tab, text or focus', async t => {
+test('view changes preserve the editing value and focus between the full slot window and compact board', async t => {
   const f = fixture(t); f.E.openSection('ch-1', 'channel');
   const editor = f.editor(), panel = editor.querySelector('.editor-panel'), field = editor.querySelector('input[aria-label="Nome"]');
   field.focus(); field.value = 'Voce da finire'; field.setSelectionRange(3, 8); panel.scrollLeft = 83;
   f.key({}, field);
-  assert.equal(f.editor(), editor); assert.equal(f.editor().dataset.dockRow, 'extended'); assert.equal(f.editor().parentElement, f.V.editorHost());
+  assert.equal(f.editor(), editor); assert.equal(f.editor().dataset.dockRow, 'window'); assert.equal(f.editor().parentElement, f.w.document.body);
   assert.equal(f.editor().querySelector('.editor-panel'), panel); assert.equal(panel.scrollLeft, 83); assert.equal(f.selectedTab(), 'devices');
-  assert.equal(f.w.document.activeElement, field); assert.equal(field.value, 'Voce da finire'); assert.equal(field.selectionStart, 3); assert.equal(field.selectionEnd, 8);
+  const windowField = editor.querySelector('input[aria-label="Nome"]');
+  assert.equal(f.w.document.activeElement, windowField); assert.equal(windowField.value, 'Voce da finire'); assert.equal(windowField.selectionStart, 3); assert.equal(windowField.selectionEnd, 8);
+  assert.equal(editor.querySelectorAll('.editor-device-panel').length, 1);
   assert.equal(f.w.document.querySelector('.inputs .strip-pin-body').inert, undefined, 'source faders remain available');
-  f.key({}, field); await tick();
+  f.key({}, windowField); await tick();
   assert.equal(f.editor(), editor); assert.equal(f.editor().dataset.dockRow, 'outputs'); assert.equal(f.editor().querySelector('.editor-panel'), panel);
-  assert.equal(f.w.document.activeElement, field); assert.equal(field.value, 'Voce da finire');
+  const compactField = editor.querySelector('input[aria-label="Nome"]');
+  assert.equal(f.w.document.activeElement, compactField); assert.equal(compactField.value, 'Voce da finire');
+  assert.equal(editor.querySelectorAll('.editor-device-panel').length, 9);
   assert(f.w.document.querySelector('.mixer-view-controls').closest('.mixer-row').classList.contains('inputs'), 'selector stays in the uncovered Compact header');
   f.E.close(); await tick(); assert(f.w.document.querySelector('.mixer-view-controls').closest('.mixer-row').classList.contains('outputs'));
 });

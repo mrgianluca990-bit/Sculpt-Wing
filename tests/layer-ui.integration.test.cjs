@@ -50,7 +50,8 @@ test('custom layer renders two independent ordered banks using existing faders a
   assert.deepEqual(plain(C.capture().values),before,'laying out strips does not mutate audio state');
   C.setSof('bus-4');const sendBefore=C.getSend('ch-2','bus-4').level;fader.dispatchEvent(new w.KeyboardEvent('keydown',{key:'ArrowUp',bubbles:true,cancelable:true}));
   assert.equal(C.getStrip('ch-2').level,before['ch-2'].level,'SOF still routes the moved channel to its send');assert(C.getSend('ch-2','bus-4').level>sendBefore);
-  w.document.querySelector('.outputs .layer-exit').click();
+  assert.equal(w.document.querySelector('.layer-exit'),null,'the mixer headers do not contain duplicate layer-exit buttons');
+  w.SculptUI.open('layers');button(w.document.getElementById('desk-page-body'),'Torna a tutti i canali').click();
   assert.equal(D.get().activeLayer,null);assert.deepEqual(visible(w,'outputs'),Array.from(C.getState().outputs,s=>s.id));assert.deepEqual(visible(w,'inputs'),Array.from(C.getState().inputs,s=>s.id));
   assert.equal(w.document.querySelector('[data-id="ch-2"] .fader'),fader);assert.equal(w.document.querySelector('.outputs .bank-navigation').hidden,false);
   assert.equal(JSON.parse(w.localStorage.getItem(storageKey)).activeLayer,null);

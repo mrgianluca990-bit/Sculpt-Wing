@@ -186,7 +186,7 @@ test('host status remains explicit and scoped events do not repaint unrelated or
   observer.disconnect();
 });
 
-test('a rack follows Insert 1 after shared WING reordering while pins, SOF, pan and undo keep their real controls', async t => {
+test('a rack follows Insert 1 after reordering while extended faders show channel levels and Compact restores SOF', async t => {
   const f = fixture(t); f.racks.set('ch-1', { placement: 'insert1', slots: [{ name: 'EQ' }] });
   f.P.pin('ch-1', 'left'); f.C.setSof('bus-3'); f.C.selectStrip('ch-1'); f.C.clearHistory(); f.V.setMode('extended');
   const strip = f.strip('ch-1'), rack = f.vst('ch-1'), parent = strip.parentElement;
@@ -196,14 +196,18 @@ test('a rack follows Insert 1 after shared WING reordering while pins, SOF, pan 
   f.D.patchChannel('ch-1', { order: ['eq', 'dyn', 'insert', 'gate'] });
   assert.equal(rack.previousElementSibling, f.device('ch-1', 'pre')); assert.equal(rack.nextElementSibling, f.device('ch-1', 'gate'));
   for (const [key, node] of nodes) assert.equal(f.device('ch-1', key), node);
-  assert.equal(f.strip('ch-1').parentElement, parent); assert.equal(f.P.sideOf('ch-1'), 'left'); assert.equal(f.C.getSof(), 'bus-3');
+  assert.equal(f.strip('ch-1').parentElement, parent); assert.equal(f.P.sideOf('ch-1'), 'left'); assert.equal(f.C.getSof(), null);
   const level = f.C.getStrip('ch-1').level, send = f.C.getSend('ch-1', 'bus-3').level;
   fader.dispatchEvent(new f.w.KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }));
-  assert.equal(f.C.getStrip('ch-1').level, level); assert(f.C.getSend('ch-1', 'bus-3').level > send);
-  assert.equal((await f.C.undo()).ok, true); assert.equal(f.C.getSend('ch-1', 'bus-3').level, send);
+  assert(f.C.getStrip('ch-1').level > level); assert.equal(f.C.getSend('ch-1', 'bus-3').level, send);
+  assert.equal((await f.C.undo()).ok, true); assert.equal(f.C.getStrip('ch-1').level, level);
   assert.equal((await f.C.undo()).ok, true); assert.deepEqual(plain(f.D.channel('ch-1').order), before);
   assert.equal(rack.previousElementSibling, f.device('ch-1', 'pre'));
   assert.equal(strip.querySelector('.fader'), fader); assert.equal(strip.querySelector('.strip-pan'), pan); assert.equal(strip.querySelector('.mute-button'), mute);
   for (const key of ['home', 'input', 'gate', 'eq', 'dyn', 'pre', 'post', 'sends', 'master']) f.device('ch-1', key).querySelector('.extended-slot').click();
   assert.deepEqual(f.opened.map(item => item.block), ['home', 'input', 'gate', 'eq', 'dyn', 'pre', 'post', 'sends', 'master']);
+  f.V.setMode('compact'); assert.equal(f.C.getSof(), 'bus-3');
+  f.V.setMode('extended'); assert.equal(f.C.getSof(), null);
+  f.C.setSof('bus-2'); assert.equal(f.V.mode(), 'compact'); assert.equal(f.C.getSof(), 'bus-2', 'explicit SOF commands reveal their Compact view');
+  f.V.setMode('extended'); f.C.setSof(null); f.V.setMode('compact'); assert.equal(f.C.getSof(), null, 'an explicit SOF off command clears the suspended Compact target');
 });

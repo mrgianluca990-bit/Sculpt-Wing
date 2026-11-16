@@ -1,8 +1,10 @@
-# Sculpt Wing 0.7.3
+# Sculpt Wing 0.7.4
 
 Controller WING. La distribuzione attuale è **Mac M1 / Apple Silicon ARM64**; il repository conserva anche i precedenti progetti per altre piattaforme.
 
-La **0.7.3** riunisce l’editor nelle tre schede **Canale, VST3 e FX**. Canale raccoglie i nove moduli **Home, Pre, Gate, EQ, Comp, Insert 1, Insert 2, Send, Master**; VST3 contiene il rack Mac del canale e la posizione **Pre / Insert 1 / Insert 2**; FX apre i 16 slot interni della WING. La Send mostra **otto mini-strip per banco** ed Extended riserva più spazio ai fader. [Note e utilizzo 0.7.3](docs/RELEASE_0.7.3_MAC_M1.md).
+La **0.7.4** corregge il packaging del motore audio, integra la misura manuale basata su Open Sound Meter e apre gli slot Extended in finestre dedicate. Strip della stessa larghezza di Compact e SOF solo in Compact. [Novità e utilizzo 0.7.4](docs/RELEASE_0.7.4_MAC_M1.md).
+
+La 0.7.3 ha riunito l’editor nelle tre schede **Canale, VST3 e FX**. Canale raccoglie i nove moduli **Home, Pre, Gate, EQ, Comp, Insert 1, Insert 2, Send, Master**; VST3 contiene il rack Mac del canale e la posizione **Pre / Insert 1 / Insert 2**; FX apre i 16 slot interni della WING. La Send mostra **otto mini-strip per banco** ed Extended riserva più spazio ai fader. [Note e utilizzo 0.7.3](docs/RELEASE_0.7.3_MAC_M1.md).
 
 Restano i pannelli WING EQ/Dynamics ridisegnati, il RTA automatico, Controllo dopo la sincronizzazione, l’avviso Ricollega, le correzioni a macro e catalogo Scene e la libreria di scene locali della [0.7.1](docs/RELEASE_0.7.1_MAC_M1.md).
 
@@ -18,7 +20,7 @@ Questo pacchetto contiene i sorgenti pronti per il repository **sculpt wing**. S
 
 Il workflow è **`.github/workflows/build-desktop.yml`**, incluso anche se Finder nasconde le cartelle che iniziano con un punto. In GitHub compare come **Build Sculpt Wing - Mac M1** e parte con un push su `main` o `master`, una pull request verso questi rami, oppure da **Actions → Build Sculpt Wing - Mac M1 → Run workflow**.
 
-Dopo i test dell’interfaccia, del trasporto e dell’host VST3, produce l’artifact **Sculpt-Wing-Mac-M1**, contenente `Sculpt-Wing-0.7.3-mac-arm64.zip`. Il runner Mac ARM64 compila anche il motore e un VST3 di verifica, quindi controlla architettura e firma del pacchetto. Non occorre installare Node sul proprio computer per usare GitHub Actions. Il pacchetto di sorgenti non contiene questo binario già compilato. Le verifiche della consegna sono descritte nel [report 0.7.3](docs/VERIFICA_0.7.3.md).
+Dopo i test dell’interfaccia, del trasporto e dell’host VST3, produce l’artifact **Sculpt-Wing-Mac-M1**, contenente `Sculpt-Wing-0.7.4-mac-arm64.zip`. Il runner Mac ARM64 compila anche il motore e un VST3 di verifica, quindi controlla architettura e firma del pacchetto. Non occorre installare Node sul proprio computer per usare GitHub Actions. Il pacchetto di sorgenti non contiene questo binario già compilato. Le verifiche della consegna sono descritte nel [report 0.7.4](docs/VERIFICA_0.7.4.md).
 
 ## Cosa aprire
 
@@ -36,7 +38,7 @@ Le **mandate nell’editor canale hanno fader verticali**. Per cambiare nome: ap
 
 Due file compatte: **16 BUS + 8 MTX + 4 MAIN + 16 DCA** sopra, **40 CH + 8 AUX** sotto. Gli AUX sono ingressi. SOF su ogni BUS/MTX, editor da nome strip, macro nella barra inferiore e tema Sculpt rosso. Il pulsante DCA scorre fino ai gruppi nella stessa riga; i DCA ancorati rimangono visibili quando si torna ai BUS.
 
-**Compact / Extended:** Cmd + = oppure il selettore nella testata. Compact mantiene le due righe e apre Canale, VST3 e FX nella riga opposta. Canale contiene le nove caselle condivise, con identità, gruppi e Automix in Home. Ogni modulo si espande orizzontalmente. Extended mostra i nove moduli e gli slot VST3 effettivamente occupati, con una sola apertura per i rack vuoti; il rack si colloca vicino alla posizione scelta. Il processing ha scorrimento proprio e lascia spazio a fader, pan e mute. Ordine, stato, SOF e ancoraggi sono condivisi e il cambio vista non scrive parametri audio.
+**Compact / Extended:** Cmd + = oppure il menu macOS Vista. I pulsanti in linea e Tutti i canali sono rimossi. Compact mantiene le due righe e apre Canale, VST3 e FX nella riga opposta. Canale contiene le nove caselle condivise, con identità, gruppi e Automix in Home. Ogni modulo si espande orizzontalmente. Extended mostra i nove moduli e gli slot VST3 effettivamente occupati, con una sola apertura per i rack vuoti; il rack si colloca vicino alla posizione scelta. Il processing ha scorrimento proprio e lascia spazio a fader, pan e mute. Le strip hanno la stessa larghezza di Compact. Gli slot WING aprono una finestra con tutti i controlli del modulo. Ordine, stato e ancoraggi sono condivisi; SOF viene sospeso in Extended e recuperato tornando in Compact. Il cambio vista non scrive parametri audio.
 
 **Send:** espandi il modulo per visualizzare otto destinazioni o sorgenti per banco, con nome, colore, ON, fader verticale, valore numerico, pan, pre/post e le opzioni esposte dalla famiglia/firmware. Doppio clic sulla testa del fader: 0 dB; sul pan: centro. BUS, MTX e MAIN offrono anche le ricezioni previste. Il cambio banco mantiene le altre card, lo scroll e i grafici.
 
@@ -44,7 +46,7 @@ Due file compatte: **16 BUS + 8 MTX + 4 MAIN + 16 DCA** sopra, **40 CH + 8 AUX**
 
 **Riordino WING:** sui CH si spostano Gate, EQ, Comp e Insert 1; Send seleziona il TAP comune alle mandate PRE. Home, Pre e Master sono pagine fisse e Insert 2 resta post-fader. AUX e uscite conservano l’ordine previsto dalla propria famiglia, con le funzioni assenti indicate come non disponibili. Maniglia o tastiera aprono le destinazioni consentite; Escape annulla il gesto, Cmd + Z annulla uno spostamento confermato. In live i comandi dipendono dai valori e dallo schema letti dalla console.
 
-**EQ e Dynamics:** grafici ampi, fascia di controlli compatta e comandi Preset, Salva, Copia, Incolla e Reset nella barra superiore a destra. L’EQ presenta i controlli della banda selezionata; le altre bande restano raggiungibili dalla relativa selezione. Curve e controlli conservano focus e nodi durante gli aggiornamenti ordinari.
+**EQ e Dynamics:** grafici ampi, fascia di controlli compatta e comandi Preset, Salva, Copia, Incolla e Reset nella barra superiore a destra. In Compact l’EQ presenta i controlli della banda selezionata; nella finestra Extended i controlli delle bande sono visibili insieme. Curve e controlli conservano focus e nodi durante gli aggiornamenti ordinari.
 
 **Scene:** la libreria locale consente salvataggio, elenco, esportazione/importazione e richiamo dei parametri audio realmente letti. La scheda Show WING mostra il catalogo completo dello Show aperto usando le definizioni del banco, con selezione e GO. Non costituisce un file browser della memoria della console: apertura e gestione degli altri Show dipendono dalle funzioni esposte dal protocollo.
 
@@ -57,6 +59,8 @@ Due file compatte: **16 BUS + 8 MTX + 4 MAIN + 16 DCA** sopra, **40 CH + 8 AUX**
 **Editor e pan:** con l’editor aperto, un clic su un altro canale mantiene EQ, Dinamica, Mandate o la sezione selezionata, comprese le sottoviste compatibili. Le macro che richiamano un modulo esplicito aprono quel modulo direttamente. Il pan è sopra il fader di ogni strip audio: trascinamento orizzontale o verticale, Maiusc per precisione, doppio clic per il centro. In SOF controlla il pan della mandata CH/AUX; quando è attivo Pan link mostra LINK e segue il pan del canale. I DCA non hanno pan audio.
 
 **Analizzatori:** l’apertura dell’EQ richiede automaticamente lo spettro sul canale e tap selezionati, anche con il profilo numerico standard WING. Fonte e tap effettivi sono confermati prima di mostrare i dati; un cambio canale scarta i frame precedenti. Il RTA è condiviso con la console: contesa e assenza del flusso vengono segnalate. La scala è relativa, non dBFS/SPL calibrati; senza banco lo spettro resta vuoto. Curve EQ/Dynamics rappresentano i parametri; meter e GR live usano i dati ricevuti. Dettagli: [RTA WING](docs/RTA_WING.md).
+
+**Analisi impianto / Open Sound Meter:** acquisizione manuale mic/reference su USB, risposta in frequenza, fase, coerenza, RTA, impulso, stima del delay, calibrazione del microfono e curve salvate. Reference CH/BUS/MAIN; verifica del patch in sola lettura. La compensazione del delay riguarda soltanto il misuratore. Nessuna correzione automatica al banco in questa versione. [Guida 0.7.4](docs/RELEASE_0.7.4_MAC_M1.md).
 
 **OSC / Show:** apri la relativa pagina dal menu del banco. Il profilo Sculpt Show propone `127.0.0.1:53000` per le due app sullo stesso Mac; IP e porta sono modificabili. “Verifica Sculpt Show” richiede lo stato senza avviare cue. GO, Stop All, pausa, ripresa, fade e navigazione possono essere aggiunti alle macro; sono disponibili anche comandi per UUID e messaggi OSC personalizzati. L’invio è integrato nella shell desktop, indipendente dalla connessione WING. La demo browser permette la configurazione ma non può inviare UDP. Vedi la [guida OSC](docs/OSC_SCULPT_SHOW.md) per la versione Show compatibile e le risposte di verifica.
 
@@ -98,4 +102,4 @@ Il pacchetto contiene codice sorgente, test, documentazione e risorse. **Non con
 
 Il bundle desktop include la stessa cartella `dist/` e lo stesso driver WING di iOS. Controllo diventa attivo dopo la lettura riuscita del banco. I pacchetti vengono isolati per sessione e i comandi pendenti sono annullati alla disconnessione o alla sospensione.
 
-Il workflow corrente compila soltanto Mac M1 / Apple Silicon ARM64 per la distribuzione. La nuova app macOS deve essere prodotta dal workflow dopo il caricamento dei sorgenti. Le prove sono elencate in [VERIFICA_0.7.3.md](docs/VERIFICA_0.7.3.md); i test automatici non equivalgono al collaudo della build aggiornata su WING reale.
+Il workflow corrente compila soltanto Mac M1 / Apple Silicon ARM64 per la distribuzione. La nuova app macOS deve essere prodotta dal workflow dopo il caricamento dei sorgenti. Le prove sono elencate in [VERIFICA_0.7.4.md](docs/VERIFICA_0.7.4.md); i test automatici non equivalgono al collaudo della build aggiornata su WING reale.

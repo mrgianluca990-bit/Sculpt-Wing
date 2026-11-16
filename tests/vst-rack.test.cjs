@@ -69,6 +69,21 @@ test('opening USB configuration restores a stopped session without starting audi
   assert.ok(!f.calls.some(c => c.method === 'startAudio'));
 });
 
+test('active analysis locks device edits but a stopped failed helper can still reconnect explicitly', async t => {
+  const f = fixture(t, [rack()]);
+  await f.w.SculptVst.openAudio();
+  f.listeners.get('audioState')({ partial: true, analysis: { running: true } });
+  assert.equal(f.find('Applica dispositivo').disabled, true);
+  assert.equal(f.find('Aggiorna dispositivi').disabled, true);
+  assert.equal(f.find('Avvia audio USB').disabled, false, 'VST may start on the existing shared device');
+  f.listeners.get('audioError')({ fatal: true, message: 'Motore audio terminato' });
+  assert.equal(f.find('Riconnetti motore').disabled, false);
+  f.calls.length = 0;
+  f.find('Riconnetti motore').click(); await f.tick(); await f.tick();
+  assert.equal(f.calls[0].method, 'devices');
+  assert.ok(!f.calls.some(c => ['startAudio', 'startAnalysis'].includes(c.method)), 'reconnect never restarts either consumer');
+});
+
 test('opening a populated Extended slot recalls the native editor for its exact channel and slot', async t => {
   const f = fixture(t, [rack()]);
   await f.w.SculptVst.openAudio(); f.calls.length = 0;
