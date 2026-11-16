@@ -2,6 +2,7 @@
 #include <juce_audio_devices/juce_audio_devices.h>
 #include "Routing.h"
 #include "SelfTest.h"
+#include "Analysis.h"
 
 #include <atomic>
 #include <cerrno>
@@ -208,6 +209,8 @@ public:
     int blockSize = 128;
     double sampleRate = 48000.0;
     String expectedDevice;
+    AnalysisEngine analysis;
+    std::atomic<bool> plannedCallbackStop {false};
 
     void prepare()
     {
@@ -219,7 +222,6 @@ public:
                     slot->instance->prepareToPlay(sampleRate, blockSize);
                     slot->instance->reset();
                 }
-        fault.store(0);
     }
     void release()
     {
@@ -235,8 +237,10 @@ public:
     {
         const ScopedNoDenormals noDenormals;
         clearOutputs(outputs, numOutputs, frames);
-        if (!running.load(std::memory_order_acquire) || fault.load(std::memory_order_acquire) != 0) return;
+        if (fault.load(std::memory_order_acquire) != 0) return;
         if (frames > blockSize || frames > maxBlockSize) { fault.store(1); return; }
+        analysis.push(inputs, numInputs, frames);
+        if (!running.load(std::memory_order_acquire)) return;
         const auto started = Time::getHighResolutionTicks();
         try
         {
@@ -279,7 +283,10 @@ public:
                     || device->getCurrentBufferSizeSamples() != blockSize
                     || std::abs(device->getCurrentSampleRate() - sampleRate) > 0.5)) fault.store(1);
     }
-    void audioDeviceStopped() override { if (running.load()) fault.store(3); }
+    void audioDeviceStopped() override
+    {
+        if (!plannedCallbackStop.load() && (running.load() || analysis.running())) fault.store(3);
+    }
     void audioDeviceError(const String&) override { fault.store(3); }
 };
 
@@ -325,7 +332,7 @@ public:
         stopTimer();
         if (reader.joinable()) reader.join();
         if (scanner.joinable()) scanner.join();
-        stopAudio();
+        stopEverything();
         windows.clear();
     }
 
@@ -342,7 +349,7 @@ private:
     std::thread reader, scanner;
     std::atomic<bool> closing {false};
     std::atomic<int> pending {0};
-    bool scanning = false, audioConfigured = false;
+    bool scanning = false, audioConfigured = false, callbackAttached = false;
     String inputDevice, outputDevice, error;
     int inputCount = 0, outputCount = 0, hardwareLatency = 0;
 
@@ -432,12 +439,16 @@ private:
         if (method == "configureAudio") { configureAudio(params); emitState(false); return state(false); }
         if (method == "startAudio") { startAudio(); emitState(false); return state(false); }
         if (method == "stopAudio") { stopAudio(); emitState(true); return state(false); }
+        if (method == "configureAnalysis") { configureAnalysis(params); emitState(false); return analysisState(true, true); }
+        if (method == "startAnalysis") { startAnalysis(); emitState(false); return analysisState(true); }
+        if (method == "stopAnalysis") { stopAnalysis(); emitState(false); return analysisState(true); }
+        if (method == "getAnalysis") return analysisState(true);
         if (method == "setRack") { setRack(params); emitState(true); return state(false); }
         if (method == "removeRack") { removeRack(textField(params, "id", false, 128)); emitState(true); return state(false); }
         if (method == "openEditor") { openEditor(textField(params, "rackId", false, 128), integerField(params, "slot", 0, maxSlots - 1)); return obj({{"opened", true}}); }
         if (method == "closeEditors") { windows.clear(); emitState(true); return obj({{"closed", true}}); }
         if (method == "restoreState") { restore(params.getProperty("state", {})); emitState(false); return state(false); }
-        if (method == "shutdown") { stopAudio(); return obj({{"stopped", true}}); }
+        if (method == "shutdown") { stopEverything(); return obj({{"stopped", true}}); }
         throw std::runtime_error("Comando audio non supportato.");
     }
     void ensureStopped() const
@@ -445,13 +456,140 @@ private:
         require(!engine.running.load(), "Ferma l'audio prima di modificare plugin, routing o dispositivo. I bypass restano disponibili durante l'audio.");
     }
     void ensureNotScanning() const { require(!scanning, "Attendi il completamento della scansione VST3."); }
+    void ensureAllStopped() const
+    {
+        ensureStopped();
+        require(!engine.analysis.running(), "Ferma la misura prima di cambiare dispositivo o ripristinare una sessione audio.");
+    }
+
+    var analysisState(bool curves, bool calibration = false) const
+    {
+        const auto data = engine.analysis.snapshot();
+        const auto& settings = engine.analysis.configuration();
+        auto config = obj({{"measurementChannel", settings.measurementChannel}, {"referenceChannel", settings.referenceChannel},
+                           {"fftSize", settings.fftSize}, {"averages", settings.averages}, {"delayMs", settings.delayMs},
+                           {"calibrationEnabled", settings.calibrationEnabled},
+                           {"calibrationPointCount", static_cast<int>(settings.calibration.size())},
+                           {"levelOffsetDb", settings.levelOffsetDb ? var(*settings.levelOffsetDb) : var()}});
+        if (calibration)
+        {
+            Array<var> points;
+            for (const auto& point : settings.calibration)
+                points.add(obj({{"frequency", point.frequency}, {"gainDb", point.gainDb}, {"phaseDeg", point.phaseDeg}}));
+            config.getDynamicObject()->setProperty("calibration", points);
+        }
+        auto result = obj({{"running", engine.analysis.running()}, {"configured", engine.analysis.configured()},
+                           {"sequence", static_cast<int64>(data.sequence)}, {"sampleRate", data.sampleRate},
+                           {"valid", data.valid}, {"stale", data.stale}, {"quality", String(data.quality)},
+                           {"config", config}, {"clipped", data.clipped}, {"meanCoherence", data.meanCoherence},
+                           {"averagedWindows", data.averagedWindows}, {"delaySearchMs", data.delaySearchMs},
+                           {"delayValid", data.estimatedDelayMs.has_value()}, {"delayQuality", String(data.delayQuality)},
+                           {"referenceBandwidthHz", data.referenceBandwidthHz}, {"delayPeakToRmsDb", data.delayPeakToRmsDb},
+                           {"droppedSamples", static_cast<int64>(data.droppedSamples)},
+                           {"measurementPeakDb", data.measurementPeakDb}, {"referencePeakDb", data.referencePeakDb},
+                           {"measurementRmsDb", data.measurementRmsDb}, {"referenceRmsDb", data.referenceRmsDb},
+                           {"splDb", data.splDb ? var(*data.splDb) : var()},
+                           {"estimatedDelayMs", data.estimatedDelayMs ? var(*data.estimatedDelayMs) : var()}});
+        if (curves)
+        {
+            auto* object = result.getDynamicObject();
+            object->setProperty("frequency", numbers(data.frequency));
+            object->setProperty("magnitudeDb", numbers(data.magnitudeDb));
+            object->setProperty("phaseDeg", numbers(data.phaseDeg));
+            object->setProperty("coherence", numbers(data.coherence));
+            object->setProperty("rtaDb", numbers(data.rtaDb));
+            object->setProperty("impulse", obj({{"timeMs", numbers(data.impulseTimeMs)}, {"value", numbers(data.impulseValue)}}));
+        }
+        return result;
+    }
+
+    void configureAnalysis(const var& params)
+    {
+        AnalysisConfig config;
+        config.measurementChannel = integerField(params, "measurementChannel", 0, 47);
+        config.referenceChannel = integerField(params, "referenceChannel", 0, 47);
+        config.fftSize = integerField(params, "fftSize", 16384, 65536, 16384);
+        config.averages = integerField(params, "averages", 2, 32, 8);
+        const auto number = [&](const var& object, const char* key, double fallback)
+        {
+            const auto value = object.getProperty(key, fallback);
+            require(value.isDouble() || value.isInt() || value.isInt64(), String("Valore numerico richiesto: ") + key);
+            const double result = static_cast<double>(value);
+            require(std::isfinite(result), String("Valore finito richiesto: ") + key);
+            return result;
+        };
+        config.delayMs = number(params, "delayMs", 0.0);
+        config.calibrationEnabled = booleanField(params, "calibrationEnabled", false);
+        const auto level = params.getProperty("levelOffsetDb", {});
+        if (!level.isVoid() && !level.isUndefined()) config.levelOffsetDb = number(params, "levelOffsetDb", 0.0);
+        const auto rawPoints = params.getProperty("calibration", var(Array<var>()));
+        const auto* points = rawPoints.getArray();
+        require(points && points->size() <= 4096, "File di calibrazione non valido o oltre 4096 punti.");
+        for (const auto& point : *points)
+        {
+            require(point.isObject() && point.hasProperty("frequency") && point.hasProperty("gainDb"), "Punto di calibrazione incompleto.");
+            config.calibration.push_back({number(point, "frequency", 0.0), number(point, "gainDb", 0.0), number(point, "phaseDeg", 0.0)});
+        }
+        engine.analysis.configure(config);
+    }
+
+    void attachCallback()
+    {
+        if (callbackAttached) return;
+        devices.addAudioCallback(&engine);
+        callbackAttached = true;
+    }
+    void detachCallback()
+    {
+        if (!callbackAttached) return;
+        engine.plannedCallbackStop.store(true);
+        devices.removeAudioCallback(&engine);
+        callbackAttached = false;
+        engine.plannedCallbackStop.store(false);
+        if (engine.analysis.running()) engine.analysis.invalidate();
+    }
+    void startAnalysis()
+    {
+        if (engine.analysis.running()) return;
+        ensureNotScanning();
+        require(inputDevice.isNotEmpty() && outputDevice.isNotEmpty(), "Configura prima il dispositivo in Audio USB.");
+        if (!audioConfigured || devices.getCurrentAudioDevice() == nullptr)
+            configureAudio(obj({{"inputDevice", inputDevice}, {"outputDevice", outputDevice},
+                                {"sampleRate", engine.sampleRate}, {"bufferSize", engine.blockSize}}));
+        require(engine.fault.load() == 0, "Il dispositivo audio richiede una nuova configurazione.");
+        engine.analysis.start(engine.sampleRate, inputCount);
+        attachCallback();
+        error.clear();
+    }
+    void stopAnalysis()
+    {
+        engine.analysis.stop();
+        if (!engine.running.load())
+        {
+            detachCallback();
+            devices.closeAudioDevice();
+            audioConfigured = false;
+            engine.fault.store(0);
+        }
+    }
+    void stopEverything()
+    {
+        const bool wasRunning = engine.running.exchange(false);
+        engine.analysis.stop();
+        detachCallback();
+        devices.closeAudioDevice();
+        if (wasRunning) engine.release();
+        audioConfigured = false;
+        engine.fault.store(0);
+    }
 
     var audioState() const
     {
         return obj({{"inputDevice", inputDevice}, {"outputDevice", outputDevice},
                     {"sampleRate", engine.sampleRate}, {"bufferSize", engine.blockSize},
                     {"inputChannels", inputCount}, {"outputChannels", outputCount},
-                    {"latencySamples", hardwareLatency}, {"configured", audioConfigured}});
+                    {"latencySamples", hardwareLatency}, {"configured", audioConfigured},
+                    {"deviceOpen", devices.getCurrentAudioDevice() != nullptr}});
     }
     void capture(Slot& slot)
     {
@@ -491,6 +629,7 @@ private:
                                 {"latencySamples", rack->latency()}, {"missing", rack->hasMissing()}}));
         }
         return obj({{"running", engine.running.load()}, {"scanning", scanning}, {"audio", audioState()},
+                    {"analysis", analysisState(false)},
                     {"plugins", pluginValues}, {"racks", rackValues}, {"cpu", devices.getCpuUsage()},
                     {"xruns", xrunCount()}, {"error", error}, {"telemetry", false}, {"partial", false}});
     }
@@ -509,7 +648,7 @@ private:
         const auto problem = engine.fault.load();
         if (problem != 0)
         {
-            stopAudio();
+            stopEverything();
             nonFatalError(problem == 2 ? "Un plugin ha interrotto l'elaborazione. Audio arrestato."
                          : problem == 4 ? "Un plugin ha restituito campioni audio non validi. Audio arrestato."
                                         : "Il dispositivo audio e cambiato o si e disconnesso. Audio arrestato; riconfigura e riavvia manualmente.");
@@ -520,6 +659,7 @@ private:
             rackMeters.add(obj({{"id", rack->route.id.c_str()}, {"latencySamples", rack->latency()},
                                 {"inputPeak", rack->inputPeak.load()}, {"outputPeak", rack->outputPeak.load()}}));
         event("state", obj({{"telemetry", true}, {"partial", true}, {"running", engine.running.load()},
+                            {"analysis", analysisState(false)},
                             {"scanning", scanning}, {"audio", audioState()}, {"cpu", devices.getCpuUsage()},
                             {"xruns", xrunCount()}, {"rackMeters", rackMeters}, {"error", error}}));
     }
@@ -556,7 +696,7 @@ private:
     }
     void configureAudio(const var& settings)
     {
-        ensureStopped(); ensureNotScanning();
+        ensureAllStopped(); ensureNotScanning();
         const auto newInput = textField(settings, "inputDevice");
         const auto newOutput = textField(settings, "outputDevice");
         require(newInput == newOutput, "Usa lo stesso dispositivo USB per ingresso e uscita; i dispositivi aggregati non sono gestiti in questa versione.");
@@ -615,6 +755,7 @@ private:
         engine.expectedDevice = newOutput;
         hardwareLatency = device->getInputLatencyInSamples() + device->getOutputLatencyInSamples();
         audioConfigured = true;
+        engine.fault.store(0);
         error.clear();
         // The device is open, but there is deliberately no processing callback:
         // JUCE clears the output until the explicit startAudio command.
@@ -623,11 +764,13 @@ private:
     {
         if (engine.running.load()) return;
         ensureNotScanning();
+        require(!engine.analysis.running() || engine.fault.load() == 0, "Il dispositivo audio richiede una nuova configurazione.");
         require(inputDevice.isNotEmpty() && outputDevice.isNotEmpty(), "Configura prima il dispositivo USB.");
         require(!engine.racks.empty(), "Assegna almeno un rack con ingressi e uscite prima di avviare l'audio.");
         if (!audioConfigured || devices.getCurrentAudioDevice() == nullptr)
             configureAudio(obj({{"inputDevice", inputDevice}, {"outputDevice", outputDevice},
                                 {"sampleRate", engine.sampleRate}, {"bufferSize", engine.blockSize}}));
+        require(engine.fault.load() == 0, "Il dispositivo audio richiede una nuova configurazione.");
         const auto validation = validateRoutes(routes(), inputCount, outputCount);
         require(validation.empty(), validation);
         for (const auto& rack : engine.racks)
@@ -635,17 +778,21 @@ private:
         engine.prepare();
         engine.overloads.store(0);
         engine.running.store(true, std::memory_order_release);
-        devices.addAudioCallback(&engine);
+        attachCallback();
         error.clear();
     }
     void stopAudio()
     {
         const bool wasRunning = engine.running.exchange(false);
-        devices.removeAudioCallback(&engine);
-        devices.closeAudioDevice();
+        detachCallback();
         if (wasRunning) engine.release();
-        audioConfigured = false;
-        engine.fault.store(0);
+        if (engine.analysis.running()) attachCallback();
+        else
+        {
+            devices.closeAudioDevice();
+            audioConfigured = false;
+            engine.fault.store(0);
+        }
     }
 
     Rack* findRack(const String& id)
@@ -792,7 +939,7 @@ private:
     }
     void restore(const var& saved)
     {
-        ensureStopped(); ensureNotScanning();
+        ensureAllStopped(); ensureNotScanning();
         require(saved.isObject(), "Sessione audio non valida.");
         const auto rackData = saved.getProperty("racks", var(Array<var>()));
         const auto* requested = rackData.getArray();
@@ -1048,7 +1195,7 @@ class Application final : public JUCEApplication
 {
 public:
     const String getApplicationName() override { return "SculptWingAudio"; }
-    const String getApplicationVersion() override { return "0.7.3"; }
+    const String getApplicationVersion() override { return "0.7.4"; }
     bool moreThanOneInstanceAllowed() override { return true; }
     void initialise(const String& commandLine) override
     {

@@ -1,0 +1,18 @@
+{
+  "upstream": "https://github.com/psmokotnin/osm",
+  "tag": "v1.5.2",
+  "commit": "1e08de2322f5e8849e1ba39e1d3993187a7cc75c",
+  "files": {
+    "src/math/complex.h": "cd46f8b860985fafbc84cb12473ac579a71148a42b7a9eafb942f4fc4dc9cffd",
+    "src/math/complex.cpp": "2f073fbba13f963147f26a51c054cf8cdbdc97b49b4c43b1d4ca7c9d1dd9799b",
+    "src/math/fouriertransform.h": "a0390e678037216829db7afdd1174886c99a62bc1778df17e366156d08b0ef90",
+    "src/math/fouriertransform.cpp": "d287e0813e0d312a79fe2e52baaa03925223e2d0dea3156c03106a845fc898cb",
+    "src/math/coherence.h": "caf033e7994127c0d5009184bd7c0d1b252a4fa28634803501d8de68f0171f17",
+    "src/math/coherence.cpp": "40e5e8fea22e4cd4702a6fd7681bccefaea3e931bc9b52c4ba369e516f5a6f3a",
+    "src/math/windowfunction.h": "eb7270cc67c5b1ee845050b6d51d9e5fb4db1a7ff23f584e6ff16e089456783d",
+    "src/math/windowfunction.cpp": "ab77c3eb66778ecc6de6474b2210796aa03ad36975aaed7af72ded6af46148d1",
+    "src/math/deconvolution.h": "2f9d903ad65cee83cf1adca3519c4b89d18d7c0089215a4b2a47afc9693b61a0",
+    "src/math/deconvolution.cpp": "a5218a8c9cd88342b81041425f8c8fc5621626c3c14facc620081c7eefc44ef2",
+    "src/source/measurement.cpp": "b59dcd02af97f04eb769e273de0f3ebb25c79fa3a5c37f1d3b8fafa0fc974ad1"
+  }
+}

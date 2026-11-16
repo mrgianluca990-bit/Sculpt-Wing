@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(SculptWingAudio VERSION 0.7.3 LANGUAGES C CXX)
+project(SculptWingAudio VERSION 0.7.4 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -25,12 +25,13 @@ juce_add_gui_app(SculptWingAudio
     COMPANY_NAME "Sculpt"
     BUNDLE_ID "it.sculpt.wing.audio"
     MICROPHONE_PERMISSION_ENABLED TRUE
-    MICROPHONE_PERMISSION_TEXT "Sculpt Wing riceve l'audio USB della WING per elaborarlo con i plugin VST3."
+    MICROPHONE_PERMISSION_TEXT "Sculpt Wing riceve l'audio USB per i plugin VST3 e le misure con microfono e reference."
     NEEDS_WEB_BROWSER FALSE
     NEEDS_CURL FALSE
     PLIST_TO_MERGE "<plist><dict><key>LSUIElement</key><true/><key>NSHighResolutionCapable</key><true/></dict></plist>")
 
-target_sources(SculptWingAudio PRIVATE Source/Main.cpp Source/Routing.h Source/SelfTest.h)
+target_sources(SculptWingAudio PRIVATE Source/Main.cpp Source/Routing.h Source/SelfTest.h
+    Source/Analysis.cpp Source/Analysis.h Source/OsmAnalysisMath.h)
 target_compile_definitions(SculptWingAudio PRIVATE
     JUCE_PLUGINHOST_VST3=1
     JUCE_PLUGINHOST_VST=0
@@ -53,6 +54,12 @@ target_link_libraries(SculptWingAudio PRIVATE
 # change the Sculpt Wing repository's licence.
 set(SCULPT_NOTICE_DIR "${CMAKE_CURRENT_BINARY_DIR}/third-party-notices")
 file(MAKE_DIRECTORY "${SCULPT_NOTICE_DIR}")
+foreach(osm_notice LICENSE PROVENANCE.json README.md)
+    set(osm_notice_output "${SCULPT_NOTICE_DIR}/OpenSoundMeter-${osm_notice}")
+    configure_file("${CMAKE_CURRENT_SOURCE_DIR}/vendor/open-sound-meter/${osm_notice}" "${osm_notice_output}" COPYONLY)
+    target_sources(SculptWingAudio PRIVATE "${osm_notice_output}")
+    set_source_files_properties("${osm_notice_output}" PROPERTIES MACOSX_PACKAGE_LOCATION "Resources/ThirdParty")
+endforeach()
 function(sculpt_notice relative_source output_name)
     set(output "${SCULPT_NOTICE_DIR}/${output_name}")
     configure_file("${SCULPT_JUCE_ROOT}/${relative_source}" "${output}" COPYONLY)
@@ -87,6 +94,10 @@ add_executable(SculptWingAudioRoutingTest Tests/RoutingTest.cpp)
 enable_testing()
 add_test(NAME audio-routing COMMAND SculptWingAudioRoutingTest)
 add_test(NAME host-self-test COMMAND SculptWingAudio --self-test)
+find_package(Threads REQUIRED)
+add_executable(SculptWingAnalysisTest Tests/AnalysisTest.cpp Source/Analysis.cpp)
+target_link_libraries(SculptWingAnalysisTest PRIVATE Threads::Threads)
+add_test(NAME osm-analysis COMMAND SculptWingAnalysisTest)
 
 option(SCULPT_AUDIO_BUILD_TEST_PLUGIN "Build a real VST3 fixture for host smoke tests" OFF)
 if(SCULPT_AUDIO_BUILD_TEST_PLUGIN)
