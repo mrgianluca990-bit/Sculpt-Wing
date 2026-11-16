@@ -727,7 +727,7 @@
     const definition = DELAY_UNITS[mode], unit = definition?.unit || '', schema = delaySchemaKey();
     const ready = () => !online || record?.phase === 'ready' && record.schema === delaySchemaKey() && schema === record.schema && wireKnown(paths.mode);
     const factor = mode === 'M' ? .343 : mode === 'FT' ? 1.1253 : mode === 'SMP' ? (D().get().setup.sampleRate || 48000) / 1000 : 1;
-    const box = module(isInput() ? 'Delay d’ingresso' : 'Delay di uscita');
+    const box = module(isInput() ? 'Delay d’ingresso' : 'Delay di uscita'); box.classList.add('editor-module-delay');
     const choices = Object.entries(DELAY_UNITS).map(([value, config]) => ({ value, label: config.label }));
     box.append(wireToggle('DELAY ON', () => !!channel().delayOn, value => patchChannel({ delayOn: value }), paths.on, { ariaLabel: 'Delay attivo' }),
       wireSelect('Unità delay', () => online ? live.value?.(paths.mode) : channel().delayUnit || 'MS', choices, value => {
@@ -786,7 +786,7 @@
       destination.append(actions); return;
     }
     destination.append(renderIdentity());
-    const monitor = module('Ascolto', wireToggle('SOLO', () => channel().solo, value => D().setSolo(currentId, value), base + '/$solo', { className: 'editor-solo', ariaLabel: 'Solo del canale' }), wireSelect('Monitor solo', () => channel().monitor || 'A', ['A', 'B', 'A+B'], value => patchChannel({ monitor: value }), base + '/mon'));
+    const monitor = module('Ascolto', wireToggle('SOLO', () => channel().solo, value => D().setSolo(currentId, value), base + '/$solo', { className: 'editor-solo', ariaLabel: 'Solo del canale' }), wireSelect('Monitor solo', () => channel().monitor || 'A', ['A', 'B', 'A+B'], value => patchChannel({ monitor: value }), base + '/mon')); monitor.classList.add('editor-module-monitor');
     if (isInput()) monitor.append(wireToggle('Solo safe', () => !!channel().soloSafe, value => patchChannel({ soloSafe: value }), base + '/solosafe'));
     const groups = disclosure('DCA / mute groups / automix'); groups.classList.add('editor-home-groups'); groups.open = homeGroupsExpanded;
     const active = controlActive(); groups.addEventListener('toggle', () => { if (active()) homeGroupsExpanded = groups.open; });
@@ -811,7 +811,7 @@
       if (hasHeadamp && headamp.id !== src?.id) destination.append(note('Preamp originale: ' + sourceName(headamp) + ' · ritorno VST3 via USB'));
       if (isChannel()) renderDeviceCuts(destination, expanded);
       if (expanded) {
-        const routing = module('Sorgente di ingresso');
+        const routing = module('Sorgente di ingresso'); routing.classList.add('editor-module-routing');
         routing.append(el('p', 'editor-note', activeSourceKnown() ? sourceName(src) : 'Sorgente in lettura…'), wireToggle('ALT', usesAlt, value => patchChannel({ useAlt: value, ...(!value && D().get().io?.globalAlt ? { sourceAuto: false } : {}) }), base + '/in/set/altsrc', { disabled: () => !activeSourceKnown() || !!D().get().io?.globalAlt && !wireEditable(base + '/in/set/srcauto') }),
           wireToggle('AUTO', () => !!channel().sourceAuto, value => patchChannel({ sourceAuto: value }), base + '/in/set/srcauto'),
           sourcePicker('Sorgente Main', 'source'), sourcePicker('Sorgente Alt', 'altSource'));

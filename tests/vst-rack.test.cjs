@@ -29,7 +29,7 @@ test('free ports account for bypassed racks; cached UI contains no plugin state 
   for (const value of ['native-preset', '/Library/private', '/tmp/plugin', 'secret']) assert.ok(!JSON.stringify(cached).includes(value));
 });
 
-function fixture(t, initialRacks = []) {
+function fixture(t, initialRacks = [], audioDevices) {
   const dom = new JSDOM('<!doctype html><html><body><footer class="macro-rail"><button id="info-button">Info</button></footer></body></html>', { url: 'https://sculpt.test/', runScripts: 'outside-only' });
   const w = dom.window, calls = [], listeners = new Map();
   let session = { running: false, audio: { inputDevice: 'WING', outputDevice: 'WING', sampleRate: 48000, bufferSize: 128, inputChannels: 48, outputChannels: 48, latencySamples: 320 }, plugins: [{ id: pluginId, name: 'Test Compressor', manufacturer: 'Sculpt' }], racks: initialRacks, cpu: 0, xruns: 0 };
@@ -42,7 +42,8 @@ function fixture(t, initialRacks = []) {
     if (method === 'loadSession') return { loaded: false };
     if (method === 'saveSession') return { saved: true };
     if (method === 'scanPlugins') { session.scanning = true; return { scanning: true }; }
-    if (method === 'devices') return { devices: [{ name: 'WING', inputChannels: Array.from({ length: 48 }, (_, i) => String(i + 1)), outputChannels: Array.from({ length: 48 }, (_, i) => String(i + 1)), sampleRates: [48000], bufferSizes: [64, 128, 256] }] };
+    if (method === 'devices') return { devices: audioDevices || [{ name: 'WING', inputChannels: Array.from({ length: 48 }, (_, i) => String(i + 1)), outputChannels: Array.from({ length: 48 }, (_, i) => String(i + 1)), sampleRates: [48000], bufferSizes: [64, 128, 256] }] };
+    if (method === 'configureAudio') { session.audio = { ...session.audio, ...copy(params) }; return copy(session); }
     if (method === 'setRack') { const index = session.racks.findIndex(r => r.id === params.id); if (index < 0) session.racks.push(copy(params)); else session.racks[index] = copy(params); return copy(session); }
     if (method === 'startAudio') { session.running = true; return copy(session); }
     if (method === 'stopAudio') { session.running = false; return copy(session); }
@@ -63,8 +64,8 @@ test('opening USB configuration restores a stopped session without starting audi
   await f.w.SculptVst.openAudio();
   assert.deepEqual(f.calls.map(c => c.method), ['status', 'loadSession', 'getState', 'devices']);
   assert.equal(f.session.running, false);
-  assert.match(f.w.document.querySelector('.vst-statusbar').textContent, /USB · fermo/);
-  assert.equal(f.w.document.querySelector('[aria-label="Interfaccia USB"]').value, 'WING');
+  assert.match(f.w.document.querySelector('.vst-statusbar').textContent, /Audio · fermo/);
+  assert.equal(f.w.document.querySelector('[aria-label="Dispositivo ingresso"]').value, 'WING');
   assert.match(f.w.document.querySelector('[data-vst-latency]').textContent, /6.67 ms/);
   assert.ok(!f.calls.some(c => c.method === 'startAudio'));
 });
@@ -75,7 +76,7 @@ test('active analysis locks device edits but a stopped failed helper can still r
   f.listeners.get('audioState')({ partial: true, analysis: { running: true } });
   assert.equal(f.find('Applica dispositivo').disabled, true);
   assert.equal(f.find('Aggiorna dispositivi').disabled, true);
-  assert.equal(f.find('Avvia audio USB').disabled, false, 'VST may start on the existing shared device');
+  assert.equal(f.find('Avvia audio').disabled, false, 'VST may start on the existing shared device');
   f.listeners.get('audioError')({ fatal: true, message: 'Motore audio terminato' });
   assert.equal(f.find('Riconnetti motore').disabled, false);
   f.calls.length = 0;
@@ -84,12 +85,70 @@ test('active analysis locks device edits but a stopped failed helper can still r
   assert.ok(!f.calls.some(c => ['startAudio', 'startAnalysis'].includes(c.method)), 'reconnect never restarts either consumer');
 });
 
-test('opening a populated Extended slot recalls the native editor for its exact channel and slot', async t => {
-  const f = fixture(t, [rack()]);
-  await f.w.SculptVst.openAudio(); f.calls.length = 0;
-  await f.w.SculptVst.openSlot('ch-1', 0);
+test('first Extended open restores uncached native slots and coalesces duplicate editor requests with audio stopped', async t => {
+  const f = fixture(t, [{ ...rack(), enabled: false }]);
+  await Promise.all([f.w.SculptVst.openSlot('ch-1', 0), f.w.SculptVst.openSlot('ch-1', 0)]);
   assert.deepEqual(f.calls.at(-1), { method: 'openEditor', params: { rackId: 'ch-1', slot: 0 } });
-  assert.ok(!f.calls.some(c => ['startAudio', 'setRack'].includes(c.method)));
+  assert.equal(f.calls.filter(c => c.method === 'openEditor').length, 1);
+  assert.ok(!f.calls.some(c => ['startAudio', 'setRack', 'devices'].includes(c.method)));
+  assert.equal(f.session.running, false);
+  assert.equal(f.session.racks[0].enabled, false);
+});
+
+test('slot selection keeps its DOM node for double click; browser replacement follows the selected slot', async t => {
+  const f = fixture(t, [{ ...rack(), slots: [rack().slots[0], { ...rack().slots[0], name: 'Second compressor', state: 'second-preset' }] }]);
+  await f.w.SculptVst.openRack('ch-1');
+  const second = f.w.document.querySelector('[data-slot="1"] .vst-slot-name');
+  second.click(); assert.equal(f.w.document.querySelector('[data-slot="1"] .vst-slot-name'), second);
+  second.dispatchEvent(new f.w.MouseEvent('dblclick', { bubbles: true })); await f.tick();
+  assert.deepEqual(f.calls.at(-1), { method: 'openEditor', params: { rackId: 'ch-1', slot: 1 } });
+  f.w.document.querySelector('[data-slot="0"] .vst-slot-choose').click(); await f.tick();
+  const search = f.w.document.querySelector('.vst-search');
+  f.w.document.querySelector('[data-slot="1"] .vst-slot-name').click();
+  assert.equal(f.w.document.querySelector('.vst-search'), search);
+  f.session.racks[0].slots[0].state = 'latest-first-preset';
+  f.w.document.querySelector('.vst-plugin-item').click(); await f.tick(); await f.tick();
+  assert.equal(f.session.racks[0].slots[0].state, 'latest-first-preset');
+  assert.equal(f.session.racks[0].slots[1].name, 'Test Compressor');
+  assert.equal(f.session.racks[0].slots[1].state, undefined);
+  assert.equal(f.w.document.querySelector('.vst-catalog').hidden, true);
+});
+
+test('choosing the first plugin creates a bypassed rack on free ports and opens its editor without audio or WING writes', async t => {
+  const f = fixture(t, [rack()]);
+  f.session.audio = { inputDevice: '', outputDevice: '', inputChannels: 0, outputChannels: 0, configured: false };
+  await f.w.SculptVst.openSlot('ch-2', 0);
+  assert.equal(f.w.document.querySelector('.vst-catalog').hidden, false);
+  f.w.document.querySelector('.vst-plugin-item').click(); await f.tick(); await f.tick();
+  const created = f.session.racks.find(r => r.id === 'ch-2');
+  assert.equal(created.enabled, false); assert.equal(created.placement, 'pre');
+  assert.deepEqual(created.inputChannels, [1]); assert.deepEqual(created.outputChannels, [1]);
+  assert.equal(created.slots[0].pluginId, pluginId);
+  assert.deepEqual(f.calls.at(-1), { method: 'openEditor', params: { rackId: 'ch-2', slot: 0 } });
+  assert.ok(f.calls.some(c => c.method === 'saveSession'));
+  assert.ok(!f.calls.some(c => ['startAudio', 'configureAudio', 'sendTCP', 'sendUDP'].includes(c.method)));
+});
+
+test('Mac input-only and output-only devices can be selected independently with common audio settings', async t => {
+  const f = fixture(t, [], [
+    { name: 'Microfono MacBook Pro', inputChannels: ['Mic'], outputChannels: [], sampleRates: [44100, 48000], bufferSizes: [64, 128] },
+    { name: 'Altoparlanti MacBook Pro', inputChannels: [], outputChannels: ['L', 'R'], sampleRates: [48000, 96000], bufferSizes: [128, 256] }
+  ]);
+  await f.w.SculptVst.openAudio();
+  const input = f.w.document.querySelector('[aria-label="Dispositivo ingresso"]');
+  assert.ok([...input.options].some(option => option.value === 'Microfono MacBook Pro' && !option.disabled));
+  assert.ok(![...input.options].some(option => option.value === 'Altoparlanti MacBook Pro'));
+  input.value = 'Microfono MacBook Pro'; input.dispatchEvent(new f.w.Event('change'));
+  const output = f.w.document.querySelector('[aria-label="Dispositivo uscita"]');
+  assert.ok([...output.options].some(option => option.value === 'Altoparlanti MacBook Pro' && !option.disabled));
+  assert.ok(![...output.options].some(option => option.value === 'Microfono MacBook Pro'));
+  output.value = 'Altoparlanti MacBook Pro'; output.dispatchEvent(new f.w.Event('change'));
+  assert.deepEqual([...f.w.document.querySelector('[aria-label="Frequenza"]').options].map(o => o.value), ['48000']);
+  assert.deepEqual([...f.w.document.querySelector('[aria-label="Buffer"]').options].map(o => o.value), ['128']);
+  f.find('Applica dispositivo').click(); await f.tick(); await f.tick();
+  assert.deepEqual(f.calls.findLast(c => c.method === 'configureAudio').params, { inputDevice: 'Microfono MacBook Pro', outputDevice: 'Altoparlanti MacBook Pro', sampleRate: 48000, bufferSize: 128 });
+  assert.match(f.w.document.querySelector('.vst-statusbar').textContent, /Microfono MacBook Pro → Altoparlanti MacBook Pro/);
+  assert.ok(!f.calls.some(c => ['startAudio', 'startAnalysis', 'setRack', 'sendTCP', 'sendUDP'].includes(c.method)));
 });
 
 test('bypass uses current native preset state and remains available during live audio', async t => {
@@ -110,6 +169,7 @@ test('bypass uses current native preset state and remains available during live 
 
 test('telemetry does not rebuild focused plugin search; a fatal crash never triggers automatic restart', async t => {
   const f = fixture(t, [rack()]); await f.w.SculptVst.openRack('ch-1');
+  f.w.document.querySelector('.vst-slot-choose').click(); await f.tick();
   f.session.running = true;
   f.listeners.get('audioState')({ ...f.session, telemetry: false });
   const search = f.w.document.querySelector('.vst-search'); search.value = 'comp'; search.focus();
@@ -130,15 +190,16 @@ test('telemetry does not rebuild focused plugin search; a fatal crash never trig
 
 test('an asynchronous scan keeps edits and audio start locked until its completion event', async t => {
   const f = fixture(t, [rack()]); await f.w.SculptVst.openRack('ch-1');
+  f.w.document.querySelector('.vst-slot-choose').click(); await f.tick();
   f.w.document.querySelector('.vst-scan').click(); await f.tick(); await f.tick();
   assert.equal(f.w.SculptVst.snapshot().scanning, true);
-  assert.equal(f.find('Avvia audio USB').disabled, true);
+  assert.equal(f.find('Avvia audio').disabled, true);
   assert.equal(f.find('Svuota slot').disabled, true);
   f.listeners.get('audioScanProgress')({ name: 'Compressor.vst3' });
   assert.match(f.w.document.querySelector('.vst-footer .vst-note').textContent, /Compressor/);
   f.session.scanning = false;
   f.listeners.get('audioState')({ ...f.session, telemetry: false });
-  assert.equal(f.find('Avvia audio USB').disabled, false);
+  assert.equal(f.find('Avvia audio').disabled, false);
   assert.equal(f.find('Svuota slot').disabled, false);
 });
 
@@ -251,6 +312,7 @@ test('ordinary WING state updates do not replace a focused plugin search', async
   f.w.SculptLive = { isConnected: () => true, isWritable: () => true, sessionToken: () => 4 };
   f.w.dispatchEvent(new f.w.CustomEvent('sculpt-live-state'));
   await f.w.SculptVst.openRack('ch-1');
+  f.w.document.querySelector('.vst-slot-choose').click(); await f.tick();
   const search = f.w.document.querySelector('.vst-search'); search.focus(); search.value = 'comp';
   for (let i = 0; i < 20; i++) f.w.dispatchEvent(new f.w.CustomEvent('sculpt-live-state'));
   assert.equal(f.w.document.querySelector('.vst-search'), search);
@@ -261,14 +323,14 @@ test('an applied WING route locks device changes while allowing a stopped buffer
   const f = fixture(t, [{ ...rack(), placement: 'pre' }]);
   f.w.SculptVstRouting = { status: id => ({ managed: id === 'ch-1', active: id === 'ch-1', state: id === 'ch-1' ? 'active' : 'idle' }) };
   await f.w.SculptVst.openAudio();
-  const device = f.w.document.querySelector('[aria-label="Interfaccia USB"]');
+  const device = f.w.document.querySelector('[aria-label="Dispositivo ingresso"]');
   assert.equal(device.disabled, true);
   const other = f.w.document.createElement('option'); other.value = other.textContent = 'Other interface'; device.append(other); device.value = other.value;
   device.dispatchEvent(new f.w.Event('change'));
   f.find('Applica dispositivo').click(); await f.tick(); await f.tick();
   assert.ok(!f.calls.some(call => call.method === 'configureAudio'));
   assert.match(f.w.SculptVst.snapshot().error, /Ripristina prima i percorsi WING/);
-  const same = f.w.document.querySelector('[aria-label="Interfaccia USB"]'); same.value = 'WING'; same.dispatchEvent(new f.w.Event('change'));
+  const same = f.w.document.querySelector('[aria-label="Dispositivo ingresso"]'); same.value = 'WING'; same.dispatchEvent(new f.w.Event('change'));
   const buffer = f.w.document.querySelector('[aria-label="Buffer"]'); assert.equal(buffer.disabled, false);
   buffer.value = '256'; buffer.dispatchEvent(new f.w.Event('change'));
   f.find('Applica dispositivo').click(); await f.tick(); await f.tick();

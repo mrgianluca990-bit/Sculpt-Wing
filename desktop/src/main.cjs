@@ -28,7 +28,7 @@ const closeAudio = audio => {
 async function requireAudioInputPermission() {
   if (process.platform !== 'darwin' || systemPreferences.getMediaAccessStatus('microphone') === 'granted') return;
   if (!audioPermissionRequest) audioPermissionRequest = systemPreferences.askForMediaAccess('microphone').finally(() => { audioPermissionRequest = null; });
-  if (!await audioPermissionRequest) throw new Error('Consenti a Sculpt Wing l’accesso al microfono in Impostazioni di Sistema → Privacy e sicurezza → Microfono, poi riapri l’app. Il permesso serve a ricevere l’audio USB della WING.');
+  if (!await audioPermissionRequest) throw new Error('Consenti a Sculpt Wing l’accesso al microfono in Impostazioni di Sistema → Privacy e sicurezza → Microfono, poi riapri l’app. Il permesso serve per usare gli ingressi audio del Mac o della scheda selezionata.');
 }
 
 function createWindow() {

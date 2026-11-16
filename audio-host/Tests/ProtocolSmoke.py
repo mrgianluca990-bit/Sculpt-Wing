@@ -3,6 +3,7 @@
 
 import base64
 import json
+import os
 from pathlib import Path
 import queue
 import subprocess
@@ -73,6 +74,9 @@ class Client:
 
 
 def run(executable, fixture):
+    editors_available = os.environ.get("SCULPT_TEST_NATIVE_EDITORS") == "1" or (
+        sys.platform == "linux" and bool(os.environ.get("DISPLAY"))
+    )
     with tempfile.TemporaryDirectory(prefix="sculpt-audio-protocol-") as temporary:
         directory = Path(temporary)
         result_path = directory / "scanned.json"
@@ -93,6 +97,9 @@ def run(executable, fixture):
             initial = host.call("status")
             assert initial["running"] is False and initial["audio"]["configured"] is False
             assert initial["audio"]["inputDevice"] == initial["audio"]["outputDevice"] == ""
+            listed = host.call("devices")
+            assert isinstance(listed["devices"], list)
+            assert listed["audio"] == initial["audio"], "Listing devices changed the audio configuration"
             plugin = next(item for item in initial["plugins"] if item["name"] == "SculptWingAudioTestGain")
             identifier = plugin["id"]
             assert len(identifier) == 21 and identifier.startswith("vst3-")
@@ -102,6 +109,19 @@ def run(executable, fixture):
             loaded = host.call("setRack", rack)
             assert loaded["running"] is False and loaded["racks"][0]["slots"][0]["missing"] is False
             assert loaded["racks"][0]["placement"] is None, "Legacy rack implied a mixer patch"
+            # A real VST3 IPlugView, while both the rack and audio are stopped.
+            # The second call must reuse its editor; close/reopen must release
+            # ownership cleanly before a rack rebuild destroys the processor.
+            if editors_available:
+                for _ in range(2):
+                    assert host.call("openEditor", {"rackId": "ch-1", "slot": 0})["opened"] is True
+                assert host.call("closeEditors")["closed"] is True
+                assert host.call("openEditor", {"rackId": "ch-1", "slot": 0})["opened"] is True
+                editor_state = host.call("status")
+                assert editor_state["running"] is False and editor_state["audio"]["configured"] is False
+                assert editor_state["racks"][0]["enabled"] is False, "Opening an editor enabled the rack"
+            else:
+                print("Native editor checks skipped: set SCULPT_TEST_NATIVE_EDITORS=1 from a graphical session.")
             for placement in (None, "pre", "insert1", "insert2"):
                 placed = host.call("setRack", {**rack, "placement": placement})
                 assert placed["racks"][0]["placement"] == placement
@@ -139,10 +159,19 @@ def run(executable, fixture):
             host.call("unsupportedMethod", expect_error=True)
             host.call("removeRack", {"id": "ch-1"})
             assert host.call("getState")["racks"] == []
+            mac_devices = {"inputDevice": "Microfono MacBook Pro", "outputDevice": "Altoparlanti MacBook Pro",
+                           "sampleRate": 48000, "bufferSize": 128}
+            mac_session = host.call("restoreState", {"state": {"audio": mac_devices, "racks": []}})
+            assert mac_session["audio"]["inputDevice"] == mac_devices["inputDevice"]
+            assert mac_session["audio"]["outputDevice"] == mac_devices["outputDevice"]
+            assert mac_session["audio"]["configured"] is False and mac_session["running"] is False
+            assert host.call("devices")["audio"] == mac_session["audio"], "Listing devices replaced the saved input/output pair"
         finally:
             host.close()
         assert host.process.returncode == 0, "Native host did not shut down cleanly"
-    print("Sculpt Wing native protocol: isolated scan, real VST3 rack/state, validation, missing presets and stopped restore passed.")
+    print("Sculpt Wing native protocol: device listing, real VST3 rack/state, validation, missing presets and stopped restore passed.")
+    if editors_available:
+        print("Native VST3 editor open/reopen/close and rack rebuild passed with audio stopped.")
 
 
 if __name__ == "__main__":

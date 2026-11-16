@@ -19,8 +19,8 @@ public:
     void prepareToPlay(double, int) override {}
     void releaseResources() override {}
     void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override { buffer.applyGain(gain->get()); }
-    juce::AudioProcessorEditor* createEditor() override { return nullptr; }
-    bool hasEditor() const override { return false; }
+    juce::AudioProcessorEditor* createEditor() override { return new juce::GenericAudioProcessorEditor(*this); }
+    bool hasEditor() const override { return true; }
     double getTailLengthSeconds() const override { return 0.0; }
     bool acceptsMidi() const override { return false; }
     bool producesMidi() const override { return false; }

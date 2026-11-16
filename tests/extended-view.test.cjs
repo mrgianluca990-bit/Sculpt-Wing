@@ -109,11 +109,12 @@ test('Electron accelerator owns Cmd+= while its mixerView event performs a singl
   f.listeners.get('mixerView')('toggle'); assert.equal(f.V.mode(), 'compact');
 });
 
-test('all nine WING slots open one full-control floating window while retaining family capabilities', t => {
+test('the channel name opens Home and eight WING slots retain their full-control floating windows', t => {
   const f = fixture(t); f.V.setMode('extended');
-  const modules = ['home', 'input', 'gate', 'eq', 'dyn', 'pre', 'post', 'sends', 'master'];
-  assert.equal(f.strip('ch-2').querySelectorAll('.extended-device > .extended-slot').length, 9);
-  assert.deepEqual(modules.map(key => f.slot('ch-2', key).querySelector('.extended-slot-label').textContent), ['Home', 'Pre', 'Gate', 'EQ', 'Comp', 'Insert 1', 'Insert 2', 'Send', 'Master']);
+  const modules = ['input', 'gate', 'eq', 'dyn', 'pre', 'post', 'sends', 'master'];
+  assert.equal(f.strip('ch-2').querySelectorAll('.extended-device > .extended-slot').length, 8);
+  assert.equal(f.slot('ch-2', 'home'), null);
+  assert.deepEqual(modules.map(key => f.slot('ch-2', key).querySelector('.extended-slot-label').textContent), ['Pre', 'Gate', 'EQ', 'Comp', 'Insert 1', 'Insert 2', 'Send', 'Master']);
   for (const key of modules) {
     f.slot('ch-2', key).click(); assert.equal(f.selectedTab(), 'devices');
     const card = f.editor().querySelector(`.editor-device-panel[data-module="${key}"]`);
@@ -127,6 +128,15 @@ test('all nine WING slots open one full-control floating window while retaining 
       assert.equal(f.D.processor({ type: 'strip', id: 'ch-2', block: 'eq' }).params['2g'], 3, 'a nonselected EQ band is visible and writable');
     }
   }
+  f.strip('ch-2').querySelector('.strip-name').click();
+  assert.equal(f.editor().dataset.slot, 'home', 'the name explicitly opens Home even after another slot');
+  assert.equal(f.editor().dataset.dockRow, 'window');
+  const name = f.editor().querySelector('input[aria-label="Nome"]');
+  name.value = 'Voce'; name.dispatchEvent(new f.w.Event('change', { bubbles: true }));
+  assert.equal(f.C.getStrip('ch-2').name, 'Voce');
+  name.value = ''; name.dispatchEvent(new f.w.Event('change', { bubbles: true }));
+  assert.equal(f.C.getStrip('ch-2').name, 'CH 2', 'clearing the Home name still restores its default');
+  assert.equal(f.strip('ch-2').querySelector('.strip-name').textContent, 'CH 2');
   f.D.assignFx(1, 'ch-2', 'pre'); f.slot('ch-2', 'pre').click();
   assert.equal(f.editor().querySelector('.editor-device-panel[data-module="pre"] .fx-processor').dataset.model, f.D.processor({ type: 'fx', slot: 1 }).model);
   assert.deepEqual(f.fxOpened, [], 'the assigned insert uses the selected slot window, without a duplicate modal');
@@ -273,9 +283,9 @@ test('Extended drag uses the shared real proc order, changes no other field and 
   const expected = plain(before); expected.desk.channels['ch-1'].order = ['eq', 'dyn', 'gate', 'insert'];
   assert.deepEqual(plain(f.C.capture()), expected, 'only the requested proc order changes');
   for (const [key, node] of nodes) assert.equal(device(f, 'ch-1', key), node, key);
-  assert.deepEqual(deviceOrder(f, 'ch-1'), ['home', 'input', 'eq', 'dyn', 'sends', 'gate', 'pre', 'post', 'master']);
+  assert.deepEqual(deviceOrder(f, 'ch-1'), ['input', 'eq', 'dyn', 'sends', 'gate', 'pre', 'post', 'master']);
   f.V.setMode('compact'); f.E.openDevice('ch-1', 'eq');
-  assert.deepEqual([...f.editor().querySelectorAll('.editor-device-board > .editor-device-panel')].map(node => node.dataset.module), deviceOrder(f, 'ch-1'), 'both views follow the same confirmed channel order');
+  assert.deepEqual([...f.editor().querySelectorAll('.editor-device-board > .editor-device-panel')].map(node => node.dataset.module), ['home', ...deviceOrder(f, 'ch-1')], 'Compact retains Home and both views follow the same confirmed processing order');
 });
 
 test('the Send drag palette offers eight actual taps and changes ptap independently from proc', async t => {
@@ -287,7 +297,7 @@ test('the Send drag palette offers eight actual taps and changes ptap independen
   assert.deepEqual(plain(f.C.capture()), before);
   const choice = palette.querySelector('[data-target="tap:IN"]'); choice.click(); await tick();
   const expected = plain(before); expected.desk.channels['ch-1'].tap = 'IN';
-  assert.deepEqual(plain(f.C.capture()), expected); assert.deepEqual(deviceOrder(f, 'ch-1').slice(0, 3), ['home', 'sends', 'input']);
+  assert.deepEqual(plain(f.C.capture()), expected); assert.deepEqual(deviceOrder(f, 'ch-1').slice(0, 2), ['sends', 'input']);
   assert.equal(f.slot('ch-1', 'sends').querySelector('.extended-slot-name').textContent, 'TAP IN');
   assert.equal(palette.hidden, true); assert.equal(f.w.document.activeElement, handle);
   assert.equal(device(f, 'ch-1', 'post').querySelector('.extended-device-drag').disabled, true, 'INS2 is fixed after the fader');

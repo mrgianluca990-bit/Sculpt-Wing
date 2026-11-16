@@ -87,9 +87,12 @@ audio-host/build-test/SculptWingAudio_artefacts/Release/SculptWingAudio.app/Cont
 restore, slot and rack bypass, USB channel mapping, and silence when stopped.
 When Python 3 is available, `ctest --test-dir audio-host/build-test --output-on-failure`
 also launches the real helper and fixture to check the JSON protocol, isolated
-scanner, preset capture/restore, rejected output collisions, retained missing
-plugins and stopped session restoration.
-It opens no audio device. The fixture is a test effect and is not bundled with
+scanner, native editor open/reopen/close with audio stopped, preset capture/restore,
+rejected output collisions, retained missing plugins and stopped session restoration.
+The editor checks require a graphical session and are opt-in with
+`SCULPT_TEST_NATIVE_EDITORS=1`; Linux also enables them when `DISPLAY` is set.
+Normal CI runs on a Mac skip them explicitly, since a GUI session cannot be
+assumed. It opens no audio device. The fixture is a test effect and is not bundled with
 the user-facing application. USB round-trip latency, vendor plugin compatibility
 and behaviour during hardware disconnects still require a real Mac and WING.
 
@@ -116,7 +119,7 @@ Methods:
 | `getState` | Captures live plugin preset state on the message thread and returns full state. Does not emit another state event. |
 | `devices` | Lists audio devices, input/output channel names, supported sample rates and buffers without starting audio. |
 | `scanPlugins` | Returns `{scanning:true}` immediately, then progress and final state events. Audio must be stopped. |
-| `configureAudio` | `{inputDevice,outputDevice,sampleRate,bufferSize}`. Requires the same input/output device, opens explicitly selected channels, leaves outputs silent. |
+| `configureAudio` | `{inputDevice,outputDevice,sampleRate,bufferSize}`. Opens only the explicitly selected input/output pair and leaves outputs silent. CoreAudio supports distinct names, including the Mac's built-in microphone and speakers. |
 | `startAudio` / `stopAudio` | Explicitly starts / stops processing. Start requires a device and at least one routed rack. |
 | `configureAnalysis` | `{measurementChannel,referenceChannel,fftSize?,averages?,delayMs?,calibration?,calibrationEnabled?,levelOffsetDb?}`. Analysis must be stopped. Returns accepted settings, including calibration points. |
 | `startAnalysis` / `stopAnalysis` | Starts / stops manual capture. Start needs the configured audio device and two distinct inputs; no VST rack is required. |
@@ -131,7 +134,10 @@ Methods:
 There are at most 16 racks, 8 slots per rack, 48 device inputs and outputs, and
 one or two channels per rack. Two racks cannot write to the same USB output,
 including bypassed racks. Multiple racks may read a common input. MIDI and
-instruments, sidechain inputs and aggregate devices are outside this version.
+instruments and sidechain inputs are outside this version. CoreAudio may combine
+the explicitly selected input and output internally; no manual aggregate setup
+is required for the Mac's built-in devices. Other drivers must report support
+for separate input/output devices. Listing devices never configures audio.
 
 `enabled:false` is **rack bypass**: while the engine is running, the assigned USB
 input passes directly to its output. A slot's `bypass:true` skips that processor.

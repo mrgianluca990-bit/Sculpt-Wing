@@ -6,8 +6,8 @@
   if (!C || !D || !rows.inputs || !rows.outputs || window.SculptMixerView) return;
 
   const STORAGE_KEY = 'sculpt-wing-mixer-view-v1';
-  const WING_SLOTS = [['home', 'Home'], ['input', 'Pre'], ['gate', 'Gate'], ['eq', 'EQ'], ['dyn', 'Comp'], ['pre', 'Insert 1'], ['post', 'Insert 2'], ['sends', 'Send'], ['master', 'Master']];
-  const DEVICE_ROLES = { home: 'home', input: 'pre', gate: 'gate', eq: 'eq', dyn: 'comp', pre: 'insert', post: 'insert', sends: 'send', master: 'master' };
+  const WING_SLOTS = [['input', 'Pre'], ['gate', 'Gate'], ['eq', 'EQ'], ['dyn', 'Comp'], ['pre', 'Insert 1'], ['post', 'Insert 2'], ['sends', 'Send'], ['master', 'Master']];
+  const DEVICE_ROLES = { input: 'pre', gate: 'gate', eq: 'eq', dyn: 'comp', pre: 'insert', post: 'insert', sends: 'send', master: 'master' };
   const VST_PLACEMENTS = [['', 'Da associare'], ['pre', 'PRE'], ['insert1', 'Insert 1'], ['insert2', 'Insert 2']];
   const VST_ANCHORS = { pre: 'input', insert1: 'pre', insert2: 'post' };
   const strips = new Map(), scrollPositions = new Map();
@@ -92,7 +92,22 @@
     toolbar.hidden = !extended;
     inputButton.textContent = layer ? 'Riga 2' : 'Ingressi'; outputButton.textContent = layer ? 'Riga 1' : 'Uscite';
     inputButton.setAttribute('aria-pressed', String(bank === 'inputs')); outputButton.setAttribute('aria-pressed', String(bank === 'outputs'));
-    placeControls();
+    placeControls(); syncRackHeight();
+  }
+  function syncRackHeight() {
+    if (mode !== 'extended') return;
+    // All faders in a row stay aligned. The rack gets exactly the space needed
+    // by its tallest visible chain, rather than an arbitrary viewport fraction.
+    // Heights come from ResizeObserver, never from meter or fader updates.
+    for (const row of Object.values(rows)) {
+      let height = 0;
+      for (const record of strips.values()) {
+        if (!record.article.hidden && record.article.closest('.mixer-row') === row) height = Math.max(height, record.contentHeight || 0);
+      }
+      if (!height) continue;
+      const value = `${Math.ceil(height)}px`;
+      if (row.style.getPropertyValue('--extended-rack-content-height') !== value) row.style.setProperty('--extended-rack-content-height', value);
+    }
   }
   function syncEditorGeometry() {
     if (mode !== 'extended') return;
@@ -404,7 +419,7 @@
       const group = button('Membri', 'extended-group-button', () => article.querySelector('.dca-members-button')?.click());
       group.setAttribute('aria-label', `Modifica i membri di ${stripLabel(id)}`);
       wing.append(group, el('p', 'extended-group-note', 'Livello e mute del gruppo'));
-      rack.append(el('p', 'extended-dca-note', 'Il DCA controlla i canali assegnati.'));
+      wing.append(el('p', 'extended-dca-note', 'Il DCA controlla i canali assegnati.'));
       record.group = group;
     } else {
       for (const [block, caption] of WING_SLOTS) {
@@ -433,7 +448,16 @@
       Object.assign(record, { vst, vstStatus, routeStatus, vstList: vstSlots, placement, rackButton });
     }
     const label = article.querySelector('.strip-label');
-    if (label) label.after(rack); else article.prepend(rack);
+    if (label) {
+      label.after(rack);
+      if (!dca) label.addEventListener('click', event => {
+        if (mode !== 'extended') return;
+        // Capture before app.js's shared label handler: one explicit Home
+        // request, while Compact keeps its current-module navigation behavior.
+        event.preventDefault(); event.stopImmediatePropagation();
+        openWing(id, 'home', label);
+      }, true);
+    } else article.prepend(rack);
     rack.dataset.channelId = id;
     rack.addEventListener('pointerenter', () => prepareChain(record));
     rack.addEventListener('focusin', () => prepareChain(record));
@@ -445,7 +469,6 @@
     const path = window.SculptWingMap?.stripPath(id), caption = WING_SLOTS.find(([key]) => key === block)?.[1];
     const supported = strip && (block !== 'gate' || strip.kind === 'CH') && (block !== 'post' || strip.kind !== 'AUX') && (block !== 'sends' || strip.kind !== 'MTX' || receivesOnly(id));
     if (!supported) return { text: '—', state: 'unavailable', disabled: true, title: `${caption} non previsto su ${strip?.kind || 'questo canale'}` };
-    if (block === 'home') return { text: 'Canale', state: 'utility', title: `Home · ${label} · identità e assegnazioni` };
     if (block === 'input') return { text: strip.kind === 'CH' ? 'In · filtri' : ['CH', 'AUX'].includes(strip.kind) ? 'Ingresso' : 'Trim · delay', state: 'utility', title: `Pre · ${label} · ingresso e pre-elaborazione` };
     if (block === 'sends') return { text: receivesOnly(id) ? 'Riceve da' : 'Mandate', state: 'utility', title: `Send · ${label} · ${receivesOnly(id) ? 'mandate ricevute dalle sorgenti' : 'mandate e destinazioni'}` };
     if (block === 'master') return { text: 'Livello · pan', state: 'utility', title: `Master · ${label} · fader, pan e mute` };
@@ -576,7 +599,7 @@
   window.addEventListener('sculpt-vst-state', refreshVstEvent);
   window.addEventListener('sculpt-vst-route-state', refreshVstEvent);
   window.addEventListener('sculpt-live-state', () => { if (mode === 'extended') refresh(); if (reorder && !reorder.pending && !validReorder()) cancelReorder('Spostamento annullato: sessione WING cambiata.'); });
-  window.addEventListener('sculpt-strip-pins', syncEditorGeometry);
+  window.addEventListener('sculpt-strip-pins', () => { syncRackHeight(); syncEditorGeometry(); });
   window.addEventListener('sculpt-dca-bank', event => { if (mode === 'extended' && event.detail?.open) setBank('outputs'); });
   window.addEventListener('resize', syncEditorGeometry);
   document.addEventListener('keydown', keyboard, true);
@@ -595,8 +618,17 @@
     });
   }
   if (typeof ResizeObserver === 'function') {
-    const observer = new ResizeObserver(syncEditorGeometry); observer.observe(consoleNode);
+    const rackRecords = new Map([...strips.values()].map(record => [record.wing, record]));
+    const observer = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        const record = rackRecords.get(entry.target);
+        if (record) record.contentHeight = entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height;
+      }
+      syncRackHeight(); syncEditorGeometry();
+    });
+    observer.observe(consoleNode);
     for (const row of Object.values(rows)) observer.observe(row);
+    for (const wing of rackRecords.keys()) observer.observe(wing);
   }
   if (typeof MutationObserver === 'function') {
     // The bank selector follows the active row without adding vertical space.

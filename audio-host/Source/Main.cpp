@@ -299,8 +299,16 @@ public:
         setUsingNativeTitleBar(true);
         setContentOwned(editor, true);
         setResizable(editor->isResizable(), false);
-        centreWithSize(std::max(320, editor->getWidth()), std::max(200, editor->getHeight()));
+        centreWithSize(getWidth(), getHeight());
+        showAndFocus();
+    }
+    void showAndFocus()
+    {
+        // The helper is an LSUIElement app on macOS. Ordering its NSWindow is
+        // not enough to activate it while Electron is the foreground app.
+        setMinimised(false);
         setVisible(true);
+        Process::makeForegroundProcess();
         toFront(true);
     }
     void closeButtonPressed() override
@@ -699,7 +707,6 @@ private:
         ensureAllStopped(); ensureNotScanning();
         const auto newInput = textField(settings, "inputDevice");
         const auto newOutput = textField(settings, "outputDevice");
-        require(newInput == newOutput, "Usa lo stesso dispositivo USB per ingresso e uscita; i dispositivi aggregati non sono gestiti in questa versione.");
         const auto rateValue = settings.getProperty("sampleRate", 48000);
         require(rateValue.isDouble() || rateValue.isInt() || rateValue.isInt64(), "Sample rate non valido.");
         const double rate = static_cast<double>(rateValue);
@@ -712,12 +719,16 @@ private:
             type->scanForDevices();
             if (type->getDeviceNames(true).contains(newInput) && type->getDeviceNames(false).contains(newOutput))
             {
+                // CoreAudio exposes a Mac's microphone and speakers under
+                // different names. Let the driver combine the explicit pair;
+                // never replace either side with a default device.
+                if (newInput != newOutput && !type->hasSeparateInputsAndOutputs()) continue;
                 chosenType = type;
                 probe.reset(type->createDevice(newOutput, newInput));
                 break;
             }
         }
-        require(chosenType != nullptr && probe != nullptr, "Dispositivo audio non disponibile. Nessun passaggio automatico agli altoparlanti del Mac.");
+        require(chosenType != nullptr && probe != nullptr, "Ingresso o uscita audio non disponibili, oppure combinazione non supportata dal driver. Seleziona entrambi i dispositivi.");
         const int ins = std::min(maxChannels, probe->getInputChannelNames().size());
         const int outs = std::min(maxChannels, probe->getOutputChannelNames().size());
         require(ins > 0 && outs > 0, "Il dispositivo deve avere ingressi e uscite audio.");
@@ -752,7 +763,7 @@ private:
         inputDevice = newInput; outputDevice = newOutput;
         inputCount = ins; outputCount = outs;
         engine.sampleRate = rate; engine.blockSize = size;
-        engine.expectedDevice = newOutput;
+        engine.expectedDevice = device->getName();
         hardwareLatency = device->getInputLatencyInSamples() + device->getOutputLatencyInSamples();
         audioConfigured = true;
         engine.fault.store(0);
@@ -765,7 +776,7 @@ private:
         if (engine.running.load()) return;
         ensureNotScanning();
         require(!engine.analysis.running() || engine.fault.load() == 0, "Il dispositivo audio richiede una nuova configurazione.");
-        require(inputDevice.isNotEmpty() && outputDevice.isNotEmpty(), "Configura prima il dispositivo USB.");
+        require(inputDevice.isNotEmpty() && outputDevice.isNotEmpty(), "Configura prima i dispositivi di ingresso e uscita audio.");
         require(!engine.racks.empty(), "Assegna almeno un rack con ingressi e uscite prima di avviare l'audio.");
         if (!audioConfigured || devices.getCurrentAudioDevice() == nullptr)
             configureAudio(obj({{"inputDevice", inputDevice}, {"outputDevice", outputDevice},
@@ -929,7 +940,7 @@ private:
         require(slot.instance != nullptr, "Nessun plugin disponibile in questo slot.");
         const auto key = id + ":" + String(index);
         const auto previous = windows.find(key);
-        if (previous != windows.end()) { previous->second->setVisible(true); previous->second->toFront(true); return; }
+        if (previous != windows.end()) { previous->second->showAndFocus(); return; }
         auto* editor = slot.instance->createEditorAndMakeActive();
         if (!editor) editor = new GenericAudioProcessorEditor(*slot.instance);
         windows[key] = std::make_unique<PluginWindow>(rack->name + " - " + slot.name, editor, [this, key]

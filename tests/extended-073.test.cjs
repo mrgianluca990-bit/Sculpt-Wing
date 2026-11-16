@@ -52,19 +52,20 @@ function fixture(t) {
   return { w, C, D, V, P, racks, routes, engine, reads, opened, placements, emit, strip, vst, device, changePlacement };
 }
 
-test('unassigned and legacy racks keep all nine pages and expose no invented WING association', t => {
+test('unassigned and legacy racks keep eight processing slots and expose no invented WING association', t => {
   const f = fixture(t);
   f.racks.set('ch-2', { enabled: true, slots: [{ name: 'EQ salvato' }] });
   f.racks.set('ch-3', { placement: '__proto__', enabled: true, slots: [{ name: 'Comp salvato' }] });
   const before = plain(f.C.capture()); f.V.setMode('extended');
-  const modules = ['home', 'input', 'gate', 'eq', 'dyn', 'pre', 'post', 'sends', 'master'];
+  const modules = ['input', 'gate', 'eq', 'dyn', 'pre', 'post', 'sends', 'master'];
   for (const id of ['ch-1', 'ch-2', 'ch-3']) {
     assert.equal(f.vst(id).dataset.placement, 'unassigned');
     assert.equal(f.vst(id).dataset.state, 'unassigned');
     assert.equal(f.vst(id).querySelector('select').value, '');
     assert.equal(f.vst(id).querySelector('select').selectedOptions[0].textContent, 'Da associare');
     assert(f.vst(id).previousElementSibling.classList.contains('extended-rack-heading'));
-    assert.equal(f.strip(id).querySelectorAll('.extended-device').length, 9);
+    assert.equal(f.strip(id).querySelectorAll('.extended-device').length, 8);
+    assert.equal(f.device(id, 'home'), null);
     for (const key of modules) assert(f.device(id, key), `${id} ${key}`);
   }
   assert.equal(f.vst('ch-1').querySelectorAll('.extended-vst-slot:not([hidden])').length, 0, 'an empty strip has one rack action instead of repeated empty plugin rows');
@@ -204,7 +205,8 @@ test('a rack follows Insert 1 after reordering while extended faders show channe
   assert.equal((await f.C.undo()).ok, true); assert.deepEqual(plain(f.D.channel('ch-1').order), before);
   assert.equal(rack.previousElementSibling, f.device('ch-1', 'pre'));
   assert.equal(strip.querySelector('.fader'), fader); assert.equal(strip.querySelector('.strip-pan'), pan); assert.equal(strip.querySelector('.mute-button'), mute);
-  for (const key of ['home', 'input', 'gate', 'eq', 'dyn', 'pre', 'post', 'sends', 'master']) f.device('ch-1', key).querySelector('.extended-slot').click();
+  f.strip('ch-1').querySelector('.strip-label').click();
+  for (const key of ['input', 'gate', 'eq', 'dyn', 'pre', 'post', 'sends', 'master']) f.device('ch-1', key).querySelector('.extended-slot').click();
   assert.deepEqual(f.opened.map(item => item.block), ['home', 'input', 'gate', 'eq', 'dyn', 'pre', 'post', 'sends', 'master']);
   f.V.setMode('compact'); assert.equal(f.C.getSof(), 'bus-3');
   f.V.setMode('extended'); assert.equal(f.C.getSof(), null);

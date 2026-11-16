@@ -7,9 +7,11 @@
   try { saved = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch { /* Labels are optional. Plugin states are stored by the desktop host. */ }
   let state = { running: false, scanning: false, audio: {}, plugins: [], racks: M.metadata(saved).racks, cpu: 0, xruns: 0 };
   let connected = false, initialized = false, initialization = null, busy = false, fault = '', scanMessage = '';
-  let modal = null, panel = 'audio', rackId = 'ch-1', selectedSlot = 0, pluginQuery = '';
+  let modal = null, panel = 'rack', rackId = 'ch-1', selectedSlot = 0, pluginQuery = '', catalogOpen = false;
   let deviceList = [], audioDraft = null, routingDraft = null, priorFocus = null;
   const channelViews = new Set(), routePlans = new Map();
+  const routingExpanded = new Set(), editorPending = new Map();
+  let draggedSlot = null;
   const routeFingerprint = rack => JSON.stringify(rack ? [rack.placement ?? null, rack.inputChannels, rack.outputChannels] : null);
   const liveControlKey = () => JSON.stringify([!!window.SculptLive?.isConnected?.(), !!window.SculptLive?.isWritable?.(), window.SculptLive?.sessionToken?.() ?? null]);
   let lastLiveControlKey = liveControlKey();
@@ -19,7 +21,12 @@
   const note = text => el('p', 'vst-note', text);
   const stripName = id => { const s = C.getStrip(id); return s ? `${s.kind} ${s.number} · ${s.name}` : id.toUpperCase(); };
   const getRack = id => state.racks.find(r => r.id === id) || null;
-  const getCount = (kind, fallback = 48) => { const v = state.audio?.[kind]; return Array.isArray(v) ? v.length : Number.isInteger(v) && v > 0 ? v : fallback; };
+  const getCount = (kind, fallback = 48) => {
+    const value = state.audio?.[kind], count = Array.isArray(value) ? value.length : Number(value) || 0;
+    // The native host permits preparing racks before a device is configured.
+    // Its channel counts are zero until that explicit configuration occurs.
+    return count > 0 ? count : state.audio?.configured ? 0 : fallback;
+  };
   const isStructuralLocked = () => busy || state.running || state.analysis?.running || state.scanning || !connected;
   function message(error) { fault = typeof error === 'string' ? error : error?.message || 'Operazione audio non riuscita.'; updateStatus(); renderAlert(); refreshChannelViews(); }
   function emit(id) { window.dispatchEvent(new CustomEvent('sculpt-vst-state', { detail: { ...(id ? { id } : {}), connected, running: state.running, error: fault, racks: state.racks } })); refreshChannelViews(); }
@@ -71,11 +78,13 @@
   }
   async function action(work, { structure = false, save = true, refresh = true } = {}) {
     if (busy) return false;
-    if (structure && (state.running || state.analysis?.running)) { message('Ferma audio USB e misura prima di modificare plugin o collegamenti.'); return false; }
+    if (structure && (state.running || state.analysis?.running)) { message('Ferma audio e misura prima di modificare plugin o collegamenti.'); return false; }
     if (state.scanning) { message('Attendi il completamento della scansione VST3.'); return false; }
     busy = true; fault = ''; render();
     try {
       await ensure();
+      if (structure && (state.running || state.analysis?.running)) throw new Error('Ferma audio e misura prima di modificare plugin o collegamenti.');
+      if (state.scanning) throw new Error('Attendi il completamento della scansione VST3.');
       await work();
       if (refresh) accept(await request('getState'));
       if (save) await request('saveSession');
@@ -95,6 +104,94 @@
       M.validateRouting(rack, state.racks, getCount('inputChannels'), getCount('outputChannels'));
       await request('setRack', rack);
     }, { structure });
+  }
+  async function choosePlugin(id, index, plugin) {
+    const ok = await action(async () => {
+      accept(await request('getState'));
+      const current = getRack(id);
+      const next = current ? JSON.parse(JSON.stringify(current)) : {
+        id, enabled: false, placement: /^(ch|aux)-/.test(id) ? 'pre' : 'insert1', slots: [],
+        ...M.freeRouting(state.racks, 1, getCount('inputChannels'), getCount('outputChannels'))
+      };
+      while (next.slots.length <= index) next.slots.push({ pluginId: null, bypass: false });
+      next.slots[index] = { pluginId: plugin.id, name: plugin.name, bypass: false };
+      M.validateRouting(next, state.racks, getCount('inputChannels'), getCount('outputChannels'));
+      await request('setRack', next);
+      if (!current && rackId === id) routingDraft = null;
+    }, { structure: true });
+    if (ok) {
+      if (rackId === id && selectedSlot === index) catalogOpen = false;
+      render();
+      await openSlot(id, index);
+    }
+    return ok;
+  }
+  async function moveSlot(id, from, to) {
+    if (from === to || from < 0 || to < 0 || from >= M.MAX_SLOTS || to >= M.MAX_SLOTS) return false;
+    return editRack(rack => {
+      while (rack.slots.length < M.MAX_SLOTS) rack.slots.push({ pluginId: null, bypass: false });
+      const moved = rack.slots.splice(from, 1)[0]; rack.slots.splice(to, 0, moved);
+      if (rackId === id) selectedSlot = to;
+    }, { id });
+  }
+  function selectSlot(id, index) {
+    rackId = id; selectedSlot = index;
+    for (const row of document.querySelectorAll('.vst-slot[data-rack-id]')) {
+      row.classList.toggle('is-selected', row.dataset.rackId === id && Number(row.dataset.slot) === index);
+    }
+    const title = modal?.querySelector('.vst-catalog-title');
+    if (title) title.textContent = `Plugin · slot ${String.fromCharCode(65 + index)}`;
+    for (const control of modal?.querySelectorAll('[data-slot-step]') || []) {
+      const next = index + Number(control.dataset.slotStep);
+      control.disabled = isStructuralLocked() || !getRack(id)?.slots?.[index]?.pluginId || next < 0 || next >= M.MAX_SLOTS;
+    }
+    const clear = modal?.querySelector('[data-clear-slot]');
+    if (clear) clear.disabled = isStructuralLocked() || !getRack(id)?.slots?.[index]?.pluginId;
+  }
+  function showBrowser(id, index) { return show('rack', id, index, { choose: true }); }
+  function renderSlot(id, index, embedded = false) {
+    const slot = getRack(id)?.slots?.[index], occupied = !!slot?.pluginId;
+    const row = el('div', `vst-slot${embedded ? ' vst-channel-slot' : ''}${id === rackId && index === selectedSlot ? ' is-selected' : ''}${slot?.missing ? ' is-missing' : ''}${slot?.bypass ? ' is-bypassed' : ''}`);
+    row.dataset.rackId = id; row.dataset.slot = String(index);
+    const drag = button('⋮⋮', null, 'vst-slot-drag'); drag.title = 'Trascina per riordinare';
+    drag.setAttribute('aria-label', `Riordina slot VST3 ${index + 1}`); drag.disabled = isStructuralLocked() || !occupied;
+    drag.draggable = !drag.disabled;
+    drag.addEventListener('dragstart', event => {
+      if (isStructuralLocked() || !occupied) { event.preventDefault(); return; }
+      draggedSlot = { id, index }; row.classList.add('is-dragging');
+      event.dataTransfer?.setData('text/plain', `${id}:${index}`);
+      if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+    });
+    drag.addEventListener('dragend', () => { draggedSlot = null; row.classList.remove('is-dragging'); document.querySelectorAll('.vst-slot.is-drop-target').forEach(n => n.classList.remove('is-drop-target')); });
+    row.addEventListener('dragover', event => { if (draggedSlot?.id === id && draggedSlot.index !== index && !isStructuralLocked()) { event.preventDefault(); row.classList.add('is-drop-target'); } });
+    row.addEventListener('dragleave', event => { if (!row.contains(event.relatedTarget)) row.classList.remove('is-drop-target'); });
+    row.addEventListener('drop', event => {
+      row.classList.remove('is-drop-target');
+      if (draggedSlot?.id !== id || isStructuralLocked()) return;
+      event.preventDefault(); const from = draggedSlot.index; draggedSlot = null; moveSlot(id, from, index);
+    });
+    const name = button('', () => { selectSlot(id, index); if (!occupied || slot.missing) showBrowser(id, index); }, `vst-slot-name${embedded ? ' vst-channel-plugin' : ''}`);
+    name.append(el('small', '', String.fromCharCode(65 + index)), el('span', '', slot?.name || (occupied ? 'Plugin VST3' : '+ Aggiungi plugin')));
+    name.setAttribute('aria-label', `${occupied ? 'Slot' : 'Scegli'} VST3 ${index + 1} · ${stripName(id)}`);
+    name.title = slot?.missing ? 'Plugin non disponibile: scegli un sostituto o aggiorna la scansione' : occupied ? `${slot.name || 'VST3'} · doppio clic per aprire` : 'Scegli un plugin';
+    name.disabled = busy;
+    name.addEventListener('dblclick', () => { if (occupied && !slot.missing) openSlot(id, index); });
+    name.addEventListener('keydown', event => {
+      if (event.altKey && ['ArrowUp', 'ArrowDown'].includes(event.key) && !isStructuralLocked()) { event.preventDefault(); moveSlot(id, index, index + (event.key === 'ArrowUp' ? -1 : 1)); }
+      else if (event.key === 'Enter' && occupied && !slot.missing) { event.preventDefault(); openSlot(id, index); }
+    });
+    row.append(drag, name);
+    if (occupied) {
+      const open = button('Apri', () => openSlot(id, index), 'vst-slot-open'); open.disabled = busy || state.scanning || !!slot.missing || !available();
+      open.setAttribute('aria-label', `Apri VST3 ${index + 1} · ${stripName(id)}`);
+      const bypass = button('BYP', () => editRack(next => { if (next.slots[index]?.pluginId) next.slots[index].bypass = !next.slots[index].bypass; }, { id, structure: false }), 'vst-slot-bypass');
+      bypass.setAttribute('aria-label', `Bypass VST3 ${index + 1} · ${stripName(id)}`); bypass.setAttribute('aria-pressed', String(!!slot.bypass));
+      bypass.disabled = busy || state.scanning || !connected || slot.missing;
+      const choose = button('▾', () => showBrowser(id, index), 'vst-slot-choose'); choose.title = 'Sostituisci plugin'; choose.setAttribute('aria-label', `Sostituisci VST3 ${index + 1}`); choose.disabled = isStructuralLocked();
+      const clear = button('×', () => editRack(next => { next.slots[index] = { pluginId: null, bypass: false }; }, { id }), 'vst-slot-remove'); clear.title = 'Rimuovi plugin'; clear.setAttribute('aria-label', `Rimuovi VST3 ${index + 1}`); clear.disabled = isStructuralLocked();
+      row.append(open, bypass, choose, clear);
+    }
+    return row;
   }
   async function setPlacement(id, value) {
     value = value ?? null;
@@ -136,7 +233,7 @@
     return action(async () => {
       if (state.running) await request('stopAudio');
       else {
-        if (!state.audio?.inputDevice || !state.audio?.outputDevice) throw new Error('Configura prima l’interfaccia in Audio USB.');
+        if (!state.audio?.inputDevice || !state.audio?.outputDevice) throw new Error('Scegli prima ingresso e uscita in Audio.');
         if (!state.racks.length) throw new Error('Crea almeno un rack con ingressi e uscite assegnati.');
         await request('startAudio');
       }
@@ -146,11 +243,33 @@
     const result = await request('devices');
     deviceList = Array.isArray(result) ? result : result?.devices || [];
     if (!audioDraft) audioDraft = {
-      inputDevice: state.audio?.inputDevice || deviceList.find(d => /wing/i.test(d.name) && d.inputChannels?.length)?.name || '',
-      outputDevice: state.audio?.outputDevice || deviceList.find(d => /wing/i.test(d.name) && d.outputChannels?.length)?.name || '',
+      inputDevice: state.audio?.inputDevice || deviceList.find(d => /wing/i.test(d.name) && deviceChannelCount(d, 'inputChannels'))?.name || '',
+      outputDevice: state.audio?.outputDevice || deviceList.find(d => /wing/i.test(d.name) && deviceChannelCount(d, 'outputChannels'))?.name || '',
       sampleRate: state.audio?.sampleRate || 48000,
       bufferSize: state.audio?.bufferSize || 128
     };
+  }
+  const deviceChannelCount = (device, key) => Array.isArray(device?.[key]) ? device[key].length : Math.max(0, Number(device?.[key]) || 0);
+  function audioCapabilities(draft) {
+    const devices = [...new Set([draft.inputDevice, draft.outputDevice])].map(name => deviceList.find(d => d.name === name)).filter(Boolean);
+    const common = (key, fallback) => {
+      const lists = devices.map(d => d[key]).filter(values => Array.isArray(values) && values.length).map(values => values.map(Number).filter(n => n > 0));
+      return lists.length ? [...new Set(lists[0])].filter(value => lists.every(values => values.includes(value))).sort((a, b) => a - b) : fallback;
+    };
+    return { rates: common('sampleRates', [44100, 48000]), sizes: common('bufferSizes', [32, 64, 128, 256, 512, 1024]) };
+  }
+  function routingSummary(id, rack = getRack(id)) {
+    const io = rack ? `${rack.inputChannels?.length === 2 ? 'Stereo' : 'Mono'} · In ${M.channelLabel(rack.inputChannels)} → Out ${M.channelLabel(rack.outputChannels)}` : 'I/O da assegnare al primo plugin';
+    const route = routingStatus(id);
+    return `${io} · WING ${route.state === 'applied' ? 'collegata' : route.managed ? 'da verificare' : 'non applicato'}`;
+  }
+  function routingDetails(id, cls = '') {
+    const details = el('details', `vst-routing-details ${cls}`);
+    details.open = routingExpanded.has(id);
+    const summary = el('summary'); summary.append(el('strong', '', 'I/O e percorso WING'), el('span', '', routingSummary(id)));
+    details.append(summary);
+    details.addEventListener('toggle', () => { if (!details.isConnected) return; if (details.open) routingExpanded.add(id); else routingExpanded.delete(id); });
+    return details;
   }
   function field(label, control) { const n = el('label', 'vst-field'); n.append(el('span', '', label), control); control.setAttribute('aria-label', label); return n; }
   function select(label, value, options, onChange, disabled = false) {
@@ -199,40 +318,31 @@
     for (const view of channelViews) {
       if (view.disposed) continue;
       const rack = getRack(view.id), route = routingStatus(view.id), plan = routePlans.get(view.id);
-      const signature = JSON.stringify([busy, connected, state.running, state.scanning, fault, liveControlKey(), M.metadata({ racks: rack ? [rack] : [] }), route.state, route.message, route.managed, route.canRestore, plan?.summary]);
+      const signature = JSON.stringify([busy, connected, state.running, state.scanning, state.analysis?.running, fault, liveControlKey(), M.metadata({ racks: rack ? [rack] : [] }), route.state, route.message, route.managed, route.canRestore, plan?.summary]);
       if (view.signature === signature) continue;
       view.signature = signature;
       const { container, id } = view, scrollTop = container.scrollTop, scrollLeft = container.scrollLeft;
       container.replaceChildren(); container.classList.add('vst-channel-panel');
       const heading = el('div', 'vst-channel-heading');
       heading.append(el('strong', '', stripName(id)), placementControl(id));
-      const setup = button('Audio USB', openAudio); heading.append(setup);
+      const setup = button('Audio', openAudio); setup.title = 'Dispositivi, frequenza e buffer'; heading.append(setup);
       if (rack) {
         const bypass = button(rack.enabled ? 'Rack attivo' : 'Rack in bypass', () => editRack(next => { next.enabled = !next.enabled; }, { id, structure: false }), 'vst-bypass');
         bypass.setAttribute('aria-pressed', String(!rack.enabled)); bypass.disabled = busy || state.scanning || !connected; heading.append(bypass);
       }
-      const audio = button(state.running ? 'Ferma audio USB' : 'Avvia audio USB', toggleAudio, state.running ? 'vst-stop' : 'vst-primary');
+      const audio = button(state.running ? 'Ferma audio' : 'Avvia audio', toggleAudio, state.running ? 'vst-stop' : 'vst-primary');
       audio.disabled = busy || state.scanning || !connected || !available(); heading.append(audio); container.append(heading);
       if (fault) { const alert = el('div', 'vst-channel-alert', fault); alert.setAttribute('role', 'alert'); container.append(alert); }
       const layout = el('div', 'vst-channel-layout'), chain = el('section', 'vst-channel-chain');
-      for (let index = 0; index < M.MAX_SLOTS; index++) {
-        const slot = rack?.slots?.[index], item = el('div', `vst-channel-slot${slot?.missing ? ' is-missing' : ''}`);
-        const open = button('', () => slot?.pluginId && !slot.missing ? openSlot(id, index) : show('rack', id, index), 'vst-channel-plugin');
-        open.append(el('small', '', String.fromCharCode(65 + index)), el('strong', '', slot?.name || (slot?.pluginId ? 'Plugin VST3' : '+ VST3')));
-        open.setAttribute('aria-label', `${slot?.pluginId ? 'Apri' : 'Scegli'} VST3 ${index + 1} · ${stripName(id)}`); open.disabled = busy; item.append(open);
-        if (slot?.pluginId) {
-          const bypass = button('BYP', () => editRack(next => { if (next.slots[index]?.pluginId) next.slots[index].bypass = !next.slots[index].bypass; }, { id, structure: false }), 'vst-slot-bypass');
-          bypass.setAttribute('aria-label', `Bypass VST3 ${index + 1} · ${stripName(id)}`); bypass.setAttribute('aria-pressed', String(!!slot.bypass));
-          bypass.disabled = busy || state.scanning || !connected || slot.missing; item.append(bypass);
-          const choose = button('▾', () => show('rack', id, index), 'vst-slot-choose'); choose.setAttribute('aria-label', `Sostituisci VST3 ${index + 1}`); choose.disabled = isStructuralLocked(); item.append(choose);
-        }
-        chain.append(item);
-      }
+      for (let index = 0; index < M.MAX_SLOTS; index++) chain.append(renderSlot(id, index, true));
       const links = el('div', 'vst-channel-links');
-      links.append(note(rack ? `Dal mixer: USB ${M.channelLabel(rack.inputChannels)} · Al mixer: USB ${M.channelLabel(rack.outputChannels)} · ${rack.inputChannels?.length === 2 ? 'Stereo' : 'Mono'}` : 'Scegli la posizione o apri il rack per assegnare gli ingressi e le uscite USB.'), button('Plugin e collegamenti USB', () => openRack(id)));
+      links.append(note('Doppio clic per aprire · trascina ⋮⋮ per riordinare'), button('Apri rack', () => openRack(id)));
       if (!available()) links.append(note('L’elaborazione VST3 e gli editor originali sono disponibili nell’app Mac.'));
-      chain.append(links);
-      const routing = el('div', 'vst-channel-routing'); renderWingRoute(routing, id); layout.append(chain, routing); container.append(layout);
+      const routing = routingDetails(id, 'vst-channel-routing');
+      const settings = el('div', 'vst-channel-routing-content');
+      settings.append(button('Modifica I/O', () => show('rack', id, 0, { route: true })));
+      renderWingRoute(settings, id); routing.append(settings);
+      layout.append(chain, links, routing); container.append(layout);
       container.scrollTop = scrollTop; container.scrollLeft = scrollLeft;
     }
   }
@@ -245,7 +355,7 @@
   function makeDialog() {
     if (modal) return;
     modal = el('dialog', 'vst-dialog'); modal.id = 'vst-rack-dialog'; modal.setAttribute('aria-labelledby', 'vst-panel-title');
-    modal.innerHTML = '<header class="vst-header"><div><p class="vst-eyebrow">SCULPT WING · VST3</p><h2 id="vst-panel-title">Audio USB</h2></div><div class="vst-header-actions"></div></header><nav class="vst-tabs" aria-label="Rack VST3"></nav><div class="vst-statusbar" role="status"></div><div class="vst-alert" role="alert" hidden></div><div class="vst-body"></div><footer class="vst-footer"></footer>';
+    modal.innerHTML = '<header class="vst-header"><div><p class="vst-eyebrow">SCULPT WING</p><h2 id="vst-panel-title">Rack VST3</h2></div><div class="vst-header-actions"></div></header><nav class="vst-tabs" aria-label="Rack VST3"></nav><div class="vst-statusbar" role="status"></div><div class="vst-alert" role="alert" hidden></div><div class="vst-body"></div><footer class="vst-footer"></footer>';
     const close = button('×', () => modal.close(), 'vst-close'); close.setAttribute('aria-label', 'Chiudi rack VST3'); modal.querySelector('.vst-header-actions').append(close);
     modal.addEventListener('close', () => {
       if (connected && !busy) request('saveSession').catch(message);
@@ -258,13 +368,14 @@
     const alert = modal.querySelector('.vst-alert'); alert.hidden = !fault; alert.textContent = fault;
   }
   function updateStatus() {
-    const status = !available() ? 'VST3 · app Mac' : fault && !connected ? 'USB · errore' : state.running ? 'USB · audio attivo' : 'USB · fermo';
-    const toolbar = document.getElementById('vst-audio-button'); if (toolbar) { toolbar.textContent = status; toolbar.classList.toggle('is-running', !!state.running); toolbar.classList.toggle('has-error', !!fault); toolbar.title = 'Rack VST3 · audio USB separato dal controllo WING Ethernet'; }
+    const status = !available() ? 'VST3 · app Mac' : fault && !connected ? 'Audio · errore' : state.running ? 'Audio · attivo' : 'Audio · fermo';
+    const toolbar = document.getElementById('vst-audio-button'); if (toolbar) { toolbar.textContent = status; toolbar.classList.toggle('is-running', !!state.running); toolbar.classList.toggle('has-error', !!fault); toolbar.title = 'Audio del Mac e rack VST3'; }
     if (!modal) return;
     const cpuValue = Number(state.cpu) || 0;
     const cpu = cpuValue <= 1 ? cpuValue * 100 : cpuValue;
-    const parts = [status, state.audio?.sampleRate ? `${(state.audio.sampleRate / 1000).toLocaleString('it-IT')} kHz` : '', state.audio?.bufferSize ? `${state.audio.bufferSize} campioni` : '', connected ? `CPU ${cpu.toFixed(1)}%` : '', connected ? `Dropout ${Number(state.xruns) || 0}` : ''];
-    const bar = modal.querySelector('.vst-statusbar'); bar.textContent = parts.filter(Boolean).join('  ·  '); bar.classList.toggle('is-running', !!state.running);
+    const deviceName = state.audio?.inputDevice === state.audio?.outputDevice ? state.audio?.outputDevice : [state.audio?.inputDevice, state.audio?.outputDevice].filter(Boolean).join(' → ');
+    const parts = [status, deviceName || 'Dispositivo da scegliere', state.audio?.sampleRate ? `${(state.audio.sampleRate / 1000).toLocaleString('it-IT')} kHz` : '', state.audio?.bufferSize ? `${state.audio.bufferSize} campioni` : '', connected ? `CPU ${cpu.toFixed(1)}%` : '', connected && state.xruns ? `Dropout ${Number(state.xruns) || 0}` : ''];
+    const bar = modal.querySelector('.vst-statusbar'); bar.textContent = parts.filter(Boolean).join('  ·  '); bar.title = bar.textContent; bar.classList.toggle('is-running', !!state.running);
     const measured = modal.querySelector('[data-vst-latency]');
     if (measured) {
       const samples = Number(state.audio?.latencySamples);
@@ -274,31 +385,32 @@
     if (rackLatency) { const rack = getRack(rackId), samples = state.rackMeters?.find(r => r.id === rackId)?.latencySamples ?? rack?.latencySamples; rackLatency.textContent = `Plugin: ${Number(samples) || 0} campioni${state.audio?.sampleRate ? ` · ${((Number(samples) || 0) * 1000 / state.audio.sampleRate).toFixed(2)} ms` : ''}`; }
   }
   function renderAudio(container) {
-    container.append(note('Ethernet controlla la WING. Il collegamento USB invia l’audio al Mac, attraversa i VST3 e riporta il segnale al mixer.'));
-    if (!available()) { container.append(el('div', 'vst-empty', 'Apri Sculpt Wing sul Mac per scegliere l’interfaccia USB e caricare i tuoi VST3.')); return; }
+    if (!available()) { container.append(el('div', 'vst-empty', 'Apri Sculpt Wing sul Mac per scegliere i dispositivi audio e caricare i tuoi VST3.')); return; }
+    container.append(note('Scegli i dispositivi del Mac, oppure la WING collegata via USB. Il rack funziona anche senza mixer.'));
     const draft = audioDraft || { inputDevice: state.audio?.inputDevice || '', outputDevice: state.audio?.outputDevice || '', sampleRate: state.audio?.sampleRate || 48000, bufferSize: state.audio?.bufferSize || 128 };
     if (connected) audioDraft = draft;
     const controls = el('div', 'vst-audio-grid');
-    const channelCount = (device, key) => Array.isArray(device[key]) ? device[key].length : Number(device[key]) || 0;
-    const options = [{ value: '', label: 'Seleziona dispositivo…' }, ...deviceList.filter(d => channelCount(d, 'inputChannels') > 0 && channelCount(d, 'outputChannels') > 0).map(d => ({ value: d.name, label: `${d.name} · ${channelCount(d, 'inputChannels')} in / ${channelCount(d, 'outputChannels')} out` }))];
-    if (draft.inputDevice && !options.some(o => o.value === draft.inputDevice)) options.push({ value: draft.inputDevice, label: `${draft.inputDevice} · non disponibile`, disabled: true });
-    controls.append(select('Interfaccia USB', draft.inputDevice, options, value => {
-      draft.inputDevice = value; draft.outputDevice = value;
-      const device = deviceList.find(d => d.name === value);
-      if (device?.sampleRates?.length && !device.sampleRates.includes(draft.sampleRate)) draft.sampleRate = device.sampleRates.includes(48000) ? 48000 : device.sampleRates[0];
-      if (device?.bufferSizes?.length && !device.bufferSizes.includes(draft.bufferSize)) draft.bufferSize = device.bufferSizes.includes(128) ? 128 : device.bufferSizes[0];
-      render();
-    }, isStructuralLocked() || hasManagedRoute()));
-    const out = deviceList.find(d => d.name === draft.outputDevice), rates = out?.sampleRates?.length ? out.sampleRates : [44100, 48000], sizes = out?.bufferSizes?.length ? out.bufferSizes : [32, 64, 128, 256, 512, 1024];
+    for (const [key, channelKey, label, suffix] of [['inputDevice', 'inputChannels', 'Dispositivo ingresso', 'in'], ['outputDevice', 'outputChannels', 'Dispositivo uscita', 'out']]) {
+      const options = [{ value: '', label: 'Seleziona dispositivo…' }, ...deviceList.filter(d => deviceChannelCount(d, channelKey) > 0).map(d => ({ value: d.name, label: `${d.name} · ${deviceChannelCount(d, channelKey)} ${suffix}` }))];
+      if (draft[key] && !options.some(option => option.value === draft[key])) options.push({ value: draft[key], label: `${draft[key]} · non disponibile`, disabled: true });
+      controls.append(select(label, draft[key], options, value => {
+        draft[key] = value;
+        const { rates, sizes } = audioCapabilities(draft);
+        if (rates.length && !rates.includes(draft.sampleRate)) draft.sampleRate = rates.includes(48000) ? 48000 : rates[0];
+        if (sizes.length && !sizes.includes(draft.bufferSize)) draft.bufferSize = sizes.includes(128) ? 128 : sizes[0];
+        render();
+      }, isStructuralLocked() || hasManagedRoute()));
+    }
+    const { rates, sizes } = audioCapabilities(draft), compatible = rates.length > 0 && sizes.length > 0;
     controls.append(select('Frequenza', draft.sampleRate, rates.map(v => ({ value: v, label: `${v / 1000} kHz` })), v => { draft.sampleRate = Number(v); }, isStructuralLocked()), select('Buffer', draft.bufferSize, sizes.map(v => ({ value: v, label: `${v} campioni` })), v => { draft.bufferSize = Number(v); }, isStructuralLocked()));
     const apply = button('Applica dispositivo', () => action(async () => {
-      if (!draft.inputDevice || !draft.outputDevice) throw new Error('Seleziona ingresso e uscita USB.');
-      if (draft.inputDevice !== draft.outputDevice) throw new Error('Seleziona una sola interfaccia USB per ingresso e uscita.');
-      if ((draft.inputDevice !== state.audio?.inputDevice || draft.outputDevice !== state.audio?.outputDevice) && hasManagedRoute()) throw new Error('Ripristina prima i percorsi WING dei rack, poi cambia interfaccia USB.');
+      if (!draft.inputDevice || !draft.outputDevice) throw new Error('Seleziona un dispositivo di ingresso e uno di uscita.');
+      if ((draft.inputDevice !== state.audio?.inputDevice || draft.outputDevice !== state.audio?.outputDevice) && hasManagedRoute()) throw new Error('Ripristina prima i percorsi WING dei rack, poi cambia dispositivo audio.');
+      if (!compatible || !rates.includes(draft.sampleRate) || !sizes.includes(draft.bufferSize)) throw new Error('Scegli frequenza e buffer supportati da entrambi i dispositivi.');
       await request('configureAudio', { ...draft });
       routePlans.clear();
       audioDraft = null;
-    }, { structure: true }), 'vst-primary'); apply.disabled = isStructuralLocked();
+    }, { structure: true }), 'vst-primary'); apply.disabled = isStructuralLocked() || !compatible || !draft.inputDevice || !draft.outputDevice;
     const reload = button(connected ? 'Aggiorna dispositivi' : 'Riconnetti motore', async () => {
       if (busy || state.running || state.analysis?.running || state.scanning) return;
       busy = true; fault = ''; render();
@@ -310,20 +422,20 @@
       } catch (error) { message(error); } finally { busy = false; render(); }
     }); reload.disabled = busy || state.running || state.analysis?.running || state.scanning;
     controls.append(apply, reload); container.append(controls);
-    if (hasManagedRoute()) container.append(note('Interfaccia associata a un percorso WING: ripristina i percorsi dei rack prima di cambiarla. Buffer e frequenza restano modificabili con audio fermo.'));
+    if (!compatible) container.append(note('I dispositivi selezionati non hanno frequenza e buffer in comune. Scegli un altro ingresso o un’altra uscita.'));
+    if (hasManagedRoute()) container.append(note('Ripristina i percorsi WING dei rack prima di cambiare dispositivo. Buffer e frequenza restano modificabili con audio fermo.'));
     const latency = note(''); latency.dataset.vstLatency = ''; container.append(latency);
-    container.append(note('Le catene lavorano sul Mac. Aggiunta, rimozione e riordino dei plugin richiedono audio fermo; parametri e bypass restano utilizzabili durante l’audio.'));
     const racks = el('section', 'vst-rack-overview'); racks.append(el('h3', '', `Rack assegnati · ${state.racks.length}/${M.MAX_RACKS}`));
-    if (!state.racks.length) racks.append(note('Apri uno slot VST nella vista Extended per preparare il primo rack.'));
+    if (!state.racks.length) racks.append(note('Scegli uno slot vuoto in Rack canale per aggiungere il primo plugin.'));
     for (const rack of state.racks) {
       const row = button('', () => openRack(rack.id), 'vst-overview-row');
-      row.append(el('strong', '', stripName(rack.id)), el('span', '', `${rack.inputChannels?.length === 2 ? 'Stereo' : 'Mono'} · USB ${M.channelLabel(rack.inputChannels)} → ${M.channelLabel(rack.outputChannels)}`), el('small', '', `${rack.slots?.filter(s => s?.pluginId).length || 0} VST3${rack.enabled ? '' : ' · bypass'}`)); racks.append(row);
+      row.append(el('strong', '', stripName(rack.id)), el('span', '', `${M.placementLabel(rack.placement)} · In ${M.channelLabel(rack.inputChannels)} → Out ${M.channelLabel(rack.outputChannels)}`), el('small', '', `${rack.slots?.filter(s => s?.pluginId).length || 0} VST3${rack.enabled ? '' : ' · bypass'}`)); racks.append(row);
     }
     container.append(racks);
   }
   function renderRouting(container, rack) {
     const id = rackId;
-    const section = el('section', 'vst-routing'); section.append(el('h3', '', rack ? 'Collegamenti USB' : 'Assegna il percorso USB'));
+    const section = el('section', 'vst-routing'); section.append(el('h3', '', 'Ingressi e uscite del rack sul Mac'));
     let draft = routingDraft;
     if (!draft) {
       if (rack) draft = { width: rack.inputChannels.length, placement: rack.placement ?? null, inputChannels: [...rack.inputChannels], outputChannels: [...rack.outputChannels] };
@@ -335,13 +447,16 @@
       if (connected) routingDraft = draft;
     }
     const grid = el('div', 'vst-routing-grid');
-    grid.append(placementControl(id, draft.placement, value => { draft.placement = value; render(); }));
-    grid.append(select('Formato rack', draft.width, [{ value: 1, label: 'Mono' }, { value: 2, label: 'Stereo' }], v => {
+    grid.append(select('Formato rack', draft.width, [{ value: 1, label: 'Mono' }, { value: 2, label: 'Stereo', disabled: Math.min(getCount('inputChannels'), getCount('outputChannels')) < 2 }], v => {
       const width = Number(v); draft.width = width;
-      for (const key of ['inputChannels', 'outputChannels']) draft[key] = width === 1 ? draft[key].slice(0, 1) : [draft[key][0], Math.min(47, draft[key][0] + 1)]; render();
+      for (const key of ['inputChannels', 'outputChannels']) {
+        const first = width === 2 && draft[key][0] + 1 >= getCount(key) ? 0 : draft[key][0];
+        draft[key] = width === 1 ? [first] : [first, first + 1];
+      }
+      render();
     }, isStructuralLocked()));
-    for (const [key, label, countKey] of [['inputChannels', 'Dal mixer · USB', 'inputChannels'], ['outputChannels', 'Al mixer · USB', 'outputChannels']]) {
-      for (let ch = 0; ch < draft.width; ch++) grid.append(select(`${label}${draft.width === 2 ? ` ${ch ? 'R' : 'L'}` : ''}`, draft[key][ch], Array.from({ length: Math.min(48, getCount(countKey)) }, (_, i) => ({ value: i, label: `USB ${i + 1}` })), v => { draft[key][ch] = Number(v); }, isStructuralLocked()));
+    for (const [key, label, countKey] of [['inputChannels', 'Ingresso', 'inputChannels'], ['outputChannels', 'Uscita', 'outputChannels']]) {
+      for (let ch = 0; ch < draft.width; ch++) grid.append(select(`${label}${draft.width === 2 ? ` ${ch ? 'R' : 'L'}` : ''}`, draft[key][ch], Array.from({ length: Math.min(48, getCount(countKey)) }, (_, i) => ({ value: i, label: `${label} ${i + 1}` })), v => { draft[key][ch] = Number(v); }, isStructuralLocked()));
     }
     const apply = button(rack ? 'Applica collegamenti' : 'Crea rack', () => action(async () => {
       accept(await request('getState'));
@@ -351,7 +466,7 @@
       M.validateRouting(next, state.racks, getCount('inputChannels'), getCount('outputChannels'));
       await request('setRack', next); routePlans.delete(id); if (rackId === id) routingDraft = null;
     }, { structure: true }), 'vst-primary'); apply.disabled = isStructuralLocked(); grid.append(apply); section.append(grid);
-    section.append(note('Questi collegamenti appartengono al rack sul Mac. Leggi e applica il percorso WING qui sotto per collegarlo al punto scelto del canale.'));
+    section.append(note('Ingressi e uscite appartengono al dispositivo scelto in Audio. Il collegamento alla WING si applica separatamente qui sotto.'));
     if (rack) {
       const remove = button('Rimuovi rack', () => action(async () => { requireReleasedRoute(id); await request('removeRack', { id }); routePlans.delete(id); if (rackId === id) routingDraft = null; }, { structure: true }), 'vst-danger'); remove.disabled = isStructuralLocked(); section.append(remove);
     }
@@ -359,97 +474,113 @@
     renderWingRoute(container, id);
   }
   function renderRack(container) {
-    const id = rackId, slotIndex = selectedSlot, rack = getRack(id), summary = el('div', 'vst-rack-summary');
-    summary.append(el('h3', '', stripName(id)));
+    const id = rackId, rack = getRack(id), summary = el('div', 'vst-rack-summary');
+    summary.append(placementControl(id, rack ? rack.placement : /^(ch|aux)-/.test(id) ? 'pre' : 'insert1'));
     if (rack) {
-      const bypass = button(rack.enabled ? 'Rack attivo' : 'Rack in bypass', () => editRack(r => { r.enabled = !r.enabled; }, { id, structure: false }), 'vst-bypass'); bypass.setAttribute('aria-pressed', String(!rack.enabled)); bypass.disabled = busy || state.scanning || !connected;
+      const bypass = button(rack.enabled ? 'Rack attivo' : 'Rack in bypass', () => editRack(r => { r.enabled = !r.enabled; }, { id, structure: false }), 'vst-bypass');
+      bypass.setAttribute('aria-pressed', String(!rack.enabled)); bypass.disabled = busy || state.scanning || !connected;
       summary.append(bypass);
     }
     const lat = el('span', 'vst-latency'); lat.dataset.vstRackLatency = ''; summary.append(lat); container.append(summary);
-    if (!available()) { container.append(note('Per caricare i VST3 e usare l’audio USB apri questa vista nell’app Mac.')); return; }
-    const layout = el('div', 'vst-rack-layout'), chain = el('section', 'vst-chain'), catalog = el('section', 'vst-catalog');
-    chain.append(el('h3', '', 'Insert VST3 · Mac'));
-    for (let i = 0; i < M.MAX_SLOTS; i++) {
-      const slot = rack?.slots?.[i], row = el('div', `vst-slot${i === slotIndex ? ' is-selected' : ''}${slot?.missing ? ' is-missing' : ''}`);
-      const open = button('', () => {
-        selectedSlot = i;
-        if (slot?.pluginId && !slot.missing) openSlot(id, i);
-        else render();
-      }, 'vst-slot-name'); open.append(el('small', '', String.fromCharCode(65 + i)), el('span', '', slot?.name || (slot?.pluginId ? 'Plugin' : 'Scegli VST3…'))); open.disabled = busy;
-      if (slot?.missing) open.title = 'Plugin non trovato sul Mac: scegli un altro VST3 o ripeti la scansione.';
-      row.append(open);
-      const choose = button('▾', () => { selectedSlot = i; render(); modal.querySelector('.vst-search')?.focus(); }, 'vst-slot-choose'); choose.setAttribute('aria-label', `Scegli plugin nello slot ${String.fromCharCode(65 + i)}`); choose.disabled = isStructuralLocked() || !rack; row.append(choose);
-      if (slot?.pluginId) {
-        const bypass = button('BYP', () => editRack(r => { if (r.slots[i]?.pluginId) r.slots[i].bypass = !r.slots[i].bypass; }, { id, structure: false }), 'vst-slot-bypass'); bypass.setAttribute('aria-label', `Bypass ${slot.name || 'plugin'} slot ${i + 1}`); bypass.setAttribute('aria-pressed', String(!!slot.bypass)); bypass.disabled = busy || state.scanning || !connected || slot.missing; row.append(bypass);
-      }
-      chain.append(row);
-    }
+    if (!available()) container.append(note('Carica i VST3 e apri gli editor originali nell’app Mac.'));
+    const layout = el('div', `vst-rack-layout${catalogOpen ? ' has-catalog' : ''}`), chain = el('section', 'vst-chain');
+    const chainHeading = el('div', 'vst-chain-heading');
+    chainHeading.append(el('h3', '', 'Insert VST3'), el('span', '', `${rack?.slots?.filter(slot => slot?.pluginId).length || 0} / ${M.MAX_SLOTS}`));
+    chain.append(chainHeading);
+    for (let i = 0; i < M.MAX_SLOTS; i++) chain.append(renderSlot(id, i));
     const order = el('div', 'vst-chain-actions');
     for (const [direction, label] of [[-1, 'Sposta su'], [1, 'Sposta giù']]) {
-      const b = button(label, () => editRack(r => {
-        while (r.slots.length < M.MAX_SLOTS) r.slots.push({ pluginId: null, bypass: false });
-        const next = slotIndex + direction; [r.slots[slotIndex], r.slots[next]] = [r.slots[next], r.slots[slotIndex]]; if (rackId === id) selectedSlot = next;
-      }, { id })); b.disabled = isStructuralLocked() || !rack || slotIndex + direction < 0 || slotIndex + direction >= M.MAX_SLOTS; order.append(b);
+      const b = button(label, () => { const target = selectedSlot; moveSlot(id, target, target + direction); });
+      b.dataset.slotStep = String(direction); b.disabled = isStructuralLocked() || !rack?.slots?.[selectedSlot]?.pluginId || selectedSlot + direction < 0 || selectedSlot + direction >= M.MAX_SLOTS; order.append(b);
     }
-    const clear = button('Svuota slot', () => editRack(r => { r.slots[slotIndex] = { pluginId: null, bypass: false }; }, { id }), 'vst-danger'); clear.disabled = isStructuralLocked() || !rack?.slots?.[slotIndex]?.pluginId; order.append(clear); chain.append(order);
-    catalog.append(el('h3', '', `Scegli per lo slot ${String.fromCharCode(65 + slotIndex)}`));
+    const clear = button('Svuota slot', () => { const target = selectedSlot; editRack(r => { r.slots[target] = { pluginId: null, bypass: false }; }, { id }); }, 'vst-danger');
+    clear.dataset.clearSlot = ''; clear.disabled = isStructuralLocked() || !rack?.slots?.[selectedSlot]?.pluginId; order.append(clear); chain.append(order);
+    layout.append(chain, renderCatalog()); container.append(layout);
+    container.append(note(state.running || state.analysis?.running ? 'Audio o misura attivi: editor e bypass disponibili. Ferma l’audio e la misura per cambiare la catena.' : 'Slot vuoto: scegli un plugin · doppio clic: apri editor · trascina ⋮⋮: riordina'));
+    const details = routingDetails(id); renderRouting(details, rack); container.append(details);
+  }
+  function renderCatalog() {
+    const catalog = el('section', 'vst-catalog'); catalog.hidden = !catalogOpen;
+    const heading = el('div', 'vst-catalog-heading');
+    heading.append(el('h3', 'vst-catalog-title', `Plugin · slot ${String.fromCharCode(65 + selectedSlot)}`));
+    const close = button('×', () => { catalogOpen = false; render(); }, 'vst-catalog-close'); close.setAttribute('aria-label', 'Chiudi browser plugin'); heading.append(close);
     const search = el('input', 'vst-search'); search.type = 'search'; search.placeholder = 'Cerca plugin o produttore'; search.value = pluginQuery; search.setAttribute('aria-label', 'Cerca VST3');
     const list = el('div', 'vst-plugin-list');
     const populate = () => {
-      list.replaceChildren();
-      const query = pluginQuery.toLocaleLowerCase('it-IT'), plugins = state.plugins.filter(p => !p.isInstrument && (p.inputChannels === undefined || p.inputChannels > 0) && (p.outputChannels === undefined || p.outputChannels > 0) && `${p.name || ''} ${p.manufacturer || ''}`.toLocaleLowerCase('it-IT').includes(query));
-      if (!plugins.length) list.append(note(state.plugins.length ? 'Nessun plugin corrispondente.' : 'Esegui la scansione dei VST3 installati sul Mac.'));
+      const scroll = list.scrollTop; list.replaceChildren();
+      const query = pluginQuery.toLocaleLowerCase('it-IT');
+      const plugins = state.plugins.filter(p => !p.isInstrument && (p.inputChannels === undefined || p.inputChannels > 0) && (p.outputChannels === undefined || p.outputChannels > 0) && `${p.name || ''} ${p.manufacturer || ''}`.toLocaleLowerCase('it-IT').includes(query)).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'it-IT'));
+      if (!plugins.length) list.append(note(state.plugins.length ? 'Nessun plugin corrispondente.' : 'Scansiona i VST3 installati sul Mac.'));
       for (const plugin of plugins) {
-        const b = button('', () => editRack(r => {
-          while (r.slots.length <= slotIndex) r.slots.push({ pluginId: null, bypass: false });
-          r.slots[slotIndex] = { pluginId: plugin.id, bypass: false };
-        }, { id }), 'vst-plugin-item'); b.append(el('strong', '', plugin.name), el('small', '', plugin.manufacturer || 'VST3')); b.disabled = isStructuralLocked() || !rack; list.append(b);
+        const b = button('', () => { const targetId = rackId, targetSlot = selectedSlot; choosePlugin(targetId, targetSlot, plugin); }, 'vst-plugin-item');
+        b.append(el('strong', '', plugin.name), el('small', '', plugin.manufacturer || 'VST3')); b.disabled = isStructuralLocked(); list.append(b);
       }
+      list.scrollTop = scroll;
     };
     search.addEventListener('input', () => { pluginQuery = search.value; populate(); }); populate();
-    catalog.append(search, list); const scan = button(state.scanning ? 'Scansione VST3 in corso…' : 'Scansiona VST3', () => action(async () => { scanMessage = 'Scansione…'; await request('scanPlugins'); }, { structure: true, save: false, refresh: false }), 'vst-scan'); scan.disabled = isStructuralLocked(); catalog.append(scan);
-    layout.append(chain, catalog); container.append(layout); renderRouting(container, rack);
-    if (state.running) container.append(note('Audio attivo: apri i plugin o usa BYP. Ferma l’audio per cambiare catena o routing.'));
-    container.append(note(rack?.placement === 'pre' ? 'BYP mantiene il percorso attraverso il Mac. «Ripristina ingresso diretto» riporta il canale alla sorgente originale.' : 'BYP mantiene il percorso attraverso il Mac. Per escluderlo ripristina il percorso WING o disattiva l’insert sul banco.'));
+    search.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); list.querySelector('button:not(:disabled)')?.click(); } });
+    const scan = button(state.scanning ? 'Scansione VST3 in corso…' : 'Scansiona VST3', () => action(async () => { scanMessage = 'Scansione…'; await request('scanPlugins'); }, { structure: true, save: false, refresh: false }), 'vst-scan'); scan.disabled = isStructuralLocked();
+    catalog.append(heading, search, list, scan); return catalog;
   }
   function render() {
     refreshChannelViews();
     if (!modal?.open) { updateStatus(); return; }
     const body = modal.querySelector('.vst-body'), scroll = body.scrollTop;
-    const title = modal.querySelector('#vst-panel-title'); title.textContent = panel === 'audio' ? 'Audio USB e rack VST3' : 'Rack VST3';
+    const active = modal.contains(document.activeElement) ? document.activeElement : null;
+    const focusLabel = active?.getAttribute('aria-label'), focusStart = active?.selectionStart, focusEnd = active?.selectionEnd;
+    modal.dataset.panel = panel; modal.classList.toggle('has-catalog', panel === 'rack' && catalogOpen);
+    const title = modal.querySelector('#vst-panel-title'); title.textContent = panel === 'audio' ? 'Audio del Mac' : 'Rack VST3';
     const nav = modal.querySelector('.vst-tabs'); nav.replaceChildren();
-    for (const [id, label] of [['audio', 'Audio USB'], ['rack', 'Rack canale']]) {
-      const b = button(label, () => { panel = id; routingDraft = null; render(); }); b.setAttribute('aria-pressed', String(panel === id)); nav.append(b);
+    for (const [id, label] of [['rack', 'Rack canale'], ['audio', 'Audio']]) {
+      const b = button(label, () => show(id, rackId, selectedSlot)); b.setAttribute('aria-pressed', String(panel === id)); nav.append(b);
     }
     if (panel === 'rack') {
-      const channels = C.listStrips();
+      const channels = C.listStrips().filter(strip => M.validId(strip.id));
       nav.append(select('Canale', rackId, channels.map(s => ({ value: s.id, label: `${s.kind} ${s.number} · ${s.name}` })), id => { rackId = id; routingDraft = null; selectedSlot = 0; C.selectStrip(id); render(); }, busy));
     }
     body.replaceChildren(); if (panel === 'audio') renderAudio(body); else renderRack(body); body.scrollTop = scroll;
     const foot = modal.querySelector('.vst-footer'); foot.replaceChildren();
-    const start = button(state.running ? 'Ferma audio USB' : 'Avvia audio USB', toggleAudio, state.running ? 'vst-stop' : 'vst-primary'); start.disabled = busy || state.scanning || !connected || !available();
-    const save = button('Salva rack', () => action(async () => {}, { save: true })); save.disabled = busy || state.scanning || !connected;
-    foot.append(note(busy || state.scanning ? state.scanning && scanMessage || 'Operazione in corso…' : 'Controllo WING: Ethernet · Audio VST3: USB'), save, start);
+    const start = button(state.running ? 'Ferma audio' : 'Avvia audio', toggleAudio, state.running ? 'vst-stop' : 'vst-primary'); start.disabled = busy || state.scanning || !connected || !available();
+    foot.append(note(busy || state.scanning ? state.scanning && scanMessage || 'Operazione in corso…' : !connected ? 'Motore non collegato · apri Audio per riconnetterlo' : 'Salvataggio automatico'), start);
     updateStatus(); renderAlert();
+    if (focusLabel) {
+      const next = [...modal.querySelectorAll('[aria-label]')].find(node => node.tagName === active.tagName && node.getAttribute('aria-label') === focusLabel && !node.closest('[hidden]'));
+      if (next && !next.disabled) { next.focus({ preventScroll: true }); if (next.type === 'search' && focusStart != null) next.setSelectionRange(focusStart, focusEnd); }
+    }
   }
-  async function show(nextPanel, id = rackId, slot = 0) {
+  async function show(nextPanel, id = rackId, slot = 0, options = {}) {
     if (M.validId(id)) rackId = id;
-    panel = nextPanel; selectedSlot = Math.max(0, Math.min(7, slot)); routingDraft = null;
+    panel = nextPanel; selectedSlot = Math.max(0, Math.min(7, slot)); routingDraft = null; catalogOpen = !!options.choose;
+    if (options.route) routingExpanded.add(rackId);
     makeDialog(); if (!modal.open) { priorFocus = document.activeElement; modal.showModal(); }
     render();
-    if (!available() || busy) return;
-    busy = true; render();
-    try { await ensure(); if (!deviceList.length) await refreshDevices(); }
-    catch (error) { message(error); }
-    finally { busy = false; render(); }
+    if (options.connect !== false && available() && !busy && (!initialized || !connected || panel === 'audio' && !deviceList.length)) {
+      busy = true; render();
+      try { await ensure(); if (panel === 'audio' && !deviceList.length) await refreshDevices(); }
+      catch (error) { message(error); }
+      finally { busy = false; render(); }
+    }
+    if (catalogOpen && panel === 'rack') modal.querySelector('.vst-search')?.focus({ preventScroll: true });
   }
   async function openSlot(id, slot = 0) {
     if (!M.validId(id) || !Number.isInteger(slot) || slot < 0 || slot >= M.MAX_SLOTS) return;
-    rackId = id; selectedSlot = slot;
-    if (!getRack(id)?.slots?.[slot]?.pluginId || getRack(id)?.slots?.[slot]?.missing || !available()) return show('rack', id, slot);
-    if (busy) return;
-    try { await ensure(); await request('openEditor', { rackId: id, slot }); }
-    catch (error) { await show('rack', id, slot); message(error); }
+    const key = `${id}:${slot}`;
+    if (editorPending.has(key)) return editorPending.get(key);
+    const pending = (async () => {
+      if (!available()) return showBrowser(id, slot);
+      try {
+        // The first Extended click must restore native racks before consulting
+        // UI metadata. Audio need not be running to open a plugin editor.
+        await ensure();
+        if (state.scanning) { message('Attendi il completamento della scansione VST3.'); return; }
+        const plugin = getRack(id)?.slots?.[slot];
+        if (!plugin?.pluginId || plugin.missing) return showBrowser(id, slot);
+        selectSlot(id, slot);
+        await request('openEditor', { rackId: id, slot });
+      } catch (error) { await show('rack', id, slot, { connect: false }); message(error); }
+    })();
+    editorPending.set(key, pending);
+    try { return await pending; } finally { editorPending.delete(key); }
   }
   function openRack(id = C.getState().selected) { return show('rack', M.validId(id) ? id : 'ch-1'); }
   function openAudio() { return show('audio'); }
@@ -461,8 +592,8 @@
     lastLiveControlKey = key; routePlans.clear(); refreshChannelViews();
     if (modal?.open && !busy) render();
   });
-  const toolbar = button('USB · fermo', openAudio, 'vst-audio-button'); toolbar.id = 'vst-audio-button';
-  toolbar.setAttribute('aria-label', 'Apri audio USB e rack VST3'); document.querySelector('.macro-rail')?.insertBefore(toolbar, document.getElementById('info-button'));
+  const toolbar = button('Audio · fermo', openAudio, 'vst-audio-button'); toolbar.id = 'vst-audio-button';
+  toolbar.setAttribute('aria-label', 'Apri audio e rack VST3'); document.querySelector('.macro-rail')?.insertBefore(toolbar, document.getElementById('info-button'));
   if (window.SculptDesktop?.addListener) {
     window.SculptDesktop.addListener('audioState', accept).catch(message);
     window.SculptDesktop.addListener('audioError', error => { if (error?.fatal !== false) { connected = false; state.running = false; state.scanning = false; state.analysis = { ...state.analysis, running: false }; initialized = false; } message(error?.message || error?.error || error); emit(); if (modal?.open) render(); }).catch(message);
